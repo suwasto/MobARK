@@ -9,12 +9,12 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 ---
 
 ## M0 — Project scaffolding (new — not in v1 list)
-- [ ] Repo skeleton: `backend/` (FastAPI app + RQ worker), `frontend/` (React + Vite), `docker/`
-- [ ] `docker-compose.yml` starting with `app` + `redis` (searxng added in M7)
-- [ ] FastAPI base app with health-check endpoint
-- [ ] SQLite schema/migrations for scans + findings (e.g. via SQLModel or plain SQLAlchemy)
-- [ ] Redis + RQ worker wired up, test with a dummy job
-- [ ] Dependency/license audit pass: pin versions for Gitleaks, Semgrep, LiteLLM, LlamaIndex, GPT Researcher and record their licenses in the repo (informational — MASA is MIT, so GPL/LGPL tools stay subprocess-only; the audit records versions, licenses, and that posture)
+- [x] Repo skeleton: `backend/` (FastAPI app + RQ worker), `frontend/` (React + Vite), `docker/`
+- [x] `docker-compose.yml` starting with `app` + `redis` (searxng added in M7)
+- [x] FastAPI base app with health-check endpoint
+- [x] SQLite schema/migrations for scans + findings (e.g. via SQLModel or plain SQLAlchemy)
+- [x] Redis + RQ worker wired up, test with a dummy job
+- [x] Dependency/license audit pass: pin versions for Gitleaks, Semgrep, LiteLLM, LlamaIndex, GPT Researcher and record their licenses in the repo (informational — MASA is MIT, so GPL/LGPL tools stay subprocess-only; the audit records versions, licenses, and that posture)
 
 ## M1 — Android analysis core
 - [ ] Wrap jadx as a callable subprocess module (APK in → decompiled Java/Kotlin source tree out)

@@ -1,0 +1,31 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.python-version
+
+# ---- Runtime data (SQLite, uploads, decompiled output, chroma) ----
+data/
+
+# ---- Node / frontend ----
+node_modules/
+dist/
+frontend/dist/
+
+# ---- TypeScript build artifacts (from tsc -b) ----
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# ---- Env / secrets ----
+.env
+
+# ---- OS / editors ----
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,64 @@
+# MASA — local-first mobile pentest dashboard
+# M0 scope: app (FastAPI) + worker (RQ) + redis. searxng arrives in M7.
+#
+# Prerequisites:
+#   - Ollama / LM Studio running on the HOST (MASA never bundles an LLM; M3+ connects outward)
+#   - Docker with the Compose v2 plugin (or standalone docker-compose)
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      MASA_DATABASE_URL: sqlite:////data/masa.db
+      MASA_REDIS_URL: redis://redis:6379/0
+      MASA_DATA_DIR: /data
+      MASA_LOG_LEVEL: INFO
+    volumes:
+      - masa-data:/data
+    ports:
+      - "8000:8000"
+    # Run migrations, then start the API.
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.app
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      MASA_REDIS_URL: redis://redis:6379/0
+      MASA_DATA_DIR: /data
+      MASA_LOG_LEVEL: INFO
+    volumes:
+      - masa-data:/data
+    command: python worker.py
+
+volumes:
+  masa-data:
+  redis-data:

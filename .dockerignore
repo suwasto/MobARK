@@ -1,0 +1,27 @@
+# VCS
+.git
+.gitignore
+
+# Local Python (a macOS .venv must never reach the Linux image)
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+
+# Runtime data
+data/
+*.db
+
+# Node / frontend
+node_modules
+frontend/dist
+
+# Env / misc
+.env
+.DS_Store
+docs
+README.md
+LICENSE
+docker-compose.yml

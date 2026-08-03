@@ -5,7 +5,7 @@ A self-hosted, local-first dashboard for mobile application security testing
 chat-with-decompiled-code via a local LLM (Ollama / LM Studio), all without
 any scan data leaving your machine.
 
-- **License:** MIT — see [LICENSE](LICENSE)
+- **License:** Apache-2.0 — see [LICENSE](LICENSE)
 - **Docs:** [Product requirements](docs/masa-prd.md) · [Tech stack](docs/masa-techstack.md) · [Task list](docs/masa-tasks.md) · [UI mockup](docs/masa-dashboard-mockup.html) · [Dependency licenses](docs/licenses.md)
 
 ## Status

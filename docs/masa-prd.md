@@ -80,7 +80,7 @@ Secondary: security researchers and students who want a free, local platform to 
 - No cloud-hosted tier in v1
 
 **Licensing:**
-- MIT (revised from the original AGPL-3.0 decision) — maximizes adoption and self-hosting for a single-user tool; the GPL/LGPL-licensed tools in the stack (Semgrep, ldid) are always invoked as subprocesses, never imported as libraries, which keeps the MIT license clean
+- Apache-2.0 (revised from the original AGPL-3.0 decision) — maximizes adoption and self-hosting for a single-user tool; the GPL/LGPL-licensed tools in the stack (Semgrep, ldid) are always invoked as subprocesses, never imported as libraries, which keeps the Apache-2.0 license clean
 
 ### 5.2 Explicitly Out of Scope (v1)
 
@@ -134,7 +134,7 @@ These are reasonable candidates for a v2+ roadmap but should not block v1 shippi
 ## 7. Non-Functional Requirements
 
 - **Privacy/local-first:** No scan data, decompiled source, or chat content leaves the user's machine by default. This is a core value proposition, not an afterthought — it should be visible in the UI (e.g., the model-backend indicator already in the mockup). Web research is the one deliberate exception to this boundary: even self-hosted SearXNG ultimately proxies queries out to public search engines, so it isn't private in the same sense as local inference — it's opt-in per scan, and the UI should make that boundary honest rather than implying full offline operation once it's enabled.
-- **Auditability:** As an open-source (MIT) project, code should be organized so the analysis engine and AI layer are inspectable and reasonably modular (not a monolith), inviting review and contribution even though v1 doesn't target contributor growth as a metric.
+- **Auditability:** As an open-source (Apache-2.0) project, code should be organized so the analysis engine and AI layer are inspectable and reasonably modular (not a monolith), inviting review and contribution even though v1 doesn't target contributor growth as a metric.
 - **Performance:** RAG retrieval for chat should feel conversational — sub-few-second retrieval latency independent of LLM generation time, on typical consumer hardware (single consumer GPU or CPU-only fallback).
 - **Portability:** Should run on Linux and macOS at minimum via Docker; Windows/Docker Desktop support is desirable but not blocking.
 
@@ -167,7 +167,7 @@ Vector store (Chroma/SQLite-VSS) — per-scan embeddings for RAG chat
 7. **M7 — Deep research / web browsing:** self-hosted SearXNG + pluggable providers, search→fetch→summarize→synthesize flow, gated behind explicit opt-in
 8. **M8 — Edit & recompile:** Smali edit view + apktool rebuild pipeline for Android, resource/plist/entitlement-only edit + resign for iOS
 9. **M9 — Report generation:** AI-assisted draft report export
-10. **M10 — Packaging:** Docker Compose single-command install, README, MIT license, public GitHub release
+10. **M10 — Packaging:** Docker Compose single-command install, README, Apache-2.0 license, public GitHub release
 
 ## 10. Risks & Open Questions
 
@@ -178,7 +178,7 @@ Vector store (Chroma/SQLite-VSS) — per-scan embeddings for RAG chat
 - **Web research scope creep:** Odysseus's deep research is a substantial subsystem (query enhancement, multi-provider fallback, ranking, source summarization). MASA should start with a narrower version — bounded number of sources, no autonomous multi-hour research loops — and only grow it if the CVE/library-lookup use case proves valuable in practice.
 - **Recompile reliability:** apktool rebuilds don't always succeed cleanly on every APK (resource clashes, edge-case bytecode) — the pipeline needs to fail loudly and specifically rather than producing a silently broken APK. Worth budgeting time for this in M8 rather than assuming it "just works" once the happy path is wired up.
 - **Recompile misuse potential:** the feature is standard, legitimate pentest tooling (same category as objection/apktool-based SSL-pinning or root-detection bypass workflows), but it's also the one feature in MASA that produces a modified, runnable artifact rather than just analysis. Worth being deliberate about the resigned-build warning staying visible and not something a user can silently disable.
-- **Dependency-over-custom-code decision:** as of this revision, several previously "build from scratch" components (secret scanning, LLM client abstraction, RAG chunking, MASVS/MASTG mapping data) were replaced with existing maintained libraries (Gitleaks, Semgrep, LiteLLM, LlamaIndex, OWASP's own mapping data) — see the tech stack doc for the full list. This was a deliberate call. MASA ships MIT, so the GPL/LGPL-licensed tools among them (Semgrep, ldid) must always be invoked as subprocesses, never imported as libraries — the audit in docs/licenses.md records this posture. Worth revisiting at implementation time if any of these libraries turn out to be a worse fit in practice than on paper.
+- **Dependency-over-custom-code decision:** as of this revision, several previously "build from scratch" components (secret scanning, LLM client abstraction, RAG chunking, MASVS/MASTG mapping data) were replaced with existing maintained libraries (Gitleaks, Semgrep, LiteLLM, LlamaIndex, OWASP's own mapping data) — see the tech stack doc for the full list. This was a deliberate call. MASA ships Apache-2.0, so the GPL/LGPL-licensed tools among them (Semgrep, ldid) must always be invoked as subprocesses, never imported as libraries — the audit in docs/licenses.md records this posture. Worth revisiting at implementation time if any of these libraries turn out to be a worse fit in practice than on paper.
 - **Naming collision check:** "MASA" should be checked against existing GitHub/npm/PyPI project names before public release.
 
 ## 11. Explicit Non-Goals (restated for clarity)

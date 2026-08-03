@@ -52,6 +52,10 @@ services:
       redis:
         condition: service_healthy
     environment:
+      # Must match the `app` service: worker and API share the /data DB.
+      # (Without this, the worker would default to the image's own ./data
+      # dir, splitting the database between services.)
+      MASA_DATABASE_URL: sqlite:////data/masa.db
       MASA_REDIS_URL: redis://redis:6379/0
       MASA_DATA_DIR: /data
       MASA_LOG_LEVEL: INFO

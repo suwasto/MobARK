@@ -1,0 +1,2691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MASA — Loaded Scan (reference)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --graphite:#14171A;
+    --panel:#1B2025;
+    --panel-raised:#20262C;
+    --line:#2B3238;
+    --line-soft:#242A30;
+    --bone:#E8E6DF;
+    --bone-dim:#9BA3A9;
+    --bone-faint:#6C747A;
+    --steel:#5C9BB8;
+    --steel-dim:#3E6E85;
+    --amber:#D98E3E;
+    --crimson:#C1554A;
+    --moss:#6B8F71;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'IBM Plex Sans', sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--graphite);
+    color:var(--bone);
+    font-family:var(--sans);
+    font-size:14px;
+    -webkit-font-smoothing:antialiased;
+    height:100vh;
+    overflow:hidden;
+  }
+  ::selection{background:var(--steel-dim); color:var(--bone);}
+
+  /* ---------- App shell ---------- */
+  .app{
+    display:grid;
+    grid-template-rows:52px 48px 1fr;
+    height:100vh;
+  }
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 20px;
+    border-bottom:1px solid var(--line);
+    background:var(--panel);
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:15px;
+    letter-spacing:0.02em;
+    min-width:0;
+  }
+  .brand .mark{
+    flex-shrink:0;
+  }
+  .brand .tag{
+    color:var(--bone-faint);
+    font-family:var(--sans);
+    font-weight:400;
+    font-size:11px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    padding-left:10px;
+    border-left:1px solid var(--line);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:320px;
+  }
+  .topbar-right{
+    display:flex;
+    align-items:center;
+    gap:12px;
+  }
+  .btn{
+    font-family:var(--sans);
+    font-size:13px;
+    font-weight:500;
+    padding:7px 14px;
+    border-radius:3px;
+    border:1px solid var(--line);
+    background:var(--panel-raised);
+    color:var(--bone);
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .btn:hover{border-color:var(--steel-dim); background:#242B32;}
+  .btn-primary{
+    background:var(--steel-dim);
+    border-color:var(--steel-dim);
+    color:var(--bone);
+  }
+  .btn-primary:hover{background:var(--steel);}
+
+  .icon-btn{
+    width:32px; height:32px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--line);
+    border-radius:3px;
+    background:var(--panel-raised);
+    color:var(--bone-dim);
+    font-size:15px;
+    cursor:pointer;
+    transition:border-color .15s ease, color .15s ease;
+  }
+  .icon-btn:hover{border-color:var(--steel-dim); color:var(--bone);}
+
+  .preview-toggle{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--bone-faint);
+    background:none;
+    border:1px dashed var(--line);
+    border-radius:3px;
+    padding:6px 10px;
+    cursor:pointer;
+  }
+  .preview-toggle:hover{color:var(--steel); border-color:var(--steel-dim);}
+  .preview-toggle.active{color:var(--steel); border-color:var(--steel-dim); background:rgba(92,155,184,0.08);}
+
+  .local-badge{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.03em;
+    color:var(--bone-dim);
+    padding:6px 10px;
+    border:1px solid var(--line);
+    border-radius:3px;
+    background:var(--panel-raised);
+    cursor:default;
+  }
+  .model-pill{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-family:var(--mono);
+    font-size:12px;
+    padding:6px 10px 6px 8px;
+    border:1px solid var(--line);
+    border-radius:3px;
+    background:var(--panel-raised);
+    cursor:pointer;
+    position:relative;
+  }
+  .model-pill:hover{border-color:var(--steel-dim);}
+  .dot{width:6px; height:6px; border-radius:50%; background:var(--moss); box-shadow:0 0 6px var(--moss);}
+  .model-pill .backend{color:var(--bone-dim);}
+  .model-pill .chev{color:var(--bone-faint); font-size:10px; margin-left:2px;}
+  .switch-pill .chev{color:var(--bone-faint); font-size:10px; margin-left:2px;}
+
+  .model-dropdown{
+    position:absolute;
+    top:calc(100% + 6px);
+    right:0;
+    width:260px;
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:4px;
+    box-shadow:0 12px 24px rgba(0,0,0,0.4);
+    padding:6px;
+    display:none;
+    z-index:50;
+  }
+  .model-pill.open .model-dropdown{display:block;}
+  .model-opt{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:9px 10px;
+    border-radius:3px;
+    font-family:var(--mono);
+    font-size:12px;
+    cursor:pointer;
+  }
+  .model-opt:hover{background:var(--line-soft);}
+  .model-opt .name{color:var(--bone);}
+  .model-opt .via{color:var(--bone-faint); font-size:11px;}
+  .model-opt.active{background:rgba(92,155,184,0.12);}
+  .model-opt.active .name{color:var(--steel);}
+  .model-divider{height:1px; background:var(--line); margin:6px 4px;}
+
+  /* ---------- Body grid ---------- */
+  /* ---------- Empty / first-run state ---------- */
+  .empty-state-screen{
+    display:none;
+    height:calc(100vh - 52px);
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+  .empty-state-screen.active{display:flex;}
+  .empty-state-inner{
+    width:100%;
+    max-width:520px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+  }
+  .empty-mark{
+    width:56px; height:56px;
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:22px;
+    opacity:0.9;
+  }
+  .empty-title{
+    font-family:var(--mono);
+    font-size:19px;
+    font-weight:600;
+    margin-bottom:8px;
+  }
+  .empty-sub{
+    color:var(--bone-faint);
+    font-size:13px;
+    line-height:1.6;
+    margin-bottom:30px;
+    max-width:400px;
+  }
+  .dropzone{
+    width:100%;
+    border:1.5px dashed var(--line);
+    border-radius:8px;
+    padding:36px 24px;
+    background:var(--panel);
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+    margin-bottom:20px;
+  }
+  .dropzone:hover{border-color:var(--steel-dim); background:var(--panel-raised);}
+  .dropzone-icon{font-size:26px; margin-bottom:12px; color:var(--bone-faint);}
+  .dropzone-title{font-family:var(--mono); font-size:13.5px; color:var(--bone); margin-bottom:6px;}
+  .dropzone-sub{font-size:11.5px; color:var(--bone-faint);}
+  .dropzone-formats{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--bone-faint);
+    margin-top:14px;
+    letter-spacing:0.03em;
+  }
+  .setup-checklist{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--panel);
+    overflow:hidden;
+    text-align:left;
+  }
+  .setup-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:11px 14px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .setup-item:last-child{border-bottom:none;}
+  .setup-item-left{display:flex; align-items:center; gap:10px;}
+  .setup-status{width:14px; height:14px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:9px;}
+  .setup-status.ok{background:rgba(107,143,113,0.18); color:var(--moss);}
+  .setup-status.warn{background:rgba(217,142,62,0.18); color:var(--amber);}
+  .setup-label{font-size:12.5px; color:var(--bone);}
+  .setup-sub{font-size:11px; color:var(--bone-faint); margin-top:1px;}
+  .setup-action{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--steel);
+    background:none;
+    border:none;
+    cursor:pointer;
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .setup-action:hover{color:var(--bone);}
+  .empty-footnote{
+    margin-top:20px;
+    font-size:11px;
+    color:var(--bone-faint);
+  }
+
+  /* ---------- Scan-in-progress state ---------- */
+  .progress-screen{
+    display:none;
+    height:calc(100vh - 52px);
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+  .progress-screen.active{display:flex;}
+  .progress-card{
+    width:100%;
+    max-width:480px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--panel);
+    padding:26px 28px;
+  }
+  .progress-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:6px;
+  }
+  .progress-file{
+    font-family:var(--mono);
+    font-size:14px;
+    color:var(--bone);
+  }
+  .progress-sub{
+    font-size:11.5px;
+    color:var(--bone-faint);
+    margin-bottom:20px;
+  }
+  .progress-bar-track{
+    width:100%;
+    height:5px;
+    border-radius:3px;
+    background:var(--line-soft);
+    overflow:hidden;
+    margin-bottom:4px;
+  }
+  .progress-bar-fill{
+    height:100%;
+    width:58%;
+    background:var(--steel);
+    border-radius:3px;
+  }
+  .progress-meta{
+    display:flex;
+    justify-content:space-between;
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--bone-faint);
+    margin-bottom:22px;
+  }
+  .pipeline-icon.active{
+    border-color:var(--steel);
+    color:var(--steel);
+    animation:pulse-ring 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse-ring{
+    0%,100%{box-shadow:0 0 0 0 rgba(92,155,184,0.35);}
+    50%{box-shadow:0 0 0 4px rgba(92,155,184,0);}
+  }
+  .pipeline-step.pending .pstep-name{color:var(--bone-faint);}
+  .progress-actions{
+    display:flex;
+    justify-content:flex-end;
+    margin-top:18px;
+    padding-top:16px;
+    border-top:1px solid var(--line-soft);
+  }
+  .progress-note{
+    font-size:11px;
+    color:var(--bone-faint);
+    margin-top:16px;
+    line-height:1.5;
+  }
+
+  /* ---------- Target bar: single active scan ---------- */
+  .target-bar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 20px;
+    border-bottom:1px solid var(--line);
+    background:var(--panel);
+  }
+  .target-info{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-width:0;
+  }
+  .target-icon{
+    width:24px; height:24px;
+    border-radius:4px;
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px;
+    flex-shrink:0;
+  }
+  .target-name{
+    font-family:var(--mono);
+    font-size:13px;
+    color:var(--bone);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .target-meta{
+    font-size:11.5px;
+    color:var(--bone-faint);
+    white-space:nowrap;
+  }
+  .target-actions{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-shrink:0;
+  }
+  .switch-pill{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    padding:6px 10px;
+    border:1px solid var(--line);
+    border-radius:3px;
+    background:var(--panel-raised);
+    color:var(--bone-dim);
+    cursor:pointer;
+    position:relative;
+  }
+  .switch-pill:hover{border-color:var(--steel-dim); color:var(--bone);}
+  .switch-dropdown{
+    position:absolute;
+    top:calc(100% + 6px);
+    right:0;
+    width:280px;
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:4px;
+    box-shadow:0 12px 24px rgba(0,0,0,0.4);
+    padding:6px;
+    display:none;
+    z-index:50;
+  }
+  .switch-pill.open .switch-dropdown{display:block;}
+  .switch-dropdown-label{
+    font-family:var(--mono);
+    font-size:9.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--bone-faint);
+    padding:6px 10px 4px;
+  }
+  .switch-opt{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:9px 10px;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  .switch-opt:hover{background:var(--line-soft);}
+  .switch-opt .sname{font-family:var(--mono); font-size:12px; color:var(--bone);}
+  .switch-opt .sdate{font-family:var(--mono); font-size:10.5px; color:var(--bone-faint);}
+  .switch-divider{height:1px; background:var(--line); margin:6px 4px;}
+  .switch-opt-upload{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    padding:9px 10px;
+    border-radius:3px;
+    cursor:pointer;
+    color:var(--steel);
+    font-family:var(--mono);
+    font-size:12px;
+  }
+  .switch-opt-upload:hover{background:rgba(92,155,184,0.1);}
+
+  .body{
+    display:grid;
+    grid-template-columns:1fr 340px;
+    min-height:0;
+  }
+  .body.agent-collapsed{grid-template-columns:1fr 44px;}
+
+  /* ---------- Target bar (single active scan) ---------- */
+  .status-badge{
+    font-family:var(--mono);
+    font-size:9.5px;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:1.5px 5px;
+    border-radius:2px;
+  }
+  .status-badge.done{background:rgba(107,143,113,0.15); color:var(--moss);}
+  .status-badge.running{background:rgba(217,142,62,0.15); color:var(--amber);}
+  .status-badge.queued{background:rgba(255,255,255,0.06); color:var(--bone-faint);}
+  .plat-tag{
+    font-family:var(--mono);
+    font-size:9px;
+    letter-spacing:0.05em;
+    color:var(--bone-faint);
+    border:1px solid var(--line);
+    border-radius:2px;
+    padding:0 4px;
+    margin-left:4px;
+    vertical-align:1px;
+  }
+
+  /* ---------- Main content ---------- */
+  .main{
+    overflow-y:auto;
+    min-width:0;
+  }
+  .main-header{
+    padding:20px 28px 0;
+  }
+  .main-title-row{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    margin-bottom:4px;
+  }
+  .main-title{
+    font-family:var(--mono);
+    font-size:17px;
+    font-weight:600;
+  }
+  .main-sub{
+    color:var(--bone-faint);
+    font-size:12px;
+  }
+  .tabs{
+    display:flex;
+    gap:2px;
+    margin-top:18px;
+    border-bottom:1px solid var(--line);
+  }
+  .tab{
+    font-family:var(--mono);
+    font-size:12.5px;
+    padding:10px 4px;
+    margin-right:22px;
+    color:var(--bone-faint);
+    cursor:pointer;
+    border-bottom:2px solid transparent;
+    position:relative;
+    top:1px;
+  }
+  .tab:hover{color:var(--bone-dim);}
+  .tab.active{color:var(--bone); border-bottom-color:var(--steel);}
+
+  .panel{
+    padding:24px 28px 60px;
+    display:none;
+  }
+  .panel.active{display:block;}
+
+  /* ---------- Overview panel ---------- */
+  .overview-grid{
+    display:grid;
+    grid-template-columns:220px 1fr;
+    gap:24px;
+    margin-bottom:28px;
+  }
+  .gauge-card{
+    border:1px solid var(--line);
+    border-radius:5px;
+    background:var(--panel);
+    padding:20px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+  .gauge-score{
+    font-family:var(--mono);
+    font-size:34px;
+    font-weight:700;
+    margin-top:-64px;
+    color:var(--amber);
+  }
+  .gauge-score span{font-size:14px; color:var(--bone-faint); font-weight:400;}
+  .gauge-label{
+    font-family:var(--mono);
+    font-size:10.5px;
+    letter-spacing:0.1em;
+    color:var(--amber);
+    text-transform:uppercase;
+    margin-top:2px;
+  }
+  .stat-row{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:14px;
+  }
+  .stat-box{
+    border:1px solid var(--line);
+    border-radius:5px;
+    background:var(--panel);
+    padding:14px 16px;
+  }
+  .stat-num{
+    font-family:var(--mono);
+    font-size:22px;
+    font-weight:600;
+  }
+  .stat-num.crit{color:var(--crimson);}
+  .stat-num.high{color:var(--amber);}
+  .stat-num.med{color:var(--steel);}
+  .stat-num.low{color:var(--moss);}
+  .stat-name{
+    font-size:11px;
+    color:var(--bone-faint);
+    margin-top:3px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+  }
+
+  .section-label{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--bone-faint);
+    margin-bottom:12px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .section-label::after{
+    content:'';
+    flex:1;
+    height:1px;
+    background:var(--line);
+  }
+
+  /* ---------- Findings ---------- */
+  .finding{
+    display:flex;
+    border:1px solid var(--line);
+    border-radius:5px;
+    margin-bottom:10px;
+    background:var(--panel);
+    overflow:hidden;
+  }
+  .spine{width:4px; flex-shrink:0;}
+  .spine.crit{background:var(--crimson);}
+  .spine.high{background:var(--amber);}
+  .spine.med{background:var(--steel);}
+  .spine.low{background:var(--moss);}
+
+  .finding-body{flex:1; padding:14px 18px;}
+  .finding-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:12px;
+    cursor:pointer;
+  }
+  .finding-title{
+    font-weight:600;
+    font-size:13.5px;
+    margin-bottom:4px;
+  }
+  .finding-meta{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--bone-faint);
+  }
+  .sev-tag{
+    font-family:var(--mono);
+    font-size:9.5px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    padding:2px 7px;
+    border-radius:2px;
+    white-space:nowrap;
+    height:fit-content;
+  }
+  .sev-tag.crit{background:rgba(193,85,74,0.15); color:var(--crimson);}
+  .sev-tag.high{background:rgba(217,142,62,0.15); color:var(--amber);}
+  .sev-tag.med{background:rgba(92,155,184,0.15); color:var(--steel);}
+  .sev-tag.low{background:rgba(107,143,113,0.15); color:var(--moss);}
+
+  .explain-btn{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--steel);
+    background:none;
+    border:none;
+    cursor:pointer;
+    padding:0;
+    margin-top:8px;
+    display:flex;
+    align-items:center;
+    gap:5px;
+  }
+  .explain-btn:hover{color:var(--bone);}
+  .explain-btn .arrow{transition:transform .2s ease;}
+  .finding.open .explain-btn .arrow{transform:rotate(90deg);}
+
+  .ai-explain{
+    display:none;
+    margin-top:14px;
+    padding:14px 16px;
+    background:var(--panel-raised);
+    border:1px solid var(--line-soft);
+    border-left:2px solid var(--steel-dim);
+    border-radius:0 4px 4px 0;
+    font-size:12.5px;
+    line-height:1.65;
+    color:var(--bone-dim);
+  }
+  .finding.open .ai-explain{display:block;}
+  .ai-explain .ai-tag{
+    font-family:var(--mono);
+    font-size:10px;
+    color:var(--steel);
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    margin-bottom:7px;
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .ai-explain .ai-tag::before{
+    content:'';
+    width:5px; height:5px;
+    background:var(--steel);
+    border-radius:50%;
+  }
+  .ai-explain code{
+    font-family:var(--mono);
+    font-size:11.5px;
+    background:var(--graphite);
+    padding:1px 5px;
+    border-radius:2px;
+    color:var(--bone);
+  }
+
+  /* ---------- Decompiler panel ---------- */
+  .decomp-layout{
+    display:grid;
+    grid-template-columns:210px 1fr 220px;
+    gap:0;
+    border:1px solid var(--line);
+    border-radius:5px;
+    overflow:hidden;
+    height:520px;
+  }
+
+  /* ---------- File tree ---------- */
+  .file-tree{
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    padding:12px 0;
+    overflow-y:auto;
+    font-family:var(--mono);
+    font-size:12px;
+  }
+  .file-tree details{margin:0;}
+  .file-tree summary{
+    cursor:pointer;
+    padding:6px 12px;
+    color:var(--bone-dim);
+    list-style:none;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    user-select:none;
+  }
+  .file-tree summary:hover{color:var(--bone);}
+  .file-tree summary::-webkit-details-marker{display:none;}
+  .file-tree summary::marker{content:'';}
+  .tree-caret{
+    display:inline-block;
+    font-size:9px;
+    color:var(--bone-faint);
+    transition:transform .15s ease;
+    width:8px;
+  }
+  .file-tree details[open] > summary .tree-caret{transform:rotate(90deg);}
+  .tree-nested{padding-left:14px; border-left:1px solid var(--line-soft); margin-left:16px;}
+  .file-node{
+    padding:6px 12px 6px 34px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:6px;
+    color:var(--bone-dim);
+    border-left:2px solid transparent;
+  }
+  .file-node:hover{background:var(--line-soft); color:var(--bone);}
+  .file-node.active{
+    background:rgba(92,155,184,0.1);
+    border-left-color:var(--steel);
+    color:var(--bone);
+  }
+  .file-node .fname{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .fdot{width:6px; height:6px; border-radius:50%; flex-shrink:0;}
+  .fdot.crit{background:var(--crimson);}
+  .fdot.high{background:var(--amber);}
+  .fdot.med{background:var(--steel);}
+  .fdot.none{background:transparent;}
+  .tree-root-file{
+    padding:6px 12px;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:6px;
+    color:var(--bone-dim);
+    border-left:2px solid transparent;
+  }
+  .tree-root-file:hover{background:var(--line-soft); color:var(--bone);}
+  .tree-root-file.active{
+    background:rgba(92,155,184,0.1);
+    border-left-color:var(--steel);
+    color:var(--bone);
+  }
+
+  /* ---------- Decompiler edit/recompile toolbar ---------- */
+  .decomp-toolbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:10px;
+    flex-wrap:wrap;
+  }
+  .view-toggle{
+    display:flex;
+    gap:2px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:2px;
+    background:var(--panel);
+  }
+  .vt-chip{
+    font-family:var(--mono);
+    font-size:11px;
+    padding:5px 11px;
+    border:none;
+    border-radius:3px;
+    background:none;
+    color:var(--bone-faint);
+    cursor:pointer;
+  }
+  .vt-chip:hover{color:var(--bone-dim);}
+  .vt-chip.active{background:var(--panel-raised); color:var(--steel); border:1px solid var(--line-soft);}
+  .toolbar-actions{display:flex; gap:8px;}
+  .btn:disabled{opacity:0.4; cursor:not-allowed;}
+  .btn:disabled:hover{border-color:var(--line); background:var(--panel-raised);}
+  .view-hint{
+    font-size:11.5px;
+    color:var(--bone-faint);
+    line-height:1.5;
+    margin-bottom:12px;
+    padding:8px 12px;
+    background:var(--panel);
+    border:1px solid var(--line-soft);
+    border-radius:4px;
+  }
+  .view-hint strong{color:var(--steel);}
+  .agent-edit-bar{
+    display:none;
+    align-items:center;
+    gap:8px;
+    margin-bottom:12px;
+    padding:10px 12px;
+    background:var(--panel-raised);
+    border:1px solid var(--steel-dim);
+    border-radius:5px;
+  }
+  .agent-edit-bar.open{display:flex;}
+  .agent-edit-bar .aeb-tag{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--steel);
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .agent-edit-bar .field-input{flex:1;}
+  .editable-tag{
+    font-family:var(--mono);
+    font-size:9.5px;
+    color:var(--moss);
+    border:1px solid rgba(107,143,113,0.35);
+    background:rgba(107,143,113,0.1);
+    padding:1px 6px;
+    border-radius:2px;
+    margin-left:10px;
+    letter-spacing:0.03em;
+  }
+  .code-file[contenteditable="true"]{
+    outline:1px dashed var(--steel-dim);
+    outline-offset:-1px;
+  }
+  .mod-badge{
+    display:none;
+    width:6px; height:6px;
+    border-radius:50%;
+    background:var(--amber);
+    margin-left:6px;
+    flex-shrink:0;
+  }
+  .mod-badge.on{display:inline-block;}
+
+  .code-pane{
+    background:#111417;
+    padding:18px 0;
+    font-family:var(--mono);
+    font-size:12.5px;
+    line-height:1.9;
+    overflow:auto;
+  }
+  .code-file{display:none;}
+  .code-file.active{display:block;}
+  .code-file-path{
+    padding:0 18px 12px;
+    font-size:11px;
+    color:var(--bone-faint);
+    border-bottom:1px solid var(--line-soft);
+    margin-bottom:6px;
+  }
+  .code-line{
+    display:flex;
+    padding:0 18px;
+    position:relative;
+    white-space:pre;
+  }
+  .code-line.flagged{background:rgba(217,142,62,0.06);}
+  .code-line.flagged::before{
+    content:'';
+    position:absolute;
+    left:0; top:0; bottom:0;
+    width:2px;
+    background:var(--amber);
+  }
+  .ln{
+    color:var(--bone-faint);
+    width:28px;
+    flex-shrink:0;
+    user-select:none;
+    opacity:0.55;
+  }
+  .kw{color:var(--steel);}
+  .str{color:var(--moss);}
+  .cm{color:var(--bone-faint); font-style:italic;}
+  .cls{color:#C9A876;}
+  .tg{color:var(--steel-dim);}
+  .at{color:#C9A876;}
+
+  .annot-rail{
+    background:var(--panel);
+    border-left:1px solid var(--line);
+    padding:18px 12px;
+    position:relative;
+    overflow-y:auto;
+  }
+  .notes-file{display:none;}
+  .notes-file.active{display:block;}
+  .annot-rail-label{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--bone-faint);
+    margin-bottom:14px;
+  }
+  .no-notes{
+    font-size:11.5px;
+    color:var(--bone-faint);
+    line-height:1.6;
+    font-style:italic;
+  }
+  .note{background:var(--panel-raised);
+    border:1px solid var(--line-soft);
+    border-radius:4px;
+    padding:10px 11px;
+    font-size:11.5px;
+    line-height:1.55;
+    color:var(--bone-dim);
+    margin-bottom:14px;
+    position:relative;
+  }
+  .note:last-child{margin-bottom:0;}
+  .note::before{
+    content:'';
+    position:absolute;
+    left:-13px;
+    top:14px;
+    width:12px;
+    height:1px;
+    background:var(--steel-dim);
+  }
+  .note .note-tag{
+    font-family:var(--mono);
+    font-size:9.5px;
+    color:var(--steel);
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    margin-bottom:5px;
+    display:block;
+  }
+
+  /* ---------- Report panel ---------- */
+  /* ---------- Dependencies panel ---------- */
+  .dep-summary-row{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:14px;
+    margin-bottom:18px;
+  }
+  .dep-stat-box{
+    border:1px solid var(--line);
+    border-radius:5px;
+    background:var(--panel);
+    padding:14px 16px;
+  }
+  .dep-stat-num{
+    font-family:var(--mono);
+    font-size:22px;
+    font-weight:600;
+  }
+  .dep-stat-label{
+    font-size:11px;
+    color:var(--bone-faint);
+    margin-top:3px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+  }
+  .dep-caveat{
+    display:flex;
+    gap:10px;
+    padding:11px 13px;
+    background:var(--panel);
+    border:1px solid var(--line-soft);
+    border-radius:4px;
+    font-size:11.5px;
+    color:var(--bone-faint);
+    line-height:1.55;
+    margin-bottom:20px;
+  }
+  .dep-caveat .mark2{color:var(--steel); flex-shrink:0;}
+  .dep-table{
+    border:1px solid var(--line);
+    border-radius:5px;
+    background:var(--panel);
+    overflow:hidden;
+  }
+  .dep-row{
+    display:grid;
+    grid-template-columns:2fr 1fr 1.3fr 1.2fr 1.2fr;
+    align-items:center;
+    gap:10px;
+    padding:12px 16px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .dep-row:last-child{border-bottom:none;}
+  .dep-row-head{
+    font-family:var(--mono);
+    font-size:10px;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+    color:var(--bone-faint);
+    background:var(--panel-raised);
+    padding:9px 16px;
+  }
+  .dep-lib-name{font-size:13px; color:var(--bone); font-weight:500;}
+  .dep-lib-pkg{font-family:var(--mono); font-size:10.5px; color:var(--bone-faint); margin-top:2px;}
+  .dep-col-version{font-family:var(--mono); font-size:12px; color:var(--bone-dim);}
+  .dep-version-approx{font-size:9.5px; color:var(--bone-faint); font-style:italic;}
+  .dep-col-category{font-size:12px; color:var(--bone-dim);}
+  .dep-status-tag{
+    font-family:var(--mono);
+    font-size:10.5px;
+    padding:3px 8px;
+    border-radius:3px;
+    white-space:nowrap;
+  }
+  .dep-status-tag.vuln{background:rgba(193,85,74,0.15); color:var(--crimson);}
+  .dep-status-tag.unchecked{background:rgba(255,255,255,0.05); color:var(--bone-faint);}
+  .dep-status-tag.safe{background:rgba(107,143,113,0.15); color:var(--moss);}
+
+  .report-doc{
+    max-width:640px;
+    border:1px solid var(--line);
+    border-radius:5px;
+    background:var(--panel);
+    padding:32px 36px;
+  }
+  .report-doc h2{
+    font-family:var(--mono);
+    font-size:16px;
+    margin-bottom:6px;
+  }
+  .report-doc .report-sub{
+    color:var(--bone-faint);
+    font-size:12px;
+    margin-bottom:22px;
+    padding-bottom:18px;
+    border-bottom:1px solid var(--line);
+  }
+  .report-doc h3{
+    font-family:var(--mono);
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--steel);
+    margin:22px 0 8px;
+  }
+  .report-doc p{
+    font-size:13px;
+    line-height:1.7;
+    color:var(--bone-dim);
+  }
+  .report-actions{
+    display:flex;
+    gap:10px;
+    margin-top:24px;
+  }
+
+  /* ---------- Right dock: AI agent ---------- */
+  .agent{
+    border-left:1px solid var(--line);
+    background:var(--panel);
+    display:flex;
+    flex-direction:column;
+    min-width:0;
+  }
+  .agent-collapsed .agent{overflow:hidden;}
+  .agent-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 16px;
+    border-bottom:1px solid var(--line);
+    flex-shrink:0;
+  }
+  .agent-header .title{
+    font-family:var(--mono);
+    font-size:12px;
+    letter-spacing:0.04em;
+    display:flex;
+    align-items:center;
+    gap:7px;
+    white-space:nowrap;
+  }
+  .collapse-btn{
+    background:none; border:none; color:var(--bone-faint);
+    cursor:pointer; font-size:14px; padding:2px 4px;
+  }
+  .collapse-btn:hover{color:var(--bone);}
+  .agent-collapsed .agent-header .title span{display:none;}
+
+  .agent-body{
+    flex:1;
+    overflow-y:auto;
+    padding:16px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+  }
+  .agent-collapsed .agent-body,
+  .agent-collapsed .agent-input{display:none;}
+
+  .msg{
+    max-width:92%;
+    font-size:12.5px;
+    line-height:1.6;
+    padding:10px 12px;
+    border-radius:6px;
+  }
+  .msg.user{
+    align-self:flex-end;
+    background:var(--steel-dim);
+    color:var(--bone);
+    border-radius:6px 6px 2px 6px;
+  }
+  .msg.ai{
+    align-self:flex-start;
+    background:var(--panel-raised);
+    border:1px solid var(--line-soft);
+    color:var(--bone-dim);
+    border-radius:6px 6px 6px 2px;
+  }
+  .msg.ai .msg-tag{
+    font-family:var(--mono);
+    font-size:9.5px;
+    color:var(--steel);
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    margin-bottom:5px;
+    display:block;
+  }
+  .msg code{
+    font-family:var(--mono);
+    background:var(--graphite);
+    padding:1px 4px;
+    border-radius:2px;
+    font-size:11px;
+  }
+
+  .agent-input{
+    border-top:1px solid var(--line);
+    padding:12px;
+    flex-shrink:0;
+  }
+  .agent-input textarea{
+    width:100%;
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:4px;
+    color:var(--bone);
+    font-family:var(--sans);
+    font-size:12.5px;
+    padding:9px 10px;
+    resize:none;
+    height:56px;
+  }
+  .agent-input textarea:focus{outline:none; border-color:var(--steel-dim);}
+  .agent-input .row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:8px;
+  }
+  .agent-input .hint{
+    font-size:10.5px;
+    color:var(--bone-faint);
+    font-family:var(--mono);
+  }
+  .research-toggle{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--bone-faint);
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .research-toggle .switch{width:28px; height:16px;}
+  .research-toggle .switch::after{width:12px; height:12px;}
+  .research-toggle .switch.on::after{transform:translateX(12px);}
+  .agent-collapsed .research-toggle{display:none;}
+  .src-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-top:10px;
+  }
+  .src-chip{
+    font-family:var(--mono);
+    font-size:10px;
+    padding:3px 8px;
+    border-radius:3px;
+    border:1px solid var(--line);
+    background:var(--graphite);
+    color:var(--steel);
+  }
+  .send-btn{
+    background:var(--steel-dim);
+    border:none;
+    color:var(--bone);
+    font-family:var(--mono);
+    font-size:11px;
+    padding:6px 12px;
+    border-radius:3px;
+    cursor:pointer;
+  }
+  .send-btn:hover{background:var(--steel);}
+
+  /* Scrollbars */
+  ::-webkit-scrollbar{width:8px; height:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--line); border-radius:4px;}
+  ::-webkit-scrollbar-thumb:hover{background:var(--bone-faint);}
+
+  :focus-visible{outline:2px solid var(--steel); outline-offset:2px;}
+
+  /* ---------- Settings modal ---------- */
+  .modal-overlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(10,12,14,0.65);
+    z-index:200;
+    align-items:flex-start;
+    justify-content:center;
+    padding-top:6vh;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal{
+    width:640px;
+    max-width:92vw;
+    max-height:86vh;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:6px;
+    box-shadow:0 24px 60px rgba(0,0,0,0.5);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .modal-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:16px 20px;
+    border-bottom:1px solid var(--line);
+  }
+  .modal-head .modal-title{
+    font-family:var(--mono);
+    font-size:14px;
+    font-weight:600;
+  }
+  .modal-close{
+    background:none; border:none; color:var(--bone-faint);
+    font-size:18px; cursor:pointer; line-height:1;
+  }
+  .modal-close:hover{color:var(--bone);}
+  .modal-tabs{
+    display:flex;
+    gap:2px;
+    padding:0 20px;
+    border-bottom:1px solid var(--line);
+    background:var(--panel);
+    flex-shrink:0;
+  }
+  .modal-tab{
+    font-family:var(--mono);
+    font-size:12px;
+    padding:11px 4px;
+    margin-right:20px;
+    color:var(--bone-faint);
+    cursor:pointer;
+    border-bottom:2px solid transparent;
+    position:relative; top:1px;
+  }
+  .modal-tab:hover{color:var(--bone-dim);}
+  .modal-tab.active{color:var(--bone); border-bottom-color:var(--steel);}
+  .modal-body{
+    padding:20px;
+    overflow-y:auto;
+  }
+  .modal-pane{display:none;}
+  .modal-pane.active{display:block;}
+
+  .field-label{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.05em;
+    text-transform:uppercase;
+    color:var(--bone-faint);
+    margin-bottom:6px;
+    display:block;
+  }
+  .field-group{margin-bottom:18px;}
+  .field-input{
+    width:100%;
+    background:var(--panel-raised);
+    border:1px solid var(--line);
+    border-radius:4px;
+    color:var(--bone);
+    font-family:var(--mono);
+    font-size:12.5px;
+    padding:9px 10px;
+  }
+  .field-input:focus{outline:none; border-color:var(--steel-dim);}
+  .field-hint{font-size:11px; color:var(--bone-faint); margin-top:6px; line-height:1.5;}
+  .field-row{display:flex; gap:10px;}
+  .field-row .field-input{flex:1;}
+
+  .backend-card{
+    border:1px solid var(--line);
+    border-radius:5px;
+    padding:14px 16px;
+    margin-bottom:12px;
+    background:var(--panel-raised);
+  }
+  .backend-card-head{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:10px;
+  }
+  .backend-card-head .name{
+    font-family:var(--mono);
+    font-size:13px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .conn-status{
+    font-family:var(--mono);
+    font-size:10.5px;
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .conn-status.ok{color:var(--moss);}
+  .conn-status.off{color:var(--bone-faint);}
+  .model-chip-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-top:10px;
+  }
+  .model-chip{
+    font-family:var(--mono);
+    font-size:11px;
+    padding:4px 9px;
+    border-radius:3px;
+    border:1px solid var(--line);
+    color:var(--bone-dim);
+    background:var(--graphite);
+  }
+  .model-chip.default{border-color:var(--steel-dim); color:var(--steel);}
+
+  .toggle-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:12px 0;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .toggle-row:last-child{border-bottom:none;}
+  .toggle-row .label{font-size:13px;}
+  .toggle-row .sub{font-size:11.5px; color:var(--bone-faint); margin-top:2px;}
+  .switch{
+    width:36px; height:20px;
+    background:var(--line);
+    border-radius:10px;
+    position:relative;
+    cursor:pointer;
+    flex-shrink:0;
+    transition:background .15s ease;
+  }
+  .switch::after{
+    content:'';
+    position:absolute;
+    top:2px; left:2px;
+    width:16px; height:16px;
+    border-radius:50%;
+    background:var(--bone-dim);
+    transition:transform .15s ease, background .15s ease;
+  }
+  .switch.on{background:var(--steel-dim);}
+  .switch.on::after{transform:translateX(16px); background:var(--bone);}
+
+  .warn-box{
+    display:flex;
+    gap:10px;
+    padding:11px 13px;
+    background:rgba(217,142,62,0.08);
+    border:1px solid rgba(217,142,62,0.3);
+    border-radius:4px;
+    font-size:11.5px;
+    color:var(--bone-dim);
+    line-height:1.55;
+    margin-bottom:16px;
+  }
+  .warn-box .mark2{color:var(--amber); font-family:var(--mono); flex-shrink:0;}
+
+  .mcp-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    border:1px solid var(--line);
+    border-radius:5px;
+    padding:12px 14px;
+    margin-bottom:10px;
+    background:var(--panel-raised);
+  }
+  .mcp-item .name{
+    font-family:var(--mono);
+    font-size:12.5px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .mcp-item .desc{font-size:11.5px; color:var(--bone-faint); margin-top:4px;}
+  .mcp-actions{display:flex; gap:8px; align-items:center;}
+  .link-btn{
+    background:none; border:none; color:var(--steel);
+    font-family:var(--mono); font-size:11px; cursor:pointer; padding:0;
+  }
+  .link-btn:hover{color:var(--bone);}
+  .link-btn.danger{color:var(--crimson);}
+
+  .add-mcp-form{
+    border:1px dashed var(--line);
+    border-radius:5px;
+    padding:14px;
+    margin-top:6px;
+  }
+  .save-row{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    padding:14px 20px;
+    border-top:1px solid var(--line);
+    flex-shrink:0;
+  }
+  .pipeline-step{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px 0;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .pipeline-step:last-child{border-bottom:none;}
+  .pipeline-icon{
+    width:20px; height:20px;
+    border-radius:50%;
+    border:1.5px solid var(--line);
+    flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px;
+    color:var(--bone-faint);
+  }
+  .pipeline-step.done .pipeline-icon{
+    background:rgba(107,143,113,0.15);
+    border-color:var(--moss);
+    color:var(--moss);
+  }
+  .pipeline-step .pstep-name{font-family:var(--mono); font-size:12.5px; color:var(--bone);}
+  .pipeline-step .pstep-sub{font-size:11px; color:var(--bone-faint); margin-top:2px;}
+  .recompile-warn{
+    display:flex; gap:10px;
+    padding:11px 13px;
+    background:rgba(217,142,62,0.08);
+    border:1px solid rgba(217,142,62,0.3);
+    border-radius:4px;
+    font-size:11.5px;
+    color:var(--bone-dim);
+    line-height:1.55;
+    margin-bottom:18px;
+  }
+  .provider-chip-row{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+  }
+  .provider-chip{
+    font-family:var(--mono);
+    font-size:11.5px;
+    padding:6px 12px;
+    border-radius:14px;
+    border:1px solid var(--line);
+    color:var(--bone-dim);
+    background:var(--graphite);
+    cursor:pointer;
+    transition:border-color .15s ease, color .15s ease, background .15s ease;
+  }
+  .provider-chip:hover{border-color:var(--steel-dim); color:var(--bone);}
+  .provider-chip.active{
+    background:rgba(92,155,184,0.14);
+    border-color:var(--steel);
+    color:var(--steel);
+  }
+  .add-mcp-form .field-hint code{
+    font-family:var(--mono);
+    background:var(--graphite);
+    padding:1px 5px;
+    border-radius:2px;
+    color:var(--bone);
+  }
+  /* ---------- Responsive ---------- */
+  @media (max-width:1100px){
+    .body{grid-template-columns:1fr 300px;}
+    .body.agent-collapsed{grid-template-columns:1fr 44px;}
+  }
+  @media (max-width:900px){
+    .brand .tag{display:none;}
+    .local-badge span:not(.dot){display:none;}
+    .decomp-layout{grid-template-columns:170px 1fr 190px;}
+    .dep-row{grid-template-columns:1.6fr 1fr 1fr 1fr; font-size:11.5px;}
+    .dep-col-category{display:none;}
+    .dep-row-head .dep-col-category{display:none;}
+  }
+  @media (max-width:760px){
+    .decomp-layout{grid-template-columns:150px 1fr; height:auto;}
+    .annot-rail{display:none;}
+    .target-meta{display:none;}
+    .dep-summary-row{grid-template-columns:1fr 1fr 1fr; gap:8px;}
+    .dep-row{grid-template-columns:1.4fr 1fr 1fr; gap:6px; padding:10px 12px;}
+    .dep-col-action{display:none;}
+    .dep-row-head .dep-col-action{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="brand">
+      <svg class="mark" width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 2.5L4.5 5.3v5.9c0 5.1 3.2 9.4 7.5 10.7 4.3-1.3 7.5-5.6 7.5-10.7V5.3L12 2.5z" stroke="var(--steel)" stroke-width="1.4" stroke-linejoin="round"/>
+        <polyline points="8,14.5 8,9 12,11.8 16,9 16,14.5" stroke="var(--steel)" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      MASA
+      <span class="tag">Mobile Application Security Assistant</span>
+    </div>
+    <div class="topbar-right">
+      <div class="local-badge" title="No scan data or chat content leaves this machine">
+        <span class="dot" style="background:var(--moss); box-shadow:0 0 6px var(--moss);"></span>
+        Local-only
+      </div>
+      <div class="model-pill" id="modelPill" onclick="toggleModelDropdown(event)">
+        <span class="dot"></span>
+        <span>qwen2.5-coder:32b</span>
+        <span class="backend">· via Ollama</span>
+        <span class="chev">▾</span>
+        <div class="model-dropdown">
+          <div class="model-opt active">
+            <span class="name">qwen2.5-coder:32b</span>
+            <span class="via">Ollama · local</span>
+          </div>
+          <div class="model-opt">
+            <span class="name">deepseek-coder-v2:16b</span>
+            <span class="via">Ollama · local</span>
+          </div>
+          <div class="model-opt">
+            <span class="name">gemma-3-27b-it</span>
+            <span class="via">LM Studio · local</span>
+          </div>
+          <div class="model-divider"></div>
+          <div class="model-opt">
+            <span class="name">llama-3.3-70b</span>
+            <span class="via">OpenRouter · opt-in</span>
+          </div>
+        </div>
+      </div>
+      <button class="btn">Export report</button>
+      <button class="btn btn-primary">+ New scan</button>
+      <button class="icon-btn" onclick="openSettings()" title="Settings">⚙</button>
+    </div>
+  </div>
+
+  <!-- TARGET BAR: one scan at a time -->
+  <div class="target-bar" id="targetBar">
+    <div class="target-info">
+      <div class="target-icon">📦</div>
+      <div class="target-name">com.northbank.mobile</div>
+      <span class="plat-tag">Android</span>
+      <span class="status-badge done">Done</span>
+      <div class="target-meta">v4.2.1 · 14.6 MB · scanned 2m ago</div>
+    </div>
+    <div class="target-actions">
+      <div class="switch-pill" id="switchPill" onclick="toggleSwitchDropdown(event)">
+        <span>Open a different scan</span>
+        <span class="chev">▾</span>
+        <div class="switch-dropdown">
+          <div class="switch-opt-upload">⬆ Upload new APK / IPA</div>
+          <div class="switch-divider"></div>
+          <div class="switch-dropdown-label">Recent scans</div>
+          <div class="switch-opt">
+            <span class="sname">com.northbank.mobile</span>
+            <span class="sdate">now</span>
+          </div>
+          <div class="switch-opt">
+            <span class="sname">Northbank.ipa <span class="plat-tag" style="margin-left:4px;">iOS</span></span>
+            <span class="sdate">1h ago</span>
+          </div>
+          <div class="switch-opt">
+            <span class="sname">com.fleetly.driver</span>
+            <span class="sdate">yesterday</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BODY -->
+  <div class="body" id="bodyGrid">
+
+    <!-- MAIN -->
+    <div class="main">
+      <div class="main-header">
+        <div class="main-title-row">
+          <div class="main-title">com.northbank.mobile</div>
+          <div class="main-sub">v4.2.1 · scanned Jul 22, 2026 · 14.6 MB</div>
+        </div>
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab(event,'overview')">Overview</div>
+          <div class="tab" onclick="switchTab(event,'findings')">Findings <span style="color:var(--bone-faint)">(12)</span></div>
+          <div class="tab" onclick="switchTab(event,'dependencies')">Dependencies <span style="color:var(--bone-faint)">(6)</span></div>
+          <div class="tab" onclick="switchTab(event,'decompiler')">Decompiler</div>
+          <div class="tab" onclick="switchTab(event,'report')">Report</div>
+        </div>
+      </div>
+
+      <!-- OVERVIEW PANEL -->
+      <div class="panel active" id="panel-overview">
+        <div class="overview-grid">
+          <div class="gauge-card">
+            <svg width="140" height="90" viewBox="0 0 140 90">
+              <path d="M 10 80 A 60 60 0 0 1 130 80" fill="none" stroke="#2B3238" stroke-width="10" stroke-linecap="round"/>
+              <path d="M 10 80 A 60 60 0 0 1 108 32" fill="none" stroke="#D98E3E" stroke-width="10" stroke-linecap="round"/>
+            </svg>
+            <div class="gauge-score">67<span>/100</span></div>
+            <div class="gauge-label">High risk</div>
+          </div>
+          <div class="stat-row">
+            <div class="stat-box"><div class="stat-num crit">2</div><div class="stat-name">Critical</div></div>
+            <div class="stat-box"><div class="stat-num high">4</div><div class="stat-name">High</div></div>
+            <div class="stat-box"><div class="stat-num med">5</div><div class="stat-name">Medium</div></div>
+            <div class="stat-box"><div class="stat-num low">1</div><div class="stat-name">Low</div></div>
+          </div>
+        </div>
+
+        <div class="section-label">AI summary</div>
+        <div class="ai-explain" style="display:block; margin-top:0; margin-bottom:24px;">
+          <div class="ai-tag">Agent · qwen2.5-coder:32b</div>
+          This build stores the session token in <code>SharedPreferences</code> without encryption, and pairs it with a
+          WebView that has JavaScript bridges exposed to untrusted content. Combined, an attacker who can position
+          themselves on the network could chain the SSL pinning gap with the local storage weakness for a full
+          account takeover. Recommend prioritizing findings #1 and #3 before the next release.
+        </div>
+
+        <div class="section-label">Top findings</div>
+        <div class="finding">
+          <div class="spine crit"></div>
+          <div class="finding-body">
+            <div class="finding-top">
+              <div>
+                <div class="finding-title">Session token stored in plaintext SharedPreferences</div>
+                <div class="finding-meta">AuthManager.java · line 118</div>
+              </div>
+              <span class="sev-tag crit">Critical</span>
+            </div>
+          </div>
+        </div>
+        <div class="finding">
+          <div class="spine high"></div>
+          <div class="finding-body">
+            <div class="finding-top">
+              <div>
+                <div class="finding-title">Certificate pinning disabled in release build</div>
+                <div class="finding-meta">NetworkModule.java · line 44</div>
+              </div>
+              <span class="sev-tag high">High</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- FINDINGS PANEL -->
+      <div class="panel" id="panel-findings">
+        <div class="section-label">All findings (12)</div>
+
+        <div class="finding open">
+          <div class="spine crit"></div>
+          <div class="finding-body">
+            <div class="finding-top" onclick="toggleFinding(event)">
+              <div>
+                <div class="finding-title">Session token stored in plaintext SharedPreferences</div>
+                <div class="finding-meta">AuthManager.java · line 118 · MASVS-STORAGE-1</div>
+              </div>
+              <span class="sev-tag crit">Critical</span>
+            </div>
+            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
+            <div class="ai-explain">
+              <div class="ai-tag">Agent explains</div>
+              The token returned from <code>/api/login</code> is written directly to <code>SharedPreferences</code>
+              with <code>MODE_PRIVATE</code>, which is readable on rooted devices or through a backup extraction.
+              Anyone who recovers this value can replay it as an authenticated session until it expires or is revoked.
+              Fix: store it in the Android Keystore-backed EncryptedSharedPreferences, and shorten token lifetime server-side.
+            </div>
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="spine high"></div>
+          <div class="finding-body">
+            <div class="finding-top" onclick="toggleFinding(event)">
+              <div>
+                <div class="finding-title">Certificate pinning disabled in release build</div>
+                <div class="finding-meta">NetworkModule.java · line 44 · MASVS-NETWORK-1</div>
+              </div>
+              <span class="sev-tag high">High</span>
+            </div>
+            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
+            <div class="ai-explain">
+              <div class="ai-tag">Agent explains</div>
+              A build flag guards the pinning block and evaluates false in the release flavor, so the release APK
+              trusts any CA in the system store. Combined with the plaintext token above, a MITM on public wifi is
+              enough to intercept a live session, not just credentials in transit.
+            </div>
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="spine high"></div>
+          <div class="finding-body">
+            <div class="finding-top" onclick="toggleFinding(event)">
+              <div>
+                <div class="finding-title">Exported activity accepts unvalidated deep-link intent</div>
+                <div class="finding-meta">DeepLinkActivity.java · line 27 · MASVS-PLATFORM-1</div>
+              </div>
+              <span class="sev-tag high">High</span>
+            </div>
+            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
+            <div class="ai-explain">
+              <div class="ai-tag">Agent explains</div>
+              This activity is exported with no permission requirement, and reads a URL straight from the intent
+              extras into a WebView loader. Any installed app, or a crafted link opened in a browser, can drive this
+              screen to an attacker-controlled page.
+            </div>
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="spine med"></div>
+          <div class="finding-body">
+            <div class="finding-top" onclick="toggleFinding(event)">
+              <div>
+                <div class="finding-title">Hardcoded Firebase API key in strings.xml</div>
+                <div class="finding-meta">res/values/strings.xml · line 9</div>
+              </div>
+              <span class="sev-tag med">Medium</span>
+            </div>
+            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
+            <div class="ai-explain">
+              <div class="ai-tag">Agent explains</div>
+              This key matches Firebase's public web config format, which is expected to ship client-side — the
+              real risk lives in your Firebase Security Rules, not this string. Worth a quick check that rules
+              actually restrict reads and writes per-user rather than leaving the database open.
+            </div>
+          </div>
+        </div>
+
+        <div class="finding">
+          <div class="spine low"></div>
+          <div class="finding-body">
+            <div class="finding-top" onclick="toggleFinding(event)">
+              <div>
+                <div class="finding-title">Debuggable flag left enabled</div>
+                <div class="finding-meta">AndroidManifest.xml · line 6</div>
+              </div>
+              <span class="sev-tag low">Low</span>
+            </div>
+            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
+            <div class="ai-explain">
+              <div class="ai-tag">Agent explains</div>
+              <code>android:debuggable="true"</code> is present in this build. It's low severity on its own, but it
+              lowers the bar for attaching a debugger and stepping through the token-handling code above — worth
+              flipping off before this build reaches testers outside the team.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DEPENDENCIES PANEL -->
+      <div class="panel" id="panel-dependencies">
+        <div class="dep-summary-row">
+          <div class="dep-stat-box">
+            <div class="dep-stat-num">6</div>
+            <div class="dep-stat-label">Detected</div>
+          </div>
+          <div class="dep-stat-box">
+            <div class="dep-stat-num" style="color:var(--crimson);">1</div>
+            <div class="dep-stat-label">Vulnerable</div>
+          </div>
+          <div class="dep-stat-box">
+            <div class="dep-stat-num" style="color:var(--bone-faint);">5</div>
+            <div class="dep-stat-label">Not yet checked</div>
+          </div>
+        </div>
+
+        <div class="dep-caveat">
+          <span class="mark2">ⓘ</span>
+          <span>Detected via package namespace analysis across decompiled classes, cross-referenced with androguard's library fingerprinting. MASA doesn't have the original build manifest (Gradle/Maven), so versions are inferred from bundled metadata and embedded strings where available — occasionally approximate, not authoritative.</span>
+        </div>
+
+        <div class="dep-table">
+          <div class="dep-row dep-row-head">
+            <div class="dep-col-name">Library</div>
+            <div class="dep-col-version">Version</div>
+            <div class="dep-col-category">Category</div>
+            <div class="dep-col-status">Status</div>
+            <div class="dep-col-action"></div>
+          </div>
+
+          <div class="dep-row">
+            <div class="dep-col-name">
+              <div class="dep-lib-name">OkHttp</div>
+              <div class="dep-lib-pkg">com.squareup.okhttp3</div>
+            </div>
+            <div class="dep-col-version">3.12.1</div>
+            <div class="dep-col-category">Networking</div>
+            <div class="dep-col-status"><span class="dep-status-tag vuln">⚠ Vulnerable</span></div>
+            <div class="dep-col-action"><button class="link-btn" onclick="goToOverview()">View finding →</button></div>
+          </div>
+
+          <div class="dep-row">
+            <div class="dep-col-name">
+              <div class="dep-lib-name">Retrofit</div>
+              <div class="dep-lib-pkg">com.squareup.retrofit2</div>
+            </div>
+            <div class="dep-col-version">2.9.0</div>
+            <div class="dep-col-category">Networking</div>
+            <div class="dep-col-status"><span class="dep-status-tag unchecked">Not checked</span></div>
+            <div class="dep-col-action"><button class="link-btn" onclick="requestCveCheck(event,'Retrofit 2.9.0')">🌐 Check CVEs</button></div>
+          </div>
+
+          <div class="dep-row">
+            <div class="dep-col-name">
+              <div class="dep-lib-name">Firebase Auth</div>
+              <div class="dep-lib-pkg">com.google.firebase.auth</div>
+            </div>
+            <div class="dep-col-version">21.0.1</div>
+            <div class="dep-col-category">Auth &amp; Analytics</div>
+            <div class="dep-col-status"><span class="dep-status-tag unchecked">Not checked</span></div>
+            <div class="dep-col-action"><button class="link-btn" onclick="requestCveCheck(event,'Firebase Auth 21.0.1')">🌐 Check CVEs</button></div>
+          </div>
+
+          <div class="dep-row">
+            <div class="dep-col-name">
+              <div class="dep-lib-name">Gson</div>
+              <div class="dep-lib-pkg">com.google.gson</div>
+            </div>
+            <div class="dep-col-version">2.8.9</div>
+            <div class="dep-col-category">Serialization</div>
+            <div class="dep-col-status"><span class="dep-status-tag unchecked">Not checked</span></div>
+            <div class="dep-col-action"><button class="link-btn" onclick="requestCveCheck(event,'Gson 2.8.9')">🌐 Check CVEs</button></div>
+          </div>
+
+          <div class="dep-row">
+            <div class="dep-col-name">
+              <div class="dep-lib-name">Glide</div>
+              <div class="dep-lib-pkg">com.bumptech.glide</div>
+            </div>
+            <div class="dep-col-version">4.12.0</div>
+            <div class="dep-col-category">Image loading</div>
+            <div class="dep-col-status"><span class="dep-status-tag unchecked">Not checked</span></div>
+            <div class="dep-col-action"><button class="link-btn" onclick="requestCveCheck(event,'Glide 4.12.0')">🌐 Check CVEs</button></div>
+          </div>
+
+          <div class="dep-row">
+            <div class="dep-col-name">
+              <div class="dep-lib-name">AndroidX AppCompat</div>
+              <div class="dep-lib-pkg">androidx.appcompat</div>
+            </div>
+            <div class="dep-col-version">1.4.1 <span class="dep-version-approx">~approx</span></div>
+            <div class="dep-col-category">Framework</div>
+            <div class="dep-col-status"><span class="dep-status-tag unchecked">Not checked</span></div>
+            <div class="dep-col-action"><button class="link-btn" onclick="requestCveCheck(event,'AndroidX AppCompat 1.4.1')">🌐 Check CVEs</button></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DECOMPILER PANEL -->
+      <div class="panel" id="panel-decompiler">
+        <div class="section-label">com.northbank.mobile — decompiled (jadx + androguard)</div>
+
+        <div class="decomp-toolbar">
+          <div class="view-toggle" id="viewToggle">
+            <button class="vt-chip active" onclick="setView(event,'java')">Java (jadx)</button>
+            <button class="vt-chip" onclick="setView(event,'smali')">Smali</button>
+          </div>
+          <div class="toolbar-actions">
+            <button class="btn" id="editToggleBtn" onclick="toggleEditMode()" disabled title="Switch to Smali to make recompilable edits">✎ Edit</button>
+            <button class="btn" id="agentEditBtn" onclick="toggleAgentEditBar()" disabled title="Switch to Smali to make recompilable edits">✨ Ask agent to edit</button>
+            <button class="btn btn-primary" onclick="openRecompile()">⚙ Recompile app</button>
+          </div>
+        </div>
+        <div class="view-hint" id="viewHint">Read-only — jadx output is for understanding code, not rebuilding it. Switch to <strong>Smali</strong> to make edits that can actually be recompiled.</div>
+        <div class="agent-edit-bar" id="agentEditBar">
+          <span class="aeb-tag">✨ Ask agent</span>
+          <input class="field-input" placeholder="e.g. Bypass this SSL pinning check for testing" />
+          <button class="btn btn-primary">Apply</button>
+        </div>
+
+        <div class="decomp-layout">
+
+          <!-- FILE TREE -->
+          <div class="file-tree">
+            <details open>
+              <summary><span class="tree-caret">▸</span>📁 com</summary>
+              <div class="tree-nested">
+                <details open>
+                  <summary><span class="tree-caret">▸</span>📁 northbank</summary>
+                  <div class="tree-nested">
+                    <details open>
+                      <summary><span class="tree-caret">▸</span>📁 mobile</summary>
+                      <div class="tree-nested">
+                        <div class="file-node active" data-type="java" onclick="openFile(event,'AuthManager')">
+                          <span class="fname">AuthManager.java</span><span class="mod-badge" id="mod-AuthManager"></span>
+                          <span class="fdot crit"></span>
+                        </div>
+                        <div class="file-node" data-type="java" onclick="openFile(event,'NetworkModule')">
+                          <span class="fname">NetworkModule.java</span><span class="mod-badge" id="mod-NetworkModule"></span>
+                          <span class="fdot high"></span>
+                        </div>
+                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
+                          <span class="fname">NetworkInterceptor.java</span>
+                          <span class="fdot med"></span>
+                        </div>
+                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
+                          <span class="fname">WebViewBridge.java</span>
+                          <span class="fdot med"></span>
+                        </div>
+                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
+                          <span class="fname">DeepLinkActivity.java</span>
+                          <span class="fdot high"></span>
+                        </div>
+                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
+                          <span class="fname">MainActivity.java</span>
+                          <span class="fdot none"></span>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              </div>
+            </details>
+            <details open>
+              <summary><span class="tree-caret">▸</span>📁 res</summary>
+              <div class="tree-nested">
+                <details open>
+                  <summary><span class="tree-caret">▸</span>📁 values</summary>
+                  <div class="tree-nested">
+                    <div class="file-node" data-type="xml" onclick="openFile(event,'strings')">
+                      <span class="fname">strings.xml</span>
+                      <span class="fdot med"></span>
+                    </div>
+                  </div>
+                </details>
+                <details>
+                  <summary><span class="tree-caret">▸</span>📁 xml</summary>
+                  <div class="tree-nested">
+                    <div class="file-node" data-type="xml" onclick="openFile(event,'other')">
+                      <span class="fname">network_security_config.xml</span>
+                      <span class="fdot none"></span>
+                    </div>
+                  </div>
+                </details>
+              </div>
+            </details>
+            <div class="tree-root-file" data-type="xml" onclick="openFile(event,'manifest')">
+              <span class="fname">AndroidManifest.xml</span>
+              <span class="fdot low" style="background:var(--moss);"></span>
+            </div>
+          </div>
+
+          <!-- CODE PANE -->
+          <div class="code-pane">
+
+            <div class="code-file active" id="code-AuthManager">
+              <div class="code-file-path">com/northbank/mobile/AuthManager.java</div>
+              <div class="code-line"><span class="ln">112</span><span class="kw">public</span> <span class="kw">void</span> onLoginSuccess(<span class="cls">LoginResponse</span> res) {</div>
+              <div class="code-line"><span class="ln">113</span>&nbsp;&nbsp;<span class="cls">SharedPreferences</span> prefs = ctx.getSharedPreferences(</div>
+              <div class="code-line"><span class="ln">114</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"auth_store"</span>, <span class="cls">Context</span>.MODE_PRIVATE);</div>
+              <div class="code-line"><span class="ln">115</span>&nbsp;&nbsp;<span class="cls">SharedPreferences</span>.Editor e = prefs.edit();</div>
+              <div class="code-line flagged"><span class="ln">116</span>&nbsp;&nbsp;<span class="cm">// token written without encryption</span></div>
+              <div class="code-line flagged"><span class="ln">117</span>&nbsp;&nbsp;e.putString(<span class="str">"session_token"</span>, res.getToken());</div>
+              <div class="code-line flagged"><span class="ln">118</span>&nbsp;&nbsp;e.putLong(<span class="str">"expires_at"</span>, res.getExpiry());</div>
+              <div class="code-line"><span class="ln">119</span>&nbsp;&nbsp;e.apply();</div>
+              <div class="code-line"><span class="ln">120</span>&nbsp;&nbsp;navigateHome();</div>
+              <div class="code-line"><span class="ln">121</span>}</div>
+              <div class="code-line">&nbsp;</div>
+              <div class="code-line"><span class="ln">122</span><span class="kw">public</span> <span class="kw">String</span> getStoredToken() {</div>
+              <div class="code-line flagged"><span class="ln">123</span>&nbsp;&nbsp;<span class="kw">return</span> prefs.getString(<span class="str">"session_token"</span>, <span class="kw">null</span>);</div>
+              <div class="code-line"><span class="ln">124</span>}</div>
+            </div>
+
+            <div class="code-file" id="code-AuthManager-smali">
+              <div class="code-file-path">smali/com/northbank/mobile/AuthManager.smali <span class="editable-tag">editable · recompilable</span></div>
+              <div class="code-line"><span class="ln">201</span>.method public onLoginSuccess(Lcom/northbank/mobile/LoginResponse;)V</div>
+              <div class="code-line"><span class="ln">202</span>&nbsp;&nbsp;.locals 3</div>
+              <div class="code-line"><span class="ln">203</span>&nbsp;&nbsp;invoke-virtual {p0}, Lcom/northbank/mobile/AuthManager;->getPrefs()Landroid/content/SharedPreferences;</div>
+              <div class="code-line"><span class="ln">204</span>&nbsp;&nbsp;move-result-object v0</div>
+              <div class="code-line flagged"><span class="ln">205</span>&nbsp;&nbsp;invoke-interface {v0}, Landroid/content/SharedPreferences;->edit()Landroid/content/SharedPreferences$Editor;</div>
+              <div class="code-line flagged"><span class="ln">206</span>&nbsp;&nbsp;move-result-object v1</div>
+              <div class="code-line flagged"><span class="ln">207</span>&nbsp;&nbsp;invoke-virtual {p1}, Lcom/northbank/mobile/LoginResponse;->getToken()Ljava/lang/String;</div>
+              <div class="code-line flagged"><span class="ln">208</span>&nbsp;&nbsp;move-result-object v2</div>
+              <div class="code-line flagged"><span class="ln">209</span>&nbsp;&nbsp;invoke-interface {v1, v2}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)V</div>
+              <div class="code-line"><span class="ln">210</span>&nbsp;&nbsp;invoke-interface {v1}, Landroid/content/SharedPreferences$Editor;->apply()V</div>
+              <div class="code-line"><span class="ln">211</span>&nbsp;&nbsp;return-void</div>
+              <div class="code-line"><span class="ln">212</span>.end method</div>
+            </div>
+
+            <div class="code-file" id="code-NetworkModule">
+              <div class="code-file-path">com/northbank/mobile/NetworkModule.java</div>
+              <div class="code-line"><span class="ln">38</span><span class="kw">public</span> <span class="cls">OkHttpClient</span> buildClient() {</div>
+              <div class="code-line"><span class="ln">39</span>&nbsp;&nbsp;<span class="cls">OkHttpClient</span>.Builder b = <span class="kw">new</span> <span class="cls">OkHttpClient</span>.Builder();</div>
+              <div class="code-line flagged"><span class="ln">40</span>&nbsp;&nbsp;<span class="kw">if</span> (BuildConfig.ENABLE_PINNING) {</div>
+              <div class="code-line flagged"><span class="ln">41</span>&nbsp;&nbsp;&nbsp;&nbsp;b.certificatePinner(pinner);</div>
+              <div class="code-line flagged"><span class="ln">42</span>&nbsp;&nbsp;}</div>
+              <div class="code-line"><span class="ln">43</span>&nbsp;&nbsp;<span class="cm">// ENABLE_PINNING = false in release flavor</span></div>
+              <div class="code-line"><span class="ln">44</span>&nbsp;&nbsp;<span class="kw">return</span> b.build();</div>
+              <div class="code-line"><span class="ln">45</span>}</div>
+            </div>
+
+            <div class="code-file" id="code-strings">
+              <div class="code-file-path">res/values/strings.xml</div>
+              <div class="code-line"><span class="ln">6</span>&lt;<span class="tg">resources</span>&gt;</div>
+              <div class="code-line"><span class="ln">7</span>&nbsp;&nbsp;&lt;<span class="tg">string</span> <span class="at">name</span>=<span class="str">"app_name"</span>&gt;NorthBank&lt;/<span class="tg">string</span>&gt;</div>
+              <div class="code-line"><span class="ln">8</span>&nbsp;&nbsp;&lt;<span class="tg">string</span> <span class="at">name</span>=<span class="str">"support_email"</span>&gt;help@northbank.example&lt;/<span class="tg">string</span>&gt;</div>
+              <div class="code-line flagged"><span class="ln">9</span>&nbsp;&nbsp;&lt;<span class="tg">string</span> <span class="at">name</span>=<span class="str">"firebase_api_key"</span>&gt;AIzaSyD-•••••••••••••••••hK4&lt;/<span class="tg">string</span>&gt;</div>
+              <div class="code-line"><span class="ln">10</span>&lt;/<span class="tg">resources</span>&gt;</div>
+            </div>
+
+            <div class="code-file" id="code-manifest">
+              <div class="code-file-path">AndroidManifest.xml</div>
+              <div class="code-line"><span class="ln">4</span>&lt;<span class="tg">manifest</span> ...&gt;</div>
+              <div class="code-line"><span class="ln">5</span>&nbsp;&nbsp;&lt;<span class="tg">application</span></div>
+              <div class="code-line flagged"><span class="ln">6</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="at">android:debuggable</span>=<span class="str">"true"</span></div>
+              <div class="code-line"><span class="ln">7</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="at">android:allowBackup</span>=<span class="str">"true"</span>&gt;</div>
+              <div class="code-line"><span class="ln">8</span>&nbsp;&nbsp;&lt;/<span class="tg">application</span>&gt;</div>
+              <div class="code-line"><span class="ln">9</span>&lt;/<span class="tg">manifest</span>&gt;</div>
+            </div>
+
+            <div class="code-file" id="code-other">
+              <div class="code-file-path" id="code-other-path">com/northbank/mobile/…</div>
+              <div class="code-line" style="opacity:.55;"><span class="ln">·</span><span class="cm">// Full source omitted in this reference mockup.</span></div>
+              <div class="code-line" style="opacity:.55;"><span class="ln">·</span><span class="cm">// In MASA, every file in the tree opens here with real jadx output.</span></div>
+            </div>
+
+          </div>
+
+          <!-- ANNOTATION RAIL -->
+          <div class="annot-rail">
+            <div class="annot-rail-label">Agent margin notes</div>
+
+            <div class="notes-file active" id="notes-AuthManager">
+              <div class="note">
+                <span class="note-tag">Line 117</span>
+                Token persisted with no encryption layer — recoverable via backup or root access.
+              </div>
+              <div class="note">
+                <span class="note-tag">Line 123</span>
+                Same unencrypted value is read back here for every authenticated request. One fix covers both sites.
+              </div>
+            </div>
+
+            <div class="notes-file" id="notes-NetworkModule">
+              <div class="note">
+                <span class="note-tag">Line 40</span>
+                Pinning is gated behind a build flag that evaluates false in release — the release APK trusts any CA in the system store.
+              </div>
+            </div>
+
+            <div class="notes-file" id="notes-strings">
+              <div class="note">
+                <span class="note-tag">Line 9</span>
+                Matches Firebase's public web config format — expected client-side. Real risk lives in Firebase Security Rules, not this string.
+              </div>
+            </div>
+
+            <div class="notes-file" id="notes-manifest">
+              <div class="note">
+                <span class="note-tag">Line 6</span>
+                Debuggable left on lowers the bar for attaching a debugger and stepping through the token-handling code in AuthManager.
+              </div>
+            </div>
+
+            <div class="notes-file" id="notes-other">
+              <div class="no-notes">No AI notes generated for this file yet — open it to have the agent analyze it on demand.</div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- REPORT PANEL -->
+      <div class="panel" id="panel-report">
+        <div class="report-doc">
+          <h2>Security Assessment — com.northbank.mobile</h2>
+          <div class="report-sub">v4.2.1 · Generated Jul 22, 2026 · Draft, AI-assisted</div>
+
+          <h3>Executive summary</h3>
+          <p>
+            The assessment identified 12 findings across storage, network, and platform categories, including two
+            critical issues that combine into a plausible account-takeover chain. We recommend resolving the token
+            storage and certificate pinning findings before the next public release.
+          </p>
+
+          <h3>Key risk</h3>
+          <p>
+            An attacker positioned on the network can defeat certificate pinning, then recover the session token
+            from local storage on a rooted or backed-up device, resulting in full session hijack without needing
+            the user's password.
+          </p>
+
+          <div class="report-actions">
+            <button class="btn btn-primary">Download PDF</button>
+            <button class="btn">Copy markdown</button>
+            <button class="btn">Regenerate with agent</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT DOCK: AI AGENT -->
+    <div class="agent">
+      <div class="agent-header">
+        <div class="title"><span class="dot" style="background:var(--steel); box-shadow:0 0 6px var(--steel);"></span><span>Agent · this scan</span></div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <div class="research-toggle" onclick="toggleResearch(event)" title="Enable web research for this scan">
+            <span>🌐 Web</span>
+            <div class="switch" id="researchSwitch"></div>
+          </div>
+          <button class="collapse-btn" onclick="toggleAgent()">⤢</button>
+        </div>
+      </div>
+      <div class="agent-body">
+        <div class="msg ai">
+          <span class="msg-tag">Agent</span>
+          Scan complete for <code>com.northbank.mobile</code>. 12 findings, 2 critical. Ask me anything about the
+          decompiled code, or say "prioritize" for a fix order.
+        </div>
+        <div class="msg user">Where else does this app touch the session token besides AuthManager?</div>
+        <div class="msg ai">
+          <span class="msg-tag">Agent</span>
+          Two other sites: <code>NetworkInterceptor.java:31</code> attaches it to every outgoing header, and
+          <code>WebViewBridge.java:58</code> injects it into a JS bridge for the in-app support chat — that second
+          one is worth a look, it wasn't in the top findings but widens the exposure.
+        </div>
+        <div class="msg user">Any known CVEs for the OkHttp version this app bundles?</div>
+        <div class="msg ai">
+          <span class="msg-tag">Agent · web research</span>
+          This build bundles OkHttp 3.12.1. That version has a known CVE around hostname verification bypass in
+          certain proxy configurations, patched in later 3.12.x releases. Worth confirming the exact patch level and
+          bumping the dependency regardless, since it lines up with the pinning finding above.
+          <div class="src-row">
+            <span class="src-chip">OkHttp changelog</span>
+            <span class="src-chip">NVD entry</span>
+            <span class="src-chip">GitHub advisory</span>
+          </div>
+        </div>
+      </div>
+      <div class="agent-input">
+        <textarea placeholder="Ask about this scan, e.g. &quot;explain the WebView bridge risk&quot;"></textarea>
+        <div class="row">
+          <span class="hint">⏎ to send</span>
+          <button class="send-btn">Send</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settingsOverlay" onclick="closeSettingsOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Settings</div>
+      <button class="modal-close" onclick="closeSettings()">×</button>
+    </div>
+    <div class="modal-tabs">
+      <div class="modal-tab active" onclick="switchModalTab(event,'backends')">Model backends</div>
+      <div class="modal-tab" onclick="switchModalTab(event,'byok')">Bring your own key</div>
+      <div class="modal-tab" onclick="switchModalTab(event,'search')">Search &amp; research</div>
+    </div>
+    <div class="modal-body">
+
+      <!-- MODEL BACKENDS -->
+      <div class="modal-pane active" id="modalpane-backends">
+        <div class="field-hint" style="margin-bottom:16px;">
+          MASA talks to any locally-served, OpenAI-compatible endpoint. Point it at Ollama or LM Studio — no cloud calls unless you enable one below.
+        </div>
+
+        <div class="backend-card">
+          <div class="backend-card-head">
+            <div class="name"><span class="dot" style="background:var(--moss); box-shadow:0 0 6px var(--moss);"></span> Ollama</div>
+            <div class="conn-status ok">● Connected</div>
+          </div>
+          <div class="field-row">
+            <input class="field-input" value="http://localhost:11434/v1" />
+            <button class="btn" style="flex-shrink:0;">Test</button>
+          </div>
+          <div class="model-chip-row">
+            <span class="model-chip default">qwen2.5-coder:32b ★ default</span>
+            <span class="model-chip">deepseek-coder-v2:16b</span>
+            <span class="model-chip">nomic-embed-text</span>
+          </div>
+        </div>
+
+        <div class="backend-card">
+          <div class="backend-card-head">
+            <div class="name"><span class="dot" style="background:var(--bone-faint); box-shadow:none;"></span> LM Studio</div>
+            <div class="conn-status off">○ Not connected</div>
+          </div>
+          <div class="field-row">
+            <input class="field-input" value="http://localhost:1234/v1" />
+            <button class="btn" style="flex-shrink:0;">Test</button>
+          </div>
+          <div class="field-hint">Start the local server in LM Studio's Developer tab, then test the connection.</div>
+        </div>
+
+        <div class="field-group" style="margin-top:18px;">
+          <label class="field-label">Embedding model (for chat-with-code RAG)</label>
+          <input class="field-input" value="nomic-embed-text — via Ollama" />
+        </div>
+      </div>
+
+      <!-- BYOK -->
+      <div class="modal-pane" id="modalpane-byok">
+        <div class="warn-box">
+          <span class="mark2">⚠</span>
+          <span>Enabling a cloud key sends prompts (findings, code snippets, chat) to that provider. Keep this off for confidential client engagements — local backends stay fully on-device.</span>
+        </div>
+
+        <div class="toggle-row">
+          <div>
+            <div class="label">Enable cloud fallback</div>
+            <div class="sub">Off by default. Only used if you explicitly select a cloud model.</div>
+          </div>
+          <div class="switch" onclick="this.classList.toggle('on')"></div>
+        </div>
+
+        <label class="field-label" style="margin-top:18px; display:block;">Connected providers</label>
+
+        <div class="mcp-item">
+          <div>
+            <div class="name"><span class="dot" style="background:var(--moss); box-shadow:0 0 6px var(--moss);"></span> OpenRouter</div>
+            <div class="desc">sk-or-•••••••••••••2f91 · added Jul 20</div>
+          </div>
+          <div class="mcp-actions">
+            <span class="conn-status ok">Active</span>
+            <button class="link-btn danger">Remove</button>
+          </div>
+        </div>
+
+        <div class="mcp-item">
+          <div>
+            <div class="name"><span class="dot" style="background:var(--moss); box-shadow:0 0 6px var(--moss);"></span> DeepSeek</div>
+            <div class="desc">sk-•••••••••••••••a83c · added Jul 21</div>
+          </div>
+          <div class="mcp-actions">
+            <span class="conn-status ok">Active</span>
+            <button class="link-btn danger">Remove</button>
+          </div>
+        </div>
+
+        <div class="mcp-item">
+          <div>
+            <div class="name"><span class="dot" style="background:var(--bone-faint); box-shadow:none;"></span> Google Gemini</div>
+            <div class="desc">Not configured</div>
+          </div>
+          <div class="mcp-actions">
+            <button class="link-btn">Add key</button>
+          </div>
+        </div>
+
+        <div class="add-mcp-form">
+          <label class="field-label">Add a provider</label>
+          <div class="provider-chip-row">
+            <span class="provider-chip active">OpenAI</span>
+            <span class="provider-chip">Anthropic</span>
+            <span class="provider-chip">Gemini</span>
+            <span class="provider-chip">DeepSeek</span>
+            <span class="provider-chip">Mistral</span>
+            <span class="provider-chip">Groq</span>
+            <span class="provider-chip">xAI (Grok)</span>
+            <span class="provider-chip">OpenRouter</span>
+            <span class="provider-chip">Custom endpoint…</span>
+          </div>
+          <div class="field-row" id="customEndpointRow" style="display:none; margin-top:10px;">
+            <input class="field-input" placeholder="Base URL, e.g. https://api.your-provider.com/v1" />
+          </div>
+          <div class="field-row" style="margin-top:10px; margin-bottom:8px;">
+            <input class="field-input" type="password" placeholder="API key" />
+          </div>
+          <div class="field-hint" style="margin-bottom:10px;">Any provider exposing an OpenAI-compatible <code>/v1/chat/completions</code> endpoint works via "Custom endpoint" — base URL field appears when selected.</div>
+          <button class="btn btn-primary">Add provider</button>
+        </div>
+      </div>
+
+      <!-- SEARCH & RESEARCH -->
+      <div class="modal-pane" id="modalpane-search">
+        <div class="warn-box">
+          <span class="mark2">⚠</span>
+          <span>Even self-hosted, search queries leave this machine to reach public search engines — this is a different privacy boundary than local model inference. Keep it off unless a scan actually needs it.</span>
+        </div>
+
+        <div class="toggle-row">
+          <div>
+            <div class="label">Enable web research for this scan</div>
+            <div class="sub">Lets the agent search &amp; fetch sources for things like CVE lookups — off by default.</div>
+          </div>
+          <div class="switch on" onclick="this.classList.toggle('on')"></div>
+        </div>
+
+        <label class="field-label" style="margin-top:18px; display:block;">Search provider</label>
+
+        <div class="backend-card">
+          <div class="backend-card-head">
+            <div class="name"><span class="dot" style="background:var(--moss); box-shadow:0 0 6px var(--moss);"></span> SearXNG <span class="model-chip default" style="margin-left:6px;">default</span></div>
+            <div class="conn-status ok">● Connected</div>
+          </div>
+          <div class="field-row">
+            <input class="field-input" value="http://searxng:8080" />
+            <button class="btn" style="flex-shrink:0;">Test</button>
+          </div>
+          <div class="field-hint">Self-hosted metasearch — no API key needed, no per-query cost. Bundled as its own container.</div>
+        </div>
+
+        <label class="field-label" style="margin-top:16px; display:block;">Fallback providers (optional)</label>
+        <div class="provider-chip-row">
+          <span class="provider-chip">Brave Search</span>
+          <span class="provider-chip">DuckDuckGo</span>
+          <span class="provider-chip">Tavily</span>
+          <span class="provider-chip">Serper</span>
+          <span class="provider-chip">Google PSE</span>
+        </div>
+        <div class="field-hint" style="margin-top:8px; margin-bottom:14px;">Used automatically if SearXNG is unreachable. Requires an API key for the selected provider.</div>
+
+        <div class="field-group">
+          <label class="field-label">Sources per research query</label>
+          <input class="field-input" value="5" style="max-width:100px;" />
+          <div class="field-hint">Kept small and bounded on purpose — not an open-ended research loop.</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="save-row">
+      <button class="btn" onclick="closeSettings()">Cancel</button>
+      <button class="btn btn-primary" onclick="closeSettings()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECOMPILE MODAL -->
+<div class="modal-overlay" id="recompileOverlay" onclick="closeRecompileOnOverlay(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Recompile — com.northbank.mobile</div>
+      <button class="modal-close" onclick="closeRecompile()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="recompile-warn">
+        <span class="mark2">⚠</span>
+        <span>This produces a <strong style="color:var(--bone);">resigned test build</strong> with a new signature — it won't match the original app's signing key, so app stores and the original developer's update mechanism won't recognize it. For local/authorized testing only.</span>
+      </div>
+
+      <div class="pipeline-step done">
+        <div class="pipeline-icon">✓</div>
+        <div>
+          <div class="pstep-name">Apply smali edits</div>
+          <div class="pstep-sub">1 file changed — AuthManager.smali</div>
+        </div>
+      </div>
+      <div class="pipeline-step done">
+        <div class="pipeline-icon">✓</div>
+        <div>
+          <div class="pstep-name">Rebuild with apktool</div>
+          <div class="pstep-sub">Recompiled smali + resources into an unsigned APK</div>
+        </div>
+      </div>
+      <div class="pipeline-step done">
+        <div class="pipeline-icon">✓</div>
+        <div>
+          <div class="pstep-name">Zipalign</div>
+          <div class="pstep-sub">Optimized for install</div>
+        </div>
+      </div>
+      <div class="pipeline-step done">
+        <div class="pipeline-icon">✓</div>
+        <div>
+          <div class="pstep-name">Sign with generated test keystore</div>
+          <div class="pstep-sub">auto-generated, local only — not the original developer's key</div>
+        </div>
+      </div>
+    </div>
+    <div class="save-row">
+      <button class="btn" onclick="closeRecompile()">Close</button>
+      <button class="btn btn-primary">⬇ Download signed APK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentFileId = 'AuthManager';
+  let currentView = 'java';
+
+  function switchTab(evt, name){
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    evt.currentTarget.classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+
+  function openFile(evt, id){
+    document.querySelectorAll('.file-node, .tree-root-file').forEach(n => n.classList.remove('active'));
+    evt.currentTarget.classList.add('active');
+
+    currentFileId = id;
+    const fileType = evt.currentTarget.dataset.type || 'xml';
+
+    exitEditMode();
+    document.getElementById('agentEditBar').classList.remove('open');
+
+    const toggle = document.getElementById('viewToggle');
+    const hint = document.getElementById('viewHint');
+    const editBtn = document.getElementById('editToggleBtn');
+    const agentBtn = document.getElementById('agentEditBtn');
+
+    if(fileType === 'java'){
+      toggle.style.display = 'flex';
+      setViewInternal('java');
+    } else {
+      toggle.style.display = 'none';
+      hint.style.display = 'none';
+      editBtn.disabled = false;
+      editBtn.title = '';
+      agentBtn.disabled = false;
+      agentBtn.title = '';
+      showCodeFor(id);
+    }
+
+    if(id === 'other'){
+      const fname = evt.currentTarget.querySelector('.fname').textContent;
+      const el = document.getElementById('code-other-path');
+      if(el) el.textContent = fname;
+    }
+  }
+
+  function showCodeFor(id){
+    document.querySelectorAll('.code-file').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.notes-file').forEach(n => n.classList.remove('active'));
+    const codeEl = document.getElementById('code-' + id);
+    const notesEl = document.getElementById('notes-' + id);
+    (codeEl || document.getElementById('code-other')).classList.add('active');
+    (notesEl || document.getElementById('notes-other')).classList.add('active');
+  }
+
+  function setView(evt, view){
+    if(evt) evt.stopPropagation();
+    setViewInternal(view);
+  }
+
+  function setViewInternal(view){
+    currentView = view;
+    document.querySelectorAll('.vt-chip').forEach(c => c.classList.remove('active'));
+    const idx = view === 'java' ? 0 : 1;
+    document.querySelectorAll('.vt-chip')[idx].classList.add('active');
+
+    const hint = document.getElementById('viewHint');
+    const editBtn = document.getElementById('editToggleBtn');
+    const agentBtn = document.getElementById('agentEditBtn');
+    exitEditMode();
+
+    if(view === 'java'){
+      hint.style.display = 'block';
+      hint.innerHTML = 'Read-only — jadx output is for understanding code, not rebuilding it. Switch to <strong>Smali</strong> to make edits that can actually be recompiled.';
+      editBtn.disabled = true;
+      editBtn.title = 'Switch to Smali to make recompilable edits';
+      agentBtn.disabled = true;
+      agentBtn.title = 'Switch to Smali to make recompilable edits';
+      document.getElementById('agentEditBar').classList.remove('open');
+      showCodeFor(currentFileId);
+    } else {
+      hint.style.display = 'block';
+      hint.innerHTML = `Editable — smali is what actually gets rebuilt into the APK. Edits here (yours or the agent's) are what "Recompile app" packages up.`;
+      editBtn.disabled = false;
+      editBtn.title = '';
+      agentBtn.disabled = false;
+      agentBtn.title = '';
+      const smaliId = currentFileId + '-smali';
+      const smaliEl = document.getElementById('code-' + smaliId);
+      if(smaliEl){
+        showCodeFor(smaliId);
+      } else {
+        showCodeFor('other');
+        document.getElementById('code-other-path').textContent = currentFileId + '.smali (not loaded in this reference mockup)';
+      }
+    }
+  }
+
+  function toggleEditMode(){
+    const active = document.querySelector('.code-file.active');
+    if(!active) return;
+    if(active.getAttribute('contenteditable') === 'true'){
+      exitEditMode(true);
+    } else {
+      active.setAttribute('contenteditable', 'true');
+      document.getElementById('editToggleBtn').innerHTML = '💾 Save edit';
+    }
+  }
+
+  function exitEditMode(markModified){
+    document.querySelectorAll('.code-file[contenteditable="true"]').forEach(el => {
+      el.removeAttribute('contenteditable');
+    });
+    const editBtn = document.getElementById('editToggleBtn');
+    if(editBtn) editBtn.innerHTML = '✎ Edit';
+    if(markModified){
+      const badge = document.getElementById('mod-' + currentFileId);
+      if(badge) badge.classList.add('on');
+    }
+  }
+
+  function toggleAgentEditBar(){
+    document.getElementById('agentEditBar').classList.toggle('open');
+  }
+
+  function toggleAgent(){
+    document.getElementById('bodyGrid').classList.toggle('agent-collapsed');
+  }
+
+  function goToOverview(){
+    const overviewTab = document.querySelector('.tab');
+    if(overviewTab) switchTab({currentTarget:overviewTab}, 'overview');
+  }
+
+  function requestCveCheck(evt, libLabel){
+    if(evt) evt.stopPropagation();
+    // make sure the agent dock is expanded
+    document.getElementById('bodyGrid').classList.remove('agent-collapsed');
+    // turn web research on if it isn't already
+    const researchSwitch = document.getElementById('researchSwitch');
+    if(researchSwitch && !researchSwitch.classList.contains('on')){
+      researchSwitch.classList.add('on');
+    }
+    // pre-fill and focus the agent input
+    const input = document.querySelector('.agent-input textarea');
+    if(input){
+      input.value = `Check for known CVEs in ${libLabel}`;
+      input.focus();
+    }
+  }
+
+  function openRecompile(){
+    document.getElementById('recompileOverlay').classList.add('open');
+  }
+  function closeRecompile(){
+    document.getElementById('recompileOverlay').classList.remove('open');
+  }
+  function closeRecompileOnOverlay(evt){
+    if(evt.target.id === 'recompileOverlay') closeRecompile();
+  }
+
+  function toggleFinding(evt){
+    const finding = evt.currentTarget.closest('.finding');
+    finding.classList.toggle('open');
+  }
+
+  function toggleModelDropdown(evt){
+    const pill = document.getElementById('modelPill');
+    pill.classList.toggle('open');
+    evt.stopPropagation();
+  }
+  function toggleSwitchDropdown(evt){
+    document.getElementById('switchPill').classList.toggle('open');
+    evt.stopPropagation();
+  }
+
+  function openSettings(){
+    document.getElementById('settingsOverlay').classList.add('open');
+  }
+  function closeSettings(){
+    document.getElementById('settingsOverlay').classList.remove('open');
+  }
+  function closeSettingsOnOverlay(evt){
+    if(evt.target.id === 'settingsOverlay') closeSettings();
+  }
+  function switchModalTab(evt, name){
+    document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.modal-pane').forEach(p => p.classList.remove('active'));
+    evt.currentTarget.classList.add('active');
+    document.getElementById('modalpane-' + name).classList.add('active');
+  }
+
+  document.querySelectorAll('.provider-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.provider-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      const customRow = document.getElementById('customEndpointRow');
+      if(customRow) customRow.style.display = chip.textContent.includes('Custom') ? 'flex' : 'none';
+    });
+  });
+</script>
+
+</body>
+</html>

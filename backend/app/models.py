@@ -62,6 +62,8 @@ class Finding(Base):
     line_number: Mapped[int | None] = mapped_column(Integer)
     # MASVS/MASTG-mappable category — refined in M1.
     category: Mapped[str | None] = mapped_column(String(128))
+    # MASTG test id (e.g. MASTG-TEST-0073) when known from the vendored mapping.
+    mastg_test_id: Mapped[str | None] = mapped_column(String(64))
     # Which tool produced this finding (androguard | gitleaks | semgrep | lief | ...).
     tool: Mapped[str] = mapped_column(String(64), nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)

@@ -20,5 +20,18 @@ class Settings(BaseSettings):
     data_dir: Path = Path("./data")
     log_level: str = "INFO"
 
+    # ---- M1 analysis tools ----
+    # Directory containing vendored tool installs (Docker layout). On the
+    # host the tools are resolved from PATH unless the *_CMD overrides are set.
+    tools_dir: Path = Path("/opt/masa-tools")
+    jadx_cmd: str | None = None
+    gitleaks_cmd: str | None = None
+    semgrep_cmd: str | None = None
+    java_home: str | None = None  # needed when jadx's JVM is not on PATH
+    jadx_timeout_seconds: int = 1200
+    jadx_threads: int = 4
+    gitleaks_timeout_seconds: int = 600
+    semgrep_timeout_seconds: int = 900
+
 
 settings = Settings()

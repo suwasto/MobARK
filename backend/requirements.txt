@@ -1,7 +1,11 @@
-# MASA backend — pinned runtime dependencies (M0).
+# MASA backend — pinned runtime dependencies (M0 + M1).
 # See docs/licenses.md for the full dependency/license audit.
+#
+# semgrep and gitleaks are CLIs installed separately (Dockerfile), invoked
+# strictly as subprocesses per the Apache-2.0 license posture.
 
 fastapi==0.115.6
+starlette==0.41.3  # fastapi 0.115.x requires <0.42; pin to keep the image reproducible
 uvicorn[standard]==0.34.0
 sqlalchemy==2.0.36
 alembic==1.14.0
@@ -9,3 +13,7 @@ pydantic==2.10.3
 pydantic-settings==2.7.0
 redis==5.2.1
 rq==2.0.0
+
+# M1 — Android manifest analysis + MASTG sync script.
+androguard==4.1.4
+PyYAML==6.0.3

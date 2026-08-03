@@ -1,0 +1,1 @@
+Vendored from OWASP/owasp-mastg @ d7fd7d45636ef9acbae89d0247e8dd748aa6918d (2026-08-03)

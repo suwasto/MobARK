@@ -2,9 +2,9 @@
 
 No fixed dates — sequenced by milestone dependency. Same milestone order as v1, tasks updated to reference actual tools. Feasibility notes are called out inline where a task was corrected from the original plan.
 
-Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embedded) + LlamaIndex CodeSplitter · jadx + androguard + Semgrep (Android) · LIEF (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG + GPT Researcher pattern (deep research) · Docker Compose (3 services) · MIT
+Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embedded) + LlamaIndex CodeSplitter · jadx + androguard + Semgrep (Android) · LIEF (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG + GPT Researcher pattern (deep research) · Docker Compose (3 services) · Apache-2.0
 
-**Library-first principle:** prefer an existing, maintained library over custom logic wherever one covers the need — the project ships MIT, so any GPL/LGPL-licensed tool (Semgrep, ldid, and the analysis CLIs) must be invoked as a subprocess, never imported as a library. See tech stack doc for the specific swaps and reasoning.
+**Library-first principle:** prefer an existing, maintained library over custom logic wherever one covers the need — the project ships Apache-2.0, so any GPL/LGPL-licensed tool (Semgrep, ldid, and the analysis CLIs) must be invoked as a subprocess, never imported as a library. See tech stack doc for the specific swaps and reasoning.
 
 ---
 
@@ -14,19 +14,20 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 - [x] FastAPI base app with health-check endpoint
 - [x] SQLite schema/migrations for scans + findings (e.g. via SQLModel or plain SQLAlchemy)
 - [x] Redis + RQ worker wired up, test with a dummy job
-- [x] Dependency/license audit pass: pin versions for Gitleaks, Semgrep, LiteLLM, LlamaIndex, GPT Researcher and record their licenses in the repo (informational — MASA is MIT, so GPL/LGPL tools stay subprocess-only; the audit records versions, licenses, and that posture)
+- [x] Dependency/license audit pass: pin versions for Gitleaks, Semgrep, LiteLLM, LlamaIndex, GPT Researcher and record their licenses in the repo (informational — MASA is Apache-2.0, so GPL/LGPL tools stay subprocess-only; the audit records versions, licenses, and that posture)
 
 ## M1 — Android analysis core
-- [ ] Wrap jadx as a callable subprocess module (APK in → decompiled Java/Kotlin source tree out)
-- [ ] Bundle a JVM in the app Docker image for jadx (confirm final image size is acceptable — expect +~200MB)
-- [ ] Integrate androguard for manifest parsing (permissions, exported components, intent filters) — pure Python, no JVM needed for this part
-- [ ] Wrap **Gitleaks** as a subprocess module for secret/string scanning (replaces the originally-planned custom regex/entropy scanner — reusable as-is for M2)
-- [ ] Wrap **Semgrep**, running Java/Kotlin-oriented rulesets (community + OWASP-style) against jadx output for code-level findings (insecure WebView config, weak crypto, hardcoded trust managers, etc.) — replaces hand-writing these as one-off regex checks
-- [ ] Parse app signing certificate info (androguard supports this directly)
-- [ ] Parse network security config XML
-- [ ] Define structured findings JSON schema (title, severity, file/line, category) — needs a field for which tool produced each finding (androguard/Gitleaks/Semgrep), since they'll have different output shapes to normalize
-- [ ] Pull MASVS/MASTG tag mappings from the **official OWASP MASTG repo's mapping data**, vendored/cached locally, instead of hand-maintaining a lookup table
-- [ ] Validate end-to-end against a deliberately vulnerable test APK
+> **Status: complete (Aug 3, 2026)** — see [docs/progress/M1.md](progress/M1.md).
+- [x] Wrap jadx as a callable subprocess module (APK in → decompiled Java/Kotlin source tree out)
+- [x] Bundle a JVM in the app Docker image for jadx — image builds, **389 MB content** (within the 350–450 MB gate)
+- [x] Integrate androguard for manifest parsing (permissions, exported components, intent filters) — pure Python, no JVM needed for this part
+- [x] Wrap **Gitleaks** as a subprocess module for secret/string scanning (replaces the originally-planned custom regex/entropy scanner — reusable as-is for M2)
+- [x] Wrap **Semgrep**, running Java/Kotlin-oriented rulesets (community + OWASP-style) against jadx output for code-level findings (insecure WebView config, weak crypto, hardcoded trust managers, etc.) — replaces hand-writing these as one-off regex checks
+- [x] Parse app signing certificate info (androguard supports this directly)
+- [x] Parse network security config XML
+- [x] Define structured findings JSON schema (title, severity, file/line, category) — needs a field for which tool produced each finding (androguard/Gitleaks/Semgrep), since they'll have different output shapes to normalize
+- [x] Pull MASVS/MASTG tag mappings from the **official OWASP MASTG repo's mapping data**, vendored/cached locally, instead of hand-maintaining a lookup table
+- [x] Validate end-to-end against a deliberately vulnerable test APK (`docs/InsecureBankv2.apk`) — 6 integration tests pass + containerized e2e verified (523 findings, same result on host and in compose)
 
 ## M2 — iOS static core
 - [ ] IPA unpack pipeline (.ipa → Payload/*.app), pure Python (zipfile)
@@ -112,7 +113,7 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 ## M10 — Packaging & release
 - [ ] Finalize `docker-compose.yml` (3 services: app, redis, searxng) — confirm truly single-command install on a clean machine
 - [ ] README: setup, Ollama/LM Studio prerequisites (must be running on host before `docker-compose up`), hardware/model recommendations, screenshots
-- [ ] MIT license file
+- [ ] Apache-2.0 license file
 - [ ] Naming collision check ("MASA" vs existing GitHub/npm/PyPI projects)
 - [ ] Strip remaining mockup placeholder branding/sample data
 - [ ] Public GitHub repo, initial release tag

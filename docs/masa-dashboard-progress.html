@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MASA — Mobile Application Security Assistant</title>
+<title>MASA — Scan-in-Progress State (reference)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -117,6 +117,19 @@
   }
   .icon-btn:hover{border-color:var(--steel-dim); color:var(--bone);}
 
+  .preview-toggle{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--bone-faint);
+    background:none;
+    border:1px dashed var(--line);
+    border-radius:3px;
+    padding:6px 10px;
+    cursor:pointer;
+  }
+  .preview-toggle:hover{color:var(--steel); border-color:var(--steel-dim);}
+  .preview-toggle.active{color:var(--steel); border-color:var(--steel-dim); background:rgba(92,155,184,0.08);}
+
   .local-badge{
     display:flex;
     align-items:center;
@@ -182,6 +195,182 @@
   .model-divider{height:1px; background:var(--line); margin:6px 4px;}
 
   /* ---------- Body grid ---------- */
+  /* ---------- Empty / first-run state ---------- */
+  .empty-state-screen{
+    display:none;
+    height:calc(100vh - 52px);
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+  .empty-state-screen.active{display:flex;}
+  .empty-state-inner{
+    width:100%;
+    max-width:520px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    text-align:center;
+  }
+  .empty-mark{
+    width:56px; height:56px;
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:22px;
+    opacity:0.9;
+  }
+  .empty-title{
+    font-family:var(--mono);
+    font-size:19px;
+    font-weight:600;
+    margin-bottom:8px;
+  }
+  .empty-sub{
+    color:var(--bone-faint);
+    font-size:13px;
+    line-height:1.6;
+    margin-bottom:30px;
+    max-width:400px;
+  }
+  .dropzone{
+    width:100%;
+    border:1.5px dashed var(--line);
+    border-radius:8px;
+    padding:36px 24px;
+    background:var(--panel);
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+    margin-bottom:20px;
+  }
+  .dropzone:hover{border-color:var(--steel-dim); background:var(--panel-raised);}
+  .dropzone-icon{font-size:26px; margin-bottom:12px; color:var(--bone-faint);}
+  .dropzone-title{font-family:var(--mono); font-size:13.5px; color:var(--bone); margin-bottom:6px;}
+  .dropzone-sub{font-size:11.5px; color:var(--bone-faint);}
+  .dropzone-formats{
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--bone-faint);
+    margin-top:14px;
+    letter-spacing:0.03em;
+  }
+  .setup-checklist{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:6px;
+    background:var(--panel);
+    overflow:hidden;
+    text-align:left;
+  }
+  .setup-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:11px 14px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  .setup-item:last-child{border-bottom:none;}
+  .setup-item-left{display:flex; align-items:center; gap:10px;}
+  .setup-status{width:14px; height:14px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-size:9px;}
+  .setup-status.ok{background:rgba(107,143,113,0.18); color:var(--moss);}
+  .setup-status.warn{background:rgba(217,142,62,0.18); color:var(--amber);}
+  .setup-label{font-size:12.5px; color:var(--bone);}
+  .setup-sub{font-size:11px; color:var(--bone-faint); margin-top:1px;}
+  .setup-action{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--steel);
+    background:none;
+    border:none;
+    cursor:pointer;
+    white-space:nowrap;
+    flex-shrink:0;
+  }
+  .setup-action:hover{color:var(--bone);}
+  .empty-footnote{
+    margin-top:20px;
+    font-size:11px;
+    color:var(--bone-faint);
+  }
+
+  /* ---------- Scan-in-progress state ---------- */
+  .progress-screen{
+    display:none;
+    height:calc(100vh - 52px);
+    align-items:center;
+    justify-content:center;
+    padding:24px;
+  }
+  .progress-screen.active{display:flex;}
+  .progress-card{
+    width:100%;
+    max-width:480px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--panel);
+    padding:26px 28px;
+  }
+  .progress-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:6px;
+  }
+  .progress-file{
+    font-family:var(--mono);
+    font-size:14px;
+    color:var(--bone);
+  }
+  .progress-sub{
+    font-size:11.5px;
+    color:var(--bone-faint);
+    margin-bottom:20px;
+  }
+  .progress-bar-track{
+    width:100%;
+    height:5px;
+    border-radius:3px;
+    background:var(--line-soft);
+    overflow:hidden;
+    margin-bottom:4px;
+  }
+  .progress-bar-fill{
+    height:100%;
+    width:58%;
+    background:var(--steel);
+    border-radius:3px;
+  }
+  .progress-meta{
+    display:flex;
+    justify-content:space-between;
+    font-family:var(--mono);
+    font-size:10.5px;
+    color:var(--bone-faint);
+    margin-bottom:22px;
+  }
+  .pipeline-icon.active{
+    border-color:var(--steel);
+    color:var(--steel);
+    animation:pulse-ring 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse-ring{
+    0%,100%{box-shadow:0 0 0 0 rgba(92,155,184,0.35);}
+    50%{box-shadow:0 0 0 4px rgba(92,155,184,0);}
+  }
+  .pipeline-step.pending .pstep-name{color:var(--bone-faint);}
+  .progress-actions{
+    display:flex;
+    justify-content:flex-end;
+    margin-top:18px;
+    padding-top:16px;
+    border-top:1px solid var(--line-soft);
+  }
+  .progress-note{
+    font-size:11px;
+    color:var(--bone-faint);
+    margin-top:16px;
+    line-height:1.5;
+  }
+
   /* ---------- Target bar: single active scan ---------- */
   .target-bar{
     display:flex;
@@ -1324,6 +1513,12 @@
     .target-meta{display:none;}
   }
 </style>
+<style>
+  /* Single-screen override for this reference file */
+  .app{ grid-template-rows:52px 1fr; }
+  .empty-state-screen{ display:flex; }
+  .progress-screen{ display:flex; }
+</style>
 </head>
 <body>
 
@@ -1375,510 +1570,73 @@
     </div>
   </div>
 
-  <!-- TARGET BAR: one scan at a time -->
-  <div class="target-bar">
-    <div class="target-info">
-      <div class="target-icon">📦</div>
-      <div class="target-name">com.northbank.mobile</div>
-      <span class="plat-tag">Android</span>
-      <span class="status-badge done">Done</span>
-      <div class="target-meta">v4.2.1 · 14.6 MB · scanned 2m ago</div>
-    </div>
-    <div class="target-actions">
-      <div class="switch-pill" id="switchPill" onclick="toggleSwitchDropdown(event)">
-        <span>Open a different scan</span>
-        <span class="chev">▾</span>
-        <div class="switch-dropdown">
-          <div class="switch-opt-upload">⬆ Upload new APK / IPA</div>
-          <div class="switch-divider"></div>
-          <div class="switch-dropdown-label">Recent scans</div>
-          <div class="switch-opt">
-            <span class="sname">com.northbank.mobile</span>
-            <span class="sdate">now</span>
-          </div>
-          <div class="switch-opt">
-            <span class="sname">Northbank.ipa <span class="plat-tag" style="margin-left:4px;">iOS</span></span>
-            <span class="sdate">1h ago</span>
-          </div>
-          <div class="switch-opt">
-            <span class="sname">com.fleetly.driver</span>
-            <span class="sdate">yesterday</span>
-          </div>
+  <!-- SCAN-IN-PROGRESS STATE -->
+  <div class="progress-screen" id="progressScreen">
+    <div class="progress-card">
+      <div class="progress-head">
+        <div class="target-icon">📦</div>
+        <div class="progress-file">com.chatstream.social</div>
+        <span class="plat-tag">Android</span>
+      </div>
+      <div class="progress-sub">Analyzing — this can take a few minutes on larger APKs</div>
+
+      <div class="progress-bar-track"><div class="progress-bar-fill"></div></div>
+      <div class="progress-meta">
+        <span>58% complete</span>
+        <span>1m 42s elapsed · ~1m remaining</span>
+      </div>
+
+      <div class="pipeline-step done">
+        <div class="pipeline-icon">✓</div>
+        <div>
+          <div class="pstep-name">Uploaded</div>
+          <div class="pstep-sub">18.2 MB</div>
         </div>
       </div>
+      <div class="pipeline-step done">
+        <div class="pipeline-icon">✓</div>
+        <div>
+          <div class="pstep-name">Unpacked</div>
+          <div class="pstep-sub">jadx + apktool</div>
+        </div>
+      </div>
+      <div class="pipeline-step done">
+        <div class="pipeline-icon">✓</div>
+        <div>
+          <div class="pstep-name">Decompiled</div>
+          <div class="pstep-sub">412 classes recovered</div>
+        </div>
+      </div>
+      <div class="pipeline-step active">
+        <div class="pipeline-icon active">●</div>
+        <div>
+          <div class="pstep-name">Running static analysis</div>
+          <div class="pstep-sub">androguard · Semgrep · Gitleaks — 260 of 412 files scanned</div>
+        </div>
+      </div>
+      <div class="pipeline-step pending">
+        <div class="pipeline-icon">4</div>
+        <div>
+          <div class="pstep-name">Indexing for chat</div>
+          <div class="pstep-sub">Embedding decompiled source into ChromaDB</div>
+        </div>
+      </div>
+      <div class="pipeline-step pending">
+        <div class="pipeline-icon">5</div>
+        <div>
+          <div class="pstep-name">Ready</div>
+          <div class="pstep-sub">Findings, decompiler, and agent chat become available</div>
+        </div>
+      </div>
+
+      <div class="progress-actions">
+        <button class="btn">Cancel scan</button>
+      </div>
+      <div class="progress-note">You can navigate away — MASA keeps analyzing in the background and the scan will show up in "Open a different scan" when it's done.</div>
     </div>
   </div>
 
-  <!-- BODY -->
-  <div class="body" id="bodyGrid">
 
-    <!-- MAIN -->
-    <div class="main">
-      <div class="main-header">
-        <div class="main-title-row">
-          <div class="main-title">com.northbank.mobile</div>
-          <div class="main-sub">v4.2.1 · scanned Jul 22, 2026 · 14.6 MB</div>
-        </div>
-        <div class="tabs">
-          <div class="tab active" onclick="switchTab(event,'overview')">Overview</div>
-          <div class="tab" onclick="switchTab(event,'findings')">Findings <span style="color:var(--bone-faint)">(12)</span></div>
-          <div class="tab" onclick="switchTab(event,'decompiler')">Decompiler</div>
-          <div class="tab" onclick="switchTab(event,'report')">Report</div>
-        </div>
-      </div>
-
-      <!-- OVERVIEW PANEL -->
-      <div class="panel active" id="panel-overview">
-        <div class="overview-grid">
-          <div class="gauge-card">
-            <svg width="140" height="90" viewBox="0 0 140 90">
-              <path d="M 10 80 A 60 60 0 0 1 130 80" fill="none" stroke="#2B3238" stroke-width="10" stroke-linecap="round"/>
-              <path d="M 10 80 A 60 60 0 0 1 108 32" fill="none" stroke="#D98E3E" stroke-width="10" stroke-linecap="round"/>
-            </svg>
-            <div class="gauge-score">67<span>/100</span></div>
-            <div class="gauge-label">High risk</div>
-          </div>
-          <div class="stat-row">
-            <div class="stat-box"><div class="stat-num crit">2</div><div class="stat-name">Critical</div></div>
-            <div class="stat-box"><div class="stat-num high">4</div><div class="stat-name">High</div></div>
-            <div class="stat-box"><div class="stat-num med">5</div><div class="stat-name">Medium</div></div>
-            <div class="stat-box"><div class="stat-num low">1</div><div class="stat-name">Low</div></div>
-          </div>
-        </div>
-
-        <div class="section-label">AI summary</div>
-        <div class="ai-explain" style="display:block; margin-top:0; margin-bottom:24px;">
-          <div class="ai-tag">Agent · qwen2.5-coder:32b</div>
-          This build stores the session token in <code>SharedPreferences</code> without encryption, and pairs it with a
-          WebView that has JavaScript bridges exposed to untrusted content. Combined, an attacker who can position
-          themselves on the network could chain the SSL pinning gap with the local storage weakness for a full
-          account takeover. Recommend prioritizing findings #1 and #3 before the next release.
-        </div>
-
-        <div class="section-label">Top findings</div>
-        <div class="finding">
-          <div class="spine crit"></div>
-          <div class="finding-body">
-            <div class="finding-top">
-              <div>
-                <div class="finding-title">Session token stored in plaintext SharedPreferences</div>
-                <div class="finding-meta">AuthManager.java · line 118</div>
-              </div>
-              <span class="sev-tag crit">Critical</span>
-            </div>
-          </div>
-        </div>
-        <div class="finding">
-          <div class="spine high"></div>
-          <div class="finding-body">
-            <div class="finding-top">
-              <div>
-                <div class="finding-title">Certificate pinning disabled in release build</div>
-                <div class="finding-meta">NetworkModule.java · line 44</div>
-              </div>
-              <span class="sev-tag high">High</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- FINDINGS PANEL -->
-      <div class="panel" id="panel-findings">
-        <div class="section-label">All findings (12)</div>
-
-        <div class="finding open">
-          <div class="spine crit"></div>
-          <div class="finding-body">
-            <div class="finding-top" onclick="toggleFinding(event)">
-              <div>
-                <div class="finding-title">Session token stored in plaintext SharedPreferences</div>
-                <div class="finding-meta">AuthManager.java · line 118 · MASVS-STORAGE-1</div>
-              </div>
-              <span class="sev-tag crit">Critical</span>
-            </div>
-            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
-            <div class="ai-explain">
-              <div class="ai-tag">Agent explains</div>
-              The token returned from <code>/api/login</code> is written directly to <code>SharedPreferences</code>
-              with <code>MODE_PRIVATE</code>, which is readable on rooted devices or through a backup extraction.
-              Anyone who recovers this value can replay it as an authenticated session until it expires or is revoked.
-              Fix: store it in the Android Keystore-backed EncryptedSharedPreferences, and shorten token lifetime server-side.
-            </div>
-          </div>
-        </div>
-
-        <div class="finding">
-          <div class="spine high"></div>
-          <div class="finding-body">
-            <div class="finding-top" onclick="toggleFinding(event)">
-              <div>
-                <div class="finding-title">Certificate pinning disabled in release build</div>
-                <div class="finding-meta">NetworkModule.java · line 44 · MASVS-NETWORK-1</div>
-              </div>
-              <span class="sev-tag high">High</span>
-            </div>
-            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
-            <div class="ai-explain">
-              <div class="ai-tag">Agent explains</div>
-              A build flag guards the pinning block and evaluates false in the release flavor, so the release APK
-              trusts any CA in the system store. Combined with the plaintext token above, a MITM on public wifi is
-              enough to intercept a live session, not just credentials in transit.
-            </div>
-          </div>
-        </div>
-
-        <div class="finding">
-          <div class="spine high"></div>
-          <div class="finding-body">
-            <div class="finding-top" onclick="toggleFinding(event)">
-              <div>
-                <div class="finding-title">Exported activity accepts unvalidated deep-link intent</div>
-                <div class="finding-meta">DeepLinkActivity.java · line 27 · MASVS-PLATFORM-1</div>
-              </div>
-              <span class="sev-tag high">High</span>
-            </div>
-            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
-            <div class="ai-explain">
-              <div class="ai-tag">Agent explains</div>
-              This activity is exported with no permission requirement, and reads a URL straight from the intent
-              extras into a WebView loader. Any installed app, or a crafted link opened in a browser, can drive this
-              screen to an attacker-controlled page.
-            </div>
-          </div>
-        </div>
-
-        <div class="finding">
-          <div class="spine med"></div>
-          <div class="finding-body">
-            <div class="finding-top" onclick="toggleFinding(event)">
-              <div>
-                <div class="finding-title">Hardcoded Firebase API key in strings.xml</div>
-                <div class="finding-meta">res/values/strings.xml · line 9</div>
-              </div>
-              <span class="sev-tag med">Medium</span>
-            </div>
-            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
-            <div class="ai-explain">
-              <div class="ai-tag">Agent explains</div>
-              This key matches Firebase's public web config format, which is expected to ship client-side — the
-              real risk lives in your Firebase Security Rules, not this string. Worth a quick check that rules
-              actually restrict reads and writes per-user rather than leaving the database open.
-            </div>
-          </div>
-        </div>
-
-        <div class="finding">
-          <div class="spine low"></div>
-          <div class="finding-body">
-            <div class="finding-top" onclick="toggleFinding(event)">
-              <div>
-                <div class="finding-title">Debuggable flag left enabled</div>
-                <div class="finding-meta">AndroidManifest.xml · line 6</div>
-              </div>
-              <span class="sev-tag low">Low</span>
-            </div>
-            <button class="explain-btn" onclick="toggleFinding(event)"><span class="arrow">▸</span> AI explanation</button>
-            <div class="ai-explain">
-              <div class="ai-tag">Agent explains</div>
-              <code>android:debuggable="true"</code> is present in this build. It's low severity on its own, but it
-              lowers the bar for attaching a debugger and stepping through the token-handling code above — worth
-              flipping off before this build reaches testers outside the team.
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- DECOMPILER PANEL -->
-      <div class="panel" id="panel-decompiler">
-        <div class="section-label">com.northbank.mobile — decompiled (jadx + androguard)</div>
-
-        <div class="decomp-toolbar">
-          <div class="view-toggle" id="viewToggle">
-            <button class="vt-chip active" onclick="setView(event,'java')">Java (jadx)</button>
-            <button class="vt-chip" onclick="setView(event,'smali')">Smali</button>
-          </div>
-          <div class="toolbar-actions">
-            <button class="btn" id="editToggleBtn" onclick="toggleEditMode()" disabled title="Switch to Smali to make recompilable edits">✎ Edit</button>
-            <button class="btn" id="agentEditBtn" onclick="toggleAgentEditBar()" disabled title="Switch to Smali to make recompilable edits">✨ Ask agent to edit</button>
-            <button class="btn btn-primary" onclick="openRecompile()">⚙ Recompile app</button>
-          </div>
-        </div>
-        <div class="view-hint" id="viewHint">Read-only — jadx output is for understanding code, not rebuilding it. Switch to <strong>Smali</strong> to make edits that can actually be recompiled.</div>
-        <div class="agent-edit-bar" id="agentEditBar">
-          <span class="aeb-tag">✨ Ask agent</span>
-          <input class="field-input" placeholder="e.g. Bypass this SSL pinning check for testing" />
-          <button class="btn btn-primary">Apply</button>
-        </div>
-
-        <div class="decomp-layout">
-
-          <!-- FILE TREE -->
-          <div class="file-tree">
-            <details open>
-              <summary><span class="tree-caret">▸</span>📁 com</summary>
-              <div class="tree-nested">
-                <details open>
-                  <summary><span class="tree-caret">▸</span>📁 northbank</summary>
-                  <div class="tree-nested">
-                    <details open>
-                      <summary><span class="tree-caret">▸</span>📁 mobile</summary>
-                      <div class="tree-nested">
-                        <div class="file-node active" data-type="java" onclick="openFile(event,'AuthManager')">
-                          <span class="fname">AuthManager.java</span><span class="mod-badge" id="mod-AuthManager"></span>
-                          <span class="fdot crit"></span>
-                        </div>
-                        <div class="file-node" data-type="java" onclick="openFile(event,'NetworkModule')">
-                          <span class="fname">NetworkModule.java</span><span class="mod-badge" id="mod-NetworkModule"></span>
-                          <span class="fdot high"></span>
-                        </div>
-                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
-                          <span class="fname">NetworkInterceptor.java</span>
-                          <span class="fdot med"></span>
-                        </div>
-                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
-                          <span class="fname">WebViewBridge.java</span>
-                          <span class="fdot med"></span>
-                        </div>
-                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
-                          <span class="fname">DeepLinkActivity.java</span>
-                          <span class="fdot high"></span>
-                        </div>
-                        <div class="file-node" data-type="java" onclick="openFile(event,'other')">
-                          <span class="fname">MainActivity.java</span>
-                          <span class="fdot none"></span>
-                        </div>
-                      </div>
-                    </details>
-                  </div>
-                </details>
-              </div>
-            </details>
-            <details open>
-              <summary><span class="tree-caret">▸</span>📁 res</summary>
-              <div class="tree-nested">
-                <details open>
-                  <summary><span class="tree-caret">▸</span>📁 values</summary>
-                  <div class="tree-nested">
-                    <div class="file-node" data-type="xml" onclick="openFile(event,'strings')">
-                      <span class="fname">strings.xml</span>
-                      <span class="fdot med"></span>
-                    </div>
-                  </div>
-                </details>
-                <details>
-                  <summary><span class="tree-caret">▸</span>📁 xml</summary>
-                  <div class="tree-nested">
-                    <div class="file-node" data-type="xml" onclick="openFile(event,'other')">
-                      <span class="fname">network_security_config.xml</span>
-                      <span class="fdot none"></span>
-                    </div>
-                  </div>
-                </details>
-              </div>
-            </details>
-            <div class="tree-root-file" data-type="xml" onclick="openFile(event,'manifest')">
-              <span class="fname">AndroidManifest.xml</span>
-              <span class="fdot low" style="background:var(--moss);"></span>
-            </div>
-          </div>
-
-          <!-- CODE PANE -->
-          <div class="code-pane">
-
-            <div class="code-file active" id="code-AuthManager">
-              <div class="code-file-path">com/northbank/mobile/AuthManager.java</div>
-              <div class="code-line"><span class="ln">112</span><span class="kw">public</span> <span class="kw">void</span> onLoginSuccess(<span class="cls">LoginResponse</span> res) {</div>
-              <div class="code-line"><span class="ln">113</span>&nbsp;&nbsp;<span class="cls">SharedPreferences</span> prefs = ctx.getSharedPreferences(</div>
-              <div class="code-line"><span class="ln">114</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="str">"auth_store"</span>, <span class="cls">Context</span>.MODE_PRIVATE);</div>
-              <div class="code-line"><span class="ln">115</span>&nbsp;&nbsp;<span class="cls">SharedPreferences</span>.Editor e = prefs.edit();</div>
-              <div class="code-line flagged"><span class="ln">116</span>&nbsp;&nbsp;<span class="cm">// token written without encryption</span></div>
-              <div class="code-line flagged"><span class="ln">117</span>&nbsp;&nbsp;e.putString(<span class="str">"session_token"</span>, res.getToken());</div>
-              <div class="code-line flagged"><span class="ln">118</span>&nbsp;&nbsp;e.putLong(<span class="str">"expires_at"</span>, res.getExpiry());</div>
-              <div class="code-line"><span class="ln">119</span>&nbsp;&nbsp;e.apply();</div>
-              <div class="code-line"><span class="ln">120</span>&nbsp;&nbsp;navigateHome();</div>
-              <div class="code-line"><span class="ln">121</span>}</div>
-              <div class="code-line">&nbsp;</div>
-              <div class="code-line"><span class="ln">122</span><span class="kw">public</span> <span class="kw">String</span> getStoredToken() {</div>
-              <div class="code-line flagged"><span class="ln">123</span>&nbsp;&nbsp;<span class="kw">return</span> prefs.getString(<span class="str">"session_token"</span>, <span class="kw">null</span>);</div>
-              <div class="code-line"><span class="ln">124</span>}</div>
-            </div>
-
-            <div class="code-file" id="code-AuthManager-smali">
-              <div class="code-file-path">smali/com/northbank/mobile/AuthManager.smali <span class="editable-tag">editable · recompilable</span></div>
-              <div class="code-line"><span class="ln">201</span>.method public onLoginSuccess(Lcom/northbank/mobile/LoginResponse;)V</div>
-              <div class="code-line"><span class="ln">202</span>&nbsp;&nbsp;.locals 3</div>
-              <div class="code-line"><span class="ln">203</span>&nbsp;&nbsp;invoke-virtual {p0}, Lcom/northbank/mobile/AuthManager;->getPrefs()Landroid/content/SharedPreferences;</div>
-              <div class="code-line"><span class="ln">204</span>&nbsp;&nbsp;move-result-object v0</div>
-              <div class="code-line flagged"><span class="ln">205</span>&nbsp;&nbsp;invoke-interface {v0}, Landroid/content/SharedPreferences;->edit()Landroid/content/SharedPreferences$Editor;</div>
-              <div class="code-line flagged"><span class="ln">206</span>&nbsp;&nbsp;move-result-object v1</div>
-              <div class="code-line flagged"><span class="ln">207</span>&nbsp;&nbsp;invoke-virtual {p1}, Lcom/northbank/mobile/LoginResponse;->getToken()Ljava/lang/String;</div>
-              <div class="code-line flagged"><span class="ln">208</span>&nbsp;&nbsp;move-result-object v2</div>
-              <div class="code-line flagged"><span class="ln">209</span>&nbsp;&nbsp;invoke-interface {v1, v2}, Landroid/content/SharedPreferences$Editor;->putString(Ljava/lang/String;Ljava/lang/String;)V</div>
-              <div class="code-line"><span class="ln">210</span>&nbsp;&nbsp;invoke-interface {v1}, Landroid/content/SharedPreferences$Editor;->apply()V</div>
-              <div class="code-line"><span class="ln">211</span>&nbsp;&nbsp;return-void</div>
-              <div class="code-line"><span class="ln">212</span>.end method</div>
-            </div>
-
-            <div class="code-file" id="code-NetworkModule">
-              <div class="code-file-path">com/northbank/mobile/NetworkModule.java</div>
-              <div class="code-line"><span class="ln">38</span><span class="kw">public</span> <span class="cls">OkHttpClient</span> buildClient() {</div>
-              <div class="code-line"><span class="ln">39</span>&nbsp;&nbsp;<span class="cls">OkHttpClient</span>.Builder b = <span class="kw">new</span> <span class="cls">OkHttpClient</span>.Builder();</div>
-              <div class="code-line flagged"><span class="ln">40</span>&nbsp;&nbsp;<span class="kw">if</span> (BuildConfig.ENABLE_PINNING) {</div>
-              <div class="code-line flagged"><span class="ln">41</span>&nbsp;&nbsp;&nbsp;&nbsp;b.certificatePinner(pinner);</div>
-              <div class="code-line flagged"><span class="ln">42</span>&nbsp;&nbsp;}</div>
-              <div class="code-line"><span class="ln">43</span>&nbsp;&nbsp;<span class="cm">// ENABLE_PINNING = false in release flavor</span></div>
-              <div class="code-line"><span class="ln">44</span>&nbsp;&nbsp;<span class="kw">return</span> b.build();</div>
-              <div class="code-line"><span class="ln">45</span>}</div>
-            </div>
-
-            <div class="code-file" id="code-strings">
-              <div class="code-file-path">res/values/strings.xml</div>
-              <div class="code-line"><span class="ln">6</span>&lt;<span class="tg">resources</span>&gt;</div>
-              <div class="code-line"><span class="ln">7</span>&nbsp;&nbsp;&lt;<span class="tg">string</span> <span class="at">name</span>=<span class="str">"app_name"</span>&gt;NorthBank&lt;/<span class="tg">string</span>&gt;</div>
-              <div class="code-line"><span class="ln">8</span>&nbsp;&nbsp;&lt;<span class="tg">string</span> <span class="at">name</span>=<span class="str">"support_email"</span>&gt;help@northbank.example&lt;/<span class="tg">string</span>&gt;</div>
-              <div class="code-line flagged"><span class="ln">9</span>&nbsp;&nbsp;&lt;<span class="tg">string</span> <span class="at">name</span>=<span class="str">"firebase_api_key"</span>&gt;AIzaSyD-•••••••••••••••••hK4&lt;/<span class="tg">string</span>&gt;</div>
-              <div class="code-line"><span class="ln">10</span>&lt;/<span class="tg">resources</span>&gt;</div>
-            </div>
-
-            <div class="code-file" id="code-manifest">
-              <div class="code-file-path">AndroidManifest.xml</div>
-              <div class="code-line"><span class="ln">4</span>&lt;<span class="tg">manifest</span> ...&gt;</div>
-              <div class="code-line"><span class="ln">5</span>&nbsp;&nbsp;&lt;<span class="tg">application</span></div>
-              <div class="code-line flagged"><span class="ln">6</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="at">android:debuggable</span>=<span class="str">"true"</span></div>
-              <div class="code-line"><span class="ln">7</span>&nbsp;&nbsp;&nbsp;&nbsp;<span class="at">android:allowBackup</span>=<span class="str">"true"</span>&gt;</div>
-              <div class="code-line"><span class="ln">8</span>&nbsp;&nbsp;&lt;/<span class="tg">application</span>&gt;</div>
-              <div class="code-line"><span class="ln">9</span>&lt;/<span class="tg">manifest</span>&gt;</div>
-            </div>
-
-            <div class="code-file" id="code-other">
-              <div class="code-file-path" id="code-other-path">com/northbank/mobile/…</div>
-              <div class="code-line" style="opacity:.55;"><span class="ln">·</span><span class="cm">// Full source omitted in this reference mockup.</span></div>
-              <div class="code-line" style="opacity:.55;"><span class="ln">·</span><span class="cm">// In MASA, every file in the tree opens here with real jadx output.</span></div>
-            </div>
-
-          </div>
-
-          <!-- ANNOTATION RAIL -->
-          <div class="annot-rail">
-            <div class="annot-rail-label">Agent margin notes</div>
-
-            <div class="notes-file active" id="notes-AuthManager">
-              <div class="note">
-                <span class="note-tag">Line 117</span>
-                Token persisted with no encryption layer — recoverable via backup or root access.
-              </div>
-              <div class="note">
-                <span class="note-tag">Line 123</span>
-                Same unencrypted value is read back here for every authenticated request. One fix covers both sites.
-              </div>
-            </div>
-
-            <div class="notes-file" id="notes-NetworkModule">
-              <div class="note">
-                <span class="note-tag">Line 40</span>
-                Pinning is gated behind a build flag that evaluates false in release — the release APK trusts any CA in the system store.
-              </div>
-            </div>
-
-            <div class="notes-file" id="notes-strings">
-              <div class="note">
-                <span class="note-tag">Line 9</span>
-                Matches Firebase's public web config format — expected client-side. Real risk lives in Firebase Security Rules, not this string.
-              </div>
-            </div>
-
-            <div class="notes-file" id="notes-manifest">
-              <div class="note">
-                <span class="note-tag">Line 6</span>
-                Debuggable left on lowers the bar for attaching a debugger and stepping through the token-handling code in AuthManager.
-              </div>
-            </div>
-
-            <div class="notes-file" id="notes-other">
-              <div class="no-notes">No AI notes generated for this file yet — open it to have the agent analyze it on demand.</div>
-            </div>
-
-          </div>
-        </div>
-      </div>
-
-      <!-- REPORT PANEL -->
-      <div class="panel" id="panel-report">
-        <div class="report-doc">
-          <h2>Security Assessment — com.northbank.mobile</h2>
-          <div class="report-sub">v4.2.1 · Generated Jul 22, 2026 · Draft, AI-assisted</div>
-
-          <h3>Executive summary</h3>
-          <p>
-            The assessment identified 12 findings across storage, network, and platform categories, including two
-            critical issues that combine into a plausible account-takeover chain. We recommend resolving the token
-            storage and certificate pinning findings before the next public release.
-          </p>
-
-          <h3>Key risk</h3>
-          <p>
-            An attacker positioned on the network can defeat certificate pinning, then recover the session token
-            from local storage on a rooted or backed-up device, resulting in full session hijack without needing
-            the user's password.
-          </p>
-
-          <div class="report-actions">
-            <button class="btn btn-primary">Download PDF</button>
-            <button class="btn">Copy markdown</button>
-            <button class="btn">Regenerate with agent</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- RIGHT DOCK: AI AGENT -->
-    <div class="agent">
-      <div class="agent-header">
-        <div class="title"><span class="dot" style="background:var(--steel); box-shadow:0 0 6px var(--steel);"></span><span>Agent · this scan</span></div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <div class="research-toggle" onclick="toggleResearch(event)" title="Enable web research for this scan">
-            <span>🌐 Web</span>
-            <div class="switch" id="researchSwitch"></div>
-          </div>
-          <button class="collapse-btn" onclick="toggleAgent()">⤢</button>
-        </div>
-      </div>
-      <div class="agent-body">
-        <div class="msg ai">
-          <span class="msg-tag">Agent</span>
-          Scan complete for <code>com.northbank.mobile</code>. 12 findings, 2 critical. Ask me anything about the
-          decompiled code, or say "prioritize" for a fix order.
-        </div>
-        <div class="msg user">Where else does this app touch the session token besides AuthManager?</div>
-        <div class="msg ai">
-          <span class="msg-tag">Agent</span>
-          Two other sites: <code>NetworkInterceptor.java:31</code> attaches it to every outgoing header, and
-          <code>WebViewBridge.java:58</code> injects it into a JS bridge for the in-app support chat — that second
-          one is worth a look, it wasn't in the top findings but widens the exposure.
-        </div>
-        <div class="msg user">Any known CVEs for the OkHttp version this app bundles?</div>
-        <div class="msg ai">
-          <span class="msg-tag">Agent · web research</span>
-          This build bundles OkHttp 3.12.1. That version has a known CVE around hostname verification bypass in
-          certain proxy configurations, patched in later 3.12.x releases. Worth confirming the exact patch level and
-          bumping the dependency regardless, since it lines up with the pinning finding above.
-          <div class="src-row">
-            <span class="src-chip">OkHttp changelog</span>
-            <span class="src-chip">NVD entry</span>
-            <span class="src-chip">GitHub advisory</span>
-          </div>
-        </div>
-      </div>
-      <div class="agent-input">
-        <textarea placeholder="Ask about this scan, e.g. &quot;explain the WebView bridge risk&quot;"></textarea>
-        <div class="row">
-          <span class="hint">⏎ to send</span>
-          <button class="send-btn">Send</button>
-        </div>
-      </div>
-    </div>
-
-  </div>
 </div>
 
 <!-- SETTINGS MODAL -->
@@ -2258,29 +2016,6 @@
   }
   function toggleSwitchDropdown(evt){
     document.getElementById('switchPill').classList.toggle('open');
-    evt.stopPropagation();
-  }
-  document.addEventListener('click', () => {
-    document.getElementById('modelPill').classList.remove('open');
-    document.getElementById('switchPill').classList.remove('open');
-  });
-  document.querySelectorAll('.model-opt').forEach(opt => {
-    opt.addEventListener('click', (e) => {
-      e.stopPropagation();
-      document.querySelectorAll('.model-opt').forEach(o => o.classList.remove('active'));
-      opt.classList.add('active');
-      const pill = document.getElementById('modelPill');
-      pill.childNodes[2].textContent = ' ' + opt.querySelector('.name').textContent + ' ';
-      pill.querySelector('.backend').textContent = '· via ' + opt.querySelector('.via').textContent.split(' · ')[0];
-      pill.classList.remove('open');
-    });
-  });
-
-  function toggleAgent(){
-    document.getElementById('bodyGrid').classList.toggle('agent-collapsed');
-  }
-  function toggleResearch(evt){
-    document.getElementById('researchSwitch').classList.toggle('on');
     evt.stopPropagation();
   }
 

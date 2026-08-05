@@ -27,6 +27,11 @@ frontend/vite.config.d.ts
 # ---- Runtime session memory (generated, not project source) ----
 /knowledge.md
 
+# ---- Tooling scratch / generated analysis output (not project source) ----
+.opencode/
+graphify-out/
+/app_m2_test.py
+
 # ---- OS / editors ----
 .DS_Store
 .idea/

@@ -57,15 +57,43 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 - [x] Docs: `docs/licenses.md` (+lief), progress notes, this checklist
 
 ## M3 — Model backend abstraction
-- [ ] Integrate **LiteLLM** as the model client library (replaces building a custom OpenAI-compatible client class)
-- [ ] Verify against Ollama (`localhost:11434/v1`) running on host, container reaching it via `host.docker.internal` or equivalent
-- [ ] Verify against LM Studio (`localhost:1234/v1`) on host
-- [ ] Config layer for switching base URL/model with no code change — backs the Settings modal's Model Backends tab
-- [ ] Wire BYOK providers through LiteLLM's existing provider support (OpenAI/Anthropic/Gemini/DeepSeek/Mistral/Groq/xAI/OpenRouter/custom) — backs the Settings modal's BYOK tab; confirm which providers need a key vs. base-URL-only
-- [ ] Decide default embedding model: **nomic-embed-text via Ollama**
-- [ ] Connection health check surfaced in the UI (model-pill status dot, backend cards' "Test" button)
+> **Status: COMPLETE (Aug 5, 2026)** — see
+> [docs/progress/M3.md](progress/M3.md).
+>
+> Owner decisions at kickoff: BYOK keys plaintext in `data_dir` with `0600`
+> perms (encryption-at-rest deferred to M5); curated BYOK set (OpenAI,
+> Anthropic, DeepSeek, OpenRouter + custom); **no hard default chat model**
+> (blank — the user picks from what the backend serves); **embeddings +
+> ChromaDB deferred to M4** (items moved into M4 below).
+
+**Phase 1 — LiteLLM client + local backends:**
+- [x] Add `litellm` (1.95.0) to `requirements.txt` (pinned) + `docs/licenses.md` row (MIT); `httpx` promoted to a direct runtime dep
+- [x] `model/client.py`: thin `chat()` wrapper over `litellm.completion` with per-backend `api_base`/`api_key`/model-string mapping (dummy keys for local servers)
+- [x] Local backend definitions: Ollama (`localhost:11434`, in-container `host.docker.internal:11434`) and LM Studio (`localhost:1234/v1`)
+- [x] `model/health.py`: connectivity check (cheap `max_tokens=1` completion) + model listing; graceful "unreachable" result, never an exception
+
+**Phase 2 — Config layer + API surface:**
+- [x] `model/backends.py`: JSON-backed config store in `data_dir` (`model_backends.json`, perms `0600`), seeded from `MASA_*` env vars, runtime-editable
+- [x] API routes (what M5's Settings modal will consume): `GET /model/backends` (with lightweight reachability) · `POST /model/backends/{id}/test` (full probe) · `GET /model/backends/{id}/models` · `PUT /model/backends/{id}` (runtime edits)
+
+**Phase 3 — BYOK providers via LiteLLM:**
+- [x] `model/providers.py`: provider table (OpenAI/Anthropic/DeepSeek/OpenRouter/custom — curated v1 set): env-var names, model-string prefixes, key-required vs. base-URL-only, OpenAI-compatible listing path + static fallback models, kept in one module
+- [x] Keys never logged (`api_key` excluded from repr; API returns `has_api_key` only); store written `0600`; encryption-at-rest deferred to M5 (already an M5 task)
+
+**Phase 4 — Embeddings + ChromaDB foundation — DEFERRED TO M4** (owner decision; items moved to M4 below)
+
+**Phase 5 — Validation:**
+- [x] Unit tests with `litellm`/`httpx` monkeypatched (no network) — **47 tests**: config store round-trip/perms/redaction, client mapping, health behavior, provider invariants, API surface
+- [x] Integration tests gated on a real running Ollama (skipped when unreachable — `pytest -m integration`)
+- [x] `docker-compose.yml`: `extra_hosts: ["host.docker.internal:host-gateway"]` on app + worker; `MASA_OLLAMA/LM_STUDIO_BASE_URL` → `host.docker.internal`; containerized check ran (host-gateway resolves; CLI health graceful with Ollama down)
+- [x] CLI: `python -m app.cli model health [--backend ollama|lm-studio]` for UI-free verification
+- [x] Docs: `docs/licenses.md` (+litellm, +httpx), this checklist, `docs/progress/M3.md` status flip
+- [x] Hygiene: `.dockerignore` fixed — `backend/data` was leaking into the image (`data/` only matched the repo root); now `**/data`
 
 ## M4 — RAG chat MVP (flagship feature — validate hard before proceeding)
+> Start conditions: M3 deferred the vector foundation here (owner decision).
+
+- [ ] **Vector foundation (deferred from M3):** `vector/store.py` — `PersistentClient` at `data_dir/chroma`, collection-per-scan naming convention, LiteLLM-backed `EmbeddingFunction` (default **nomic-embed-text via Ollama**) so Chroma auto-embeds on add/query; `model/client.py` gains `embed_texts()`; smoke test embed → store → query top-k round-trip
 - [ ] Integrate **LlamaIndex's `CodeSplitter`** (tree-sitter based) for chunking decompiled source — parses actual syntax boundaries instead of hand-testing per-class vs. per-method splitting
 - [ ] Embed chunks into ChromaDB (embedded/persistent mode, file-backed — no separate service)
 - [ ] Retrieval function: query → top-k relevant chunks

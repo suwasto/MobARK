@@ -1,13 +1,16 @@
-"""M1/M2 CLI: register an artifact (.apk/.ipa) as a scan and run analysis.
+"""M1/M2/M3 CLI: artifact analysis + model backend health checks.
 
 Usage:
   python -m app.cli run <apk|ipa> [--out <results.json>]   # synchronous, no RQ
   python -m app.cli scan <apk|ipa>                         # create scan + enqueue RQ job
   python -m app.cli jobs <scan_id>                         # run an existing scan id synchronously
+  python -m app.cli model health [--backend <id>]          # backend reachability + models
 
 The synchronous ``run`` path is the fastest way to validate the pipeline
 end-to-end against a real artifact without Redis running. Platform is
 auto-detected from the file extension (``.apk`` -> android, ``.ipa`` -> ios).
+The ``model health`` path is the UI-free way to verify Ollama/LM Studio/BYOK
+connectivity (exit 0 = all requested backends reachable).
 """
 from __future__ import annotations
 
@@ -115,6 +118,39 @@ def cmd_jobs(scan_id: int) -> int:
     return 0 if result.get("ok") else 1
 
 
+def cmd_model_health(backend_id: str | None) -> int:
+    """Reachability + model listing per configured backend (UI-free check).
+
+    Exit codes: 0 all requested backends reachable, 1 any unreachable,
+    2 unknown backend id.
+    """
+    from app.model.backends import get_store
+    from app.model.health import check_backend
+
+    backends = get_store().read()
+    if backend_id:
+        backends = [b for b in backends if b.id == backend_id]
+        if not backends:
+            known = ", ".join(b.id for b in get_store().read())
+            print(f"unknown backend {backend_id!r}; known: {known}", file=sys.stderr)
+            return 2
+
+    ok = True
+    for b in backends:
+        h = check_backend(b, probe=True)
+        line = (
+            f"{b.id:12} {h.status:11} reachable={h.reachable}"
+            f" latency={h.latency_ms}ms models={len(h.models)}"
+        )
+        if h.probe_model:
+            line += f" probe={h.probe_model}:{h.probe_ok}"
+        print(line)
+        if h.error:
+            print(f"             {h.error}")
+        ok = ok and h.reachable
+    return 0 if ok else 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="masa-cli", description="MASA M1 analysis CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -129,6 +165,15 @@ def main() -> None:
     p_jobs = sub.add_parser("jobs", help="run an existing scan synchronously")
     p_jobs.add_argument("scan_id", type=int)
 
+    p_model = sub.add_parser("model", help="model backend health checks")
+    p_model_sub = p_model.add_subparsers(dest="model_command", required=True)
+    p_health = p_model_sub.add_parser("health", help="check backend reachability + models")
+    p_health.add_argument(
+        "--backend",
+        default=None,
+        help="backend id (ollama, lm-studio, openai, ...); default: all",
+    )
+
     args = parser.parse_args()
     if args.command == "run":
         raise SystemExit(cmd_run(args.artifact, args.out))
@@ -136,6 +181,9 @@ def main() -> None:
         raise SystemExit(cmd_scan(args.artifact))
     if args.command == "jobs":
         raise SystemExit(cmd_jobs(args.scan_id))
+    if args.command == "model":
+        if args.model_command == "health":
+            raise SystemExit(cmd_model_health(args.backend))
 
 
 if __name__ == "__main__":

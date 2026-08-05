@@ -4,7 +4,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-m 'not integration'"
 markers = [
-    "integration: requires a running Redis + RQ worker (docker compose up -d redis worker)",
+    "integration: requires external services (Redis + RQ worker, host Ollama, sample artifacts)",
 ]
 
 [tool.ruff]

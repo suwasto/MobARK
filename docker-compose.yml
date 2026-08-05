@@ -30,6 +30,12 @@ services:
       MASA_REDIS_URL: redis://redis:6379/0
       MASA_DATA_DIR: /data
       MASA_LOG_LEVEL: INFO
+      # M3: reach the host's LLM servers from inside the container. On Linux
+      # this needs the extra_hosts host-gateway mapping below.
+      MASA_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      MASA_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - masa-data:/data
     ports:
@@ -59,6 +65,11 @@ services:
       MASA_REDIS_URL: redis://redis:6379/0
       MASA_DATA_DIR: /data
       MASA_LOG_LEVEL: INFO
+      # M3: same host-LLM reachability as the app service.
+      MASA_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      MASA_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - masa-data:/data
     command: python worker.py

@@ -33,5 +33,28 @@ class Settings(BaseSettings):
     gitleaks_timeout_seconds: int = 600
     semgrep_timeout_seconds: int = 900
 
+    # ---- M3 model backends ----
+    # Local LLM servers on the host. Docker Compose overrides these with
+    # host.docker.internal URLs so the container reaches the host.
+    ollama_base_url: str = "http://localhost:11434"
+    lm_studio_base_url: str = "http://localhost:1234/v1"
+
+    # BYOK providers (curated v1 set; keys can also be entered at runtime via
+    # the Settings modal / API — they seed the config store, not the app).
+    openai_base_url: str = "https://api.openai.com/v1"
+    anthropic_base_url: str = "https://api.anthropic.com"
+    deepseek_base_url: str = "https://api.deepseek.com"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    deepseek_api_key: str | None = None
+    openrouter_api_key: str | None = None
+
+    # No hard default (M3 owner decision): blank means the user picks a model
+    # from what the backend actually serves. Set MASA_DEFAULT_CHAT_MODEL to
+    # seed a concrete default into every backend's config.
+    default_chat_model: str = ""
+
 
 settings = Settings()

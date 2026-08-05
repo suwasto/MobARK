@@ -20,3 +20,8 @@ PyYAML==6.0.3
 
 # M2 — iOS Mach-O parsing + code-signature blob access.
 lief==1.0.0
+
+# M3 — LiteLLM model client (chat + BYOK provider abstraction).
+# ChromaDB + embeddings land in M4 (deferred by owner decision).
+litellm==1.95.0
+httpx==0.28.1  # direct runtime dep since M3 (health model listing); was dev-only

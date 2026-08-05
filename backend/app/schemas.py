@@ -49,3 +49,47 @@ class FindingRead(BaseModel):
             except json.JSONDecodeError:
                 return {"raw": value}
         return value
+
+
+# ---- M3 model backends (consumed by M5's Settings modal) ----
+
+
+class ModelBackendHealth(BaseModel):
+    reachable: bool
+    status: str  # "ok" | "unreachable" | "unknown"
+    latency_ms: int | None = None
+    models: list[str] = []
+    model_source: str = "none"  # "live" | "suggested" | "unavailable" | "none"
+    probe_model: str | None = None
+    probe_ok: bool | None = None
+    error: str | None = None
+    checked_at: datetime | None = None
+
+
+class ModelBackendRead(BaseModel):
+    id: str
+    provider_id: str
+    name: str
+    kind: str  # "local" | "byok" | "custom"
+    base_url: str
+    model: str = ""
+    enabled: bool = True
+    local: bool
+    has_api_key: bool  # never the key itself
+    health: ModelBackendHealth | None = None
+
+
+class ModelBackendUpsert(BaseModel):
+    """Runtime edits to a backend's config. Empty ``api_key`` clears the stored
+    key; None leaves the field unchanged."""
+
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    enabled: bool | None = None
+
+
+class ModelBackendModels(BaseModel):
+    models: list[str] = []
+    source: str = "none"  # "live" | "suggested" | "unavailable"
+    error: str | None = None

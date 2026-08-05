@@ -10,8 +10,8 @@ __pycache__
 .pytest_cache
 .ruff_cache
 
-# Runtime data
-data/
+# Runtime data (nested too: backend/data was leaking into the image)
+**/data
 *.db
 
 # Node / frontend

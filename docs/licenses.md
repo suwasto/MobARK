@@ -59,6 +59,12 @@ typing-extensions (PSF), uvloop (MIT/Apache), watchfiles (MIT), websockets
 |---|---|---|---|
 | LIEF | 1.0.0 | Apache-2.0 | iOS Mach-O parsing, code-signature blob access; manylinux wheels (no macOS-only binaries) |
 
+## Installed in M3 (backend, pinned)
+
+| Package | Version | License | Notes |
+|---|---|---|---|
+| LiteLLM | 1.95.0 | MIT | model client: chat + BYOK provider abstraction (OpenAI/Anthropic/DeepSeek/OpenRouter/local); embeddings used from M4 onward |
+
 ## M1 CLI tools (baked into the app image, subprocess-only)
 
 | Tool | License | Type | Version pin |
@@ -90,7 +96,6 @@ Python libraries imported by MASA (all permissive — safe under Apache-2.0):
 
 | Library | License | Milestone | Version pin |
 |---|---|---|---|
-| LiteLLM | MIT | M3 | pin at install |
 | LlamaIndex (CodeSplitter) | MIT | M4 | pin at install |
 | tree-sitter | MIT | M4 (via LlamaIndex) | pin at install |
 | chromadb | Apache-2.0 | M4 | pin at install |

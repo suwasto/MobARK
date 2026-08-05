@@ -21,14 +21,17 @@ def enqueue_dummy(message: str = "hello from MASA"):
     return queue.enqueue(dummy_job, message)
 
 
-def run_android_scan(scan_id: int) -> dict:
-    """Run the full M1 Android analysis pipeline for an existing scan row.
+def run_scan(scan_id: int) -> dict:
+    """Run the full analysis pipeline for an existing scan row (M1/M2).
 
-    The scan row must already have ``storage_path`` pointing at a directory
-    containing the uploaded APK (``<storage_path>/<filename>``). Progress is
-    persisted on the scan row (queued -> running -> done|failed).
+    Platform is auto-detected from the stored artifact's extension
+    (``.apk`` -> android, ``.ipa`` -> ios) via the orchestrator's
+    ``run_analysis`` dispatch. The scan row must already have
+    ``storage_path`` pointing at a directory containing the uploaded
+    artifact (``<storage_path>/<filename>``). Progress is persisted on the
+    scan row (queued -> running -> done|failed).
     """
-    from app.analysis.orchestrator import ScanAborted, run_android_analysis
+    from app.analysis.orchestrator import ScanAborted, run_analysis
     from app.config import settings
     from app.db import SessionLocal
     from app.models import Finding, Scan, utcnow
@@ -44,12 +47,14 @@ def run_android_scan(scan_id: int) -> dict:
         db.commit()
 
         storage = Path(scan.storage_path) if scan.storage_path else None
-        apk_path = (storage / scan.filename) if storage and storage.is_dir() else storage
-        if apk_path is None or not apk_path.is_file():
-            raise ScanAborted(f"uploaded APK missing at {apk_path}")
+        artifact_path = (
+            storage / scan.filename if storage and storage.is_dir() else storage
+        )
+        if artifact_path is None or not artifact_path.is_file():
+            raise ScanAborted(f"uploaded artifact missing at {artifact_path}")
 
         work_dir = settings.data_dir / "work" / str(scan_id)
-        result = run_android_analysis(apk_path, work_dir)
+        result = run_analysis(artifact_path, work_dir)
 
         # Replace findings for this scan (re-runs shouldn't accumulate).
         db.query(Finding).filter(Finding.scan_id == scan_id).delete()
@@ -65,6 +70,7 @@ def run_android_scan(scan_id: int) -> dict:
                     category=f.category,
                     mastg_test_id=f.mastg_test_id,
                     detail=json.dumps(f.detail) if f.detail else None,
+                    static_only=f.static_only,
                 )
             )
 
@@ -91,7 +97,12 @@ def run_android_scan(scan_id: int) -> dict:
         db.close()
 
 
+def run_android_scan(scan_id: int) -> dict:
+    """Compatibility shim for the M1 job name (old queued jobs may resolve it)."""
+    return run_scan(scan_id)
+
+
 def enqueue_scan(scan_id: int):
-    """Enqueue the M1 analysis job for a scan."""
+    """Enqueue the analysis job for a scan (platform auto-detected at run time)."""
     queue = Queue(DEFAULT_QUEUE, connection=get_redis())
-    return queue.enqueue(run_android_scan, scan_id)
+    return queue.enqueue(run_scan, scan_id)

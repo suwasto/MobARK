@@ -64,9 +64,12 @@ class Finding(Base):
     category: Mapped[str | None] = mapped_column(String(128))
     # MASTG test id (e.g. MASTG-TEST-0073) when known from the vendored mapping.
     mastg_test_id: Mapped[str | None] = mapped_column(String(64))
-    # Which tool produced this finding (androguard | gitleaks | semgrep | lief | ...).
+    # Which tool produced this finding (androguard | gitleaks | semgrep | plist | lief | ...).
     tool: Mapped[str] = mapped_column(String(64), nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)
+    # True = static-only finding (all current findings; runtime/dynamic
+    # confirmation is out of scope for v1 — M2's mockup "static-only" label).
+    static_only: Mapped[bool] = mapped_column(default=True, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow

@@ -53,6 +53,12 @@ typing-extensions (PSF), uvloop (MIT/Apache), watchfiles (MIT), websockets
 | androguard | 4.1.4 | Apache-2.0 | manifest/cert/netsec parsing |
 | PyYAML | 6.0.3 | MIT | now a direct dep (MASTG sync script); was transitive |
 
+## Installed in M2 (backend, pinned)
+
+| Package | Version | License | Notes |
+|---|---|---|---|
+| LIEF | 1.0.0 | Apache-2.0 | iOS Mach-O parsing, code-signature blob access; manylinux wheels (no macOS-only binaries) |
+
 ## M1 CLI tools (baked into the app image, subprocess-only)
 
 | Tool | License | Type | Version pin |
@@ -84,7 +90,6 @@ Python libraries imported by MASA (all permissive — safe under Apache-2.0):
 
 | Library | License | Milestone | Version pin |
 |---|---|---|---|
-| LIEF | Apache-2.0 | M2 | pin at install |
 | LiteLLM | MIT | M3 | pin at install |
 | LlamaIndex (CodeSplitter) | MIT | M4 | pin at install |
 | tree-sitter | MIT | M4 (via LlamaIndex) | pin at install |
@@ -97,9 +102,13 @@ Python libraries imported by MASA (all permissive — safe under Apache-2.0):
   wrapped as subprocess modules (M1 / M2), which keeps MASA's Apache-2.0
   license clean. Re-verify Semgrep's pinned version license at install time (its CLI
   licensing has shifted across versions).
-- **MASVS/MASTG mapping data** (M1) is sourced from the OWASP MASTG repo
+- **MASVS/MASTG mapping data** (M1/M2) is sourced from the OWASP MASTG repo
   (MIT/CC-BY-4.0 style project data), vendored/cached locally — not a code
-  dependency.
+  dependency. The vendored mapping includes both Android and iOS tests
+  (129 iOS tests), so M2 backfills `mastg_test_id` the same way M1 does.
+- **Sample test artifact** `docs/iBugBazaar.ipa` (payatu/iBugBazaar,
+  MASTG-APP-0030) is vendored for M2 integration testing; see
+  `docs/progress/M2.md` for the pinned release + sha256.
 - Docker images: `python:3.11-slim` (PSF license) and `redis:7-alpine`
   (BSD-3-Clause). The M1 image additionally bundles an
   `eclipse-temurin:17-jre-jammy` OpenJDK JRE (GPLv2+CE) copied into the image

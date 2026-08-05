@@ -30,15 +30,31 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 - [x] Validate end-to-end against a deliberately vulnerable test APK (`docs/InsecureBankv2.apk`) — 6 integration tests pass + containerized e2e verified (523 findings, same result on host and in compose)
 
 ## M2 — iOS static core
-- [ ] IPA unpack pipeline (.ipa → Payload/*.app), pure Python (zipfile)
-- [ ] Parse Info.plist via Python's `plistlib` (usage strings, ATS config)
-- [ ] Integrate **LIEF** for Mach-O binary inspection — PIE/stack canary/ARC flags, exported symbols, linked libraries
-- [ ] Entitlement extraction via LIEF reading the embedded signature blob directly (no `codesign` dependency)
-- [ ] **Document the entitlement-extraction coverage limit explicitly** (best-effort for ad-hoc/resigned IPAs — see tech stack doc) — surface this in the finding output itself, not just internal docs
-- [ ] Reuse M1's Gitleaks wrapper against binary + bundled resources (same tool, different input surface)
-- [ ] Map iOS finding types into the same findings JSON schema as Android
-- [ ] "Static-only" flag on every iOS finding — already reflected in the mockup, now wire it to real data
-- [ ] Validate against a sample IPA (e.g., an intentionally vulnerable iOS test app), confirm LIEF parses it correctly on Linux (not just macOS dev machine) before calling this done
+> **Status: complete (Aug 5, 2026)** — see
+> [docs/progress/M2.md](progress/M2.md).
+
+**Foundation (no LIEF yet):**
+- [x] IPA unpack pipeline: `.ipa` → `Payload/*.app` via `zipfile` (pure Python), bundle id/name extraction, malformed-IPA rejection reusing M1's `ScanAborted` policy
+- [x] Info.plist parsing via `plistlib` (binary + XML formats): ATS config (`NSAllowsArbitraryLoads`, per-domain exceptions), usage-description strings, `MinimumOSVersion`, background modes, bundle metadata
+- [x] Platform autodetect in the CLI + orchestrator (`.apk` → android, `.ipa` → ios)
+
+**Mach-O + entitlements (LIEF):**
+- [x] Add `lief` to `requirements.txt` (Apache-2.0, manylinux wheels) + license-audit row
+- [x] `ios/macho.py` via LIEF: PIE flag, stack canary (`___stack_chk_guard`), ARC indicator, FairPlay-encrypted check (`LC_ENCRYPTION_INFO` cryptid), exported symbols, linked dylibs, fat-arch slice info
+- [x] `ios/entitlements.py`: carve the embedded code-signature blob via LIEF's `code_signature` object and parse with `plistlib` — no `codesign` dependency
+- [x] Surface the entitlement-coverage limit in finding output (best-effort for ad-hoc/resigned IPAs; App Store FairPlay binaries are encrypted) — not just internal docs
+
+**Findings + persistence (same schema as Android):**
+- [x] `static_only: bool` on the findings schema (model + migration `0003` + `FindingRead`), set True on every iOS finding
+- [x] Map iOS finding types to MASVS/MASTG using the already-vendored mapping (it includes iOS tests) — backfill `mastg_test_id` like M1
+- [x] Reuse M1's Gitleaks wrapper against the `.app` tree (binary + resources) — ran clean on iBugBazaar (no hits); Linux coverage documented in M2 progress doc
+- [x] `run_ios_scan` RQ job + CLI `run`/`scan` autodetect
+
+**Validation:**
+- [x] Unit tests: unpack / plist / entitlements / Mach-O (synthetic fixture or LIEF-built Mach-O)
+- [x] Integration test against a pinned vulnerable sample IPA (**iBugBazaar**, `MASTG-APP-0030`, release artifact pinned + sha256) — **4/4 pass on host** (macOS); Linux confirmation via container e2e below
+- [x] Rebuild image with `lief` + containerized e2e: enqueue an iOS scan through the compose worker → `done` with persisted findings (mirror M1)
+- [x] Docs: `docs/licenses.md` (+lief), progress notes, this checklist
 
 ## M3 — Model backend abstraction
 - [ ] Integrate **LiteLLM** as the model client library (replaces building a custom OpenAI-compatible client class)

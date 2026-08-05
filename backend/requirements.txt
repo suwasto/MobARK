@@ -17,3 +17,6 @@ rq==2.0.0
 # M1 — Android manifest analysis + MASTG sync script.
 androguard==4.1.4
 PyYAML==6.0.3
+
+# M2 — iOS Mach-O parsing + code-signature blob access.
+lief==1.0.0

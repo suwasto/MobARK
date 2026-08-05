@@ -1,12 +1,13 @@
-"""M1 CLI: register an APK as a scan and run M1 Android analysis.
+"""M1/M2 CLI: register an artifact (.apk/.ipa) as a scan and run analysis.
 
 Usage:
-  python -m app.cli run <apk> [--out <results.json>]   # synchronous, no RQ
-  python -m app.cli scan <apk>                         # create scan + enqueue RQ job
-  python -m app.cli jobs <scan_id>                     # run an existing scan id synchronously
+  python -m app.cli run <apk|ipa> [--out <results.json>]   # synchronous, no RQ
+  python -m app.cli scan <apk|ipa>                         # create scan + enqueue RQ job
+  python -m app.cli jobs <scan_id>                         # run an existing scan id synchronously
 
 The synchronous ``run`` path is the fastest way to validate the pipeline
-end-to-end against a real APK without Redis running.
+end-to-end against a real artifact without Redis running. Platform is
+auto-detected from the file extension (``.apk`` -> android, ``.ipa`` -> ios).
 """
 from __future__ import annotations
 
@@ -19,19 +20,22 @@ from pathlib import Path
 from app.config import settings
 
 
-def _apk_path(value: str) -> Path:
+def _artifact_path(value: str) -> Path:
     p = Path(value).resolve()
     if not p.is_file():
-        raise SystemExit(f"APK not found: {p}")
+        raise SystemExit(f"artifact not found: {p}")
+    suffix = p.suffix.lower()
+    if suffix not in (".apk", ".ipa"):
+        raise SystemExit(f"unsupported artifact type {suffix!r} (expected .apk or .ipa)")
     return p
 
 
-def cmd_run(apk: Path, out: Path | None) -> int:
-    from app.analysis.orchestrator import ScanAborted, run_android_analysis
+def cmd_run(artifact: Path, out: Path | None) -> int:
+    from app.analysis.orchestrator import ScanAborted, run_analysis
 
     work = settings.data_dir / "work" / "cli"
     try:
-        result = run_android_analysis(apk, work)
+        result = run_analysis(artifact, work)
     except ScanAborted as exc:
         print(f"scan aborted: {exc}", file=sys.stderr)
         return 1
@@ -64,6 +68,7 @@ def cmd_run(apk: Path, out: Path | None) -> int:
                 "category": f.category,
                 "mastg_test_id": f.mastg_test_id,
                 "detail": f.detail,
+                "static_only": f.static_only,
             }
             for f in result.findings
         ]
@@ -72,22 +77,23 @@ def cmd_run(apk: Path, out: Path | None) -> int:
     return 0
 
 
-def cmd_scan(apk: Path) -> int:
-    """Create a Scan row, copy the APK into the data dir, enqueue the job."""
+def cmd_scan(artifact: Path) -> int:
+    """Create a Scan row, copy the artifact into the data dir, enqueue the job."""
     from app.db import SessionLocal
     from app.models import Scan
 
+    platform = "ios" if artifact.suffix.lower() == ".ipa" else "android"
     db = SessionLocal()
     try:
-        scan = Scan(filename=apk.name, platform="android", status="queued")
+        scan = Scan(filename=artifact.name, platform=platform, status="queued")
         db.add(scan)
         db.commit()
         scan_id = scan.id
 
         upload_dir = settings.data_dir / "uploads" / str(scan_id)
         upload_dir.mkdir(parents=True, exist_ok=True)
-        stored = upload_dir / apk.name
-        shutil.copy2(apk, stored)
+        stored = upload_dir / artifact.name
+        shutil.copy2(artifact, stored)
         scan.storage_path = str(upload_dir)
         db.commit()
     finally:
@@ -102,9 +108,9 @@ def cmd_scan(apk: Path) -> int:
 
 def cmd_jobs(scan_id: int) -> int:
     """Run an existing scan synchronously (useful when Redis isn't up)."""
-    from app.workers.jobs import run_android_scan
+    from app.workers.jobs import run_scan
 
-    result = run_android_scan(scan_id)
+    result = run_scan(scan_id)
     print(json.dumps(result, indent=2, default=str))
     return 0 if result.get("ok") else 1
 
@@ -114,20 +120,20 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_run = sub.add_parser("run", help="run analysis synchronously")
-    p_run.add_argument("apk", type=_apk_path)
+    p_run.add_argument("artifact", type=_artifact_path, metavar="apk-or-ipa")
     p_run.add_argument("--out", type=Path, default=None)
 
     p_scan = sub.add_parser("scan", help="register + enqueue a scan")
-    p_scan.add_argument("apk", type=_apk_path)
+    p_scan.add_argument("artifact", type=_artifact_path, metavar="apk-or-ipa")
 
     p_jobs = sub.add_parser("jobs", help="run an existing scan synchronously")
     p_jobs.add_argument("scan_id", type=int)
 
     args = parser.parse_args()
     if args.command == "run":
-        raise SystemExit(cmd_run(args.apk, args.out))
+        raise SystemExit(cmd_run(args.artifact, args.out))
     if args.command == "scan":
-        raise SystemExit(cmd_scan(args.apk))
+        raise SystemExit(cmd_scan(args.artifact))
     if args.command == "jobs":
         raise SystemExit(cmd_jobs(args.scan_id))
 

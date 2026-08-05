@@ -36,6 +36,7 @@ class FindingRead(BaseModel):
     mastg_test_id: str | None
     tool: str
     detail: dict | None = None
+    static_only: bool = True
     created_at: datetime
 
     @field_validator("detail", mode="before")

@@ -34,25 +34,26 @@ def mastg_test(test_id: str) -> dict | None:
 
 
 @lru_cache(maxsize=1)
-def _control_index() -> dict[str, list[str]]:
-    """control id -> list of android test ids (for reverse lookups)."""
-    index: dict[str, list[str]] = {}
+def _control_index() -> dict[tuple[str, str], list[str]]:
+    """(platform, control id) -> list of test ids (for reverse lookups)."""
+    index: dict[tuple[str, str], list[str]] = {}
     for test_id, info in load_mapping().items():
         if not isinstance(info, dict):
             continue
-        if info.get("platform") and info["platform"] != "android":
+        platform = info.get("platform")
+        if platform not in ("android", "ios"):
             continue
         controls = info.get("masvs_v2_id") or []
         if isinstance(controls, str):
             controls = [controls]
         for control in controls:
-            index.setdefault(control, []).append(test_id)
+            index.setdefault((platform, control), []).append(test_id)
     return index
 
 
-def test_ids_for_control(control: str) -> list[str]:
-    """Android MASTG test ids mapped to a MASVS v2 control, if any."""
-    return _control_index().get(control, [])
+def test_ids_for_control(control: str, platform: str = "android") -> list[str]:
+    """MASTG test ids (for ``platform``) mapped to a MASVS v2 control."""
+    return _control_index().get((platform, control), [])
 
 
 def source_metadata() -> dict:

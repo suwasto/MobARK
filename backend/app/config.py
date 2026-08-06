@@ -56,5 +56,25 @@ class Settings(BaseSettings):
     # seed a concrete default into every backend's config.
     default_chat_model: str = ""
 
+    # ---- M4 Layer 3: Graphify code graph (Android) ----
+    # The RAG/embedding path was removed from v1 by owner decision — no
+    # embedding model or vector store config exists anymore.
+    # graphify CLI (resolved from PATH when None, like jadx_cmd/gitleaks_cmd).
+    graphify_cmd: str | None = None
+    graphify_timeout_seconds: int = 1800
+
+    # ---- M4 agent chat ----
+    # Hard overall deadline (seconds) for the whole agent tool loop in
+    # answer_question — a hung LLM call can never block the API worker beyond
+    # this. Per-request override: POST /scans/{id}/chat {timeout_seconds}.
+    chat_timeout_seconds: int = 120
+
+    # ---- M5 dashboard ----
+    # Upload size cap for POST /api/v1/scans (413 over the limit).
+    max_upload_mb: int = 200
+    # Built frontend (frontend/dist) served by FastAPI with an SPA fallback
+    # when the directory exists; no-op during backend-only dev.
+    frontend_dist: Path = Path("../frontend/dist")
+
 
 settings = Settings()

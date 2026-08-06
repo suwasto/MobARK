@@ -2,7 +2,7 @@
 
 No fixed dates — sequenced by milestone dependency. Same milestone order as v1, tasks updated to reference actual tools. Feasibility notes are called out inline where a task was corrected from the original plan.
 
-Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embedded) + LlamaIndex CodeSplitter · jadx + androguard + Semgrep (Android) · LIEF (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG + GPT Researcher pattern (deep research) · Docker Compose (3 services) · Apache-2.0
+Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector store — the M4 RAG/embedding pipeline was deleted from v1 (owner decision); the agent layer is non-embedding: Layer 1 full findings context + Layer 2 search/read tools + Layer 3 Graphify graph** · jadx + androguard + Semgrep (Android) · LIEF + Mach-O import-table scanner + Gitleaks + Semgrep (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG + GPT Researcher pattern (deep research) · Docker Compose (3 services) · Apache-2.0 · Graphify (code-only, graph-based structure understanding)
 
 **Library-first principle:** prefer an existing, maintained library over custom logic wherever one covers the need — the project ships Apache-2.0, so any GPL/LGPL-licensed tool (Semgrep, ldid, and the analysis CLIs) must be invoked as a subprocess, never imported as a library. See tech stack doc for the specific swaps and reasoning.
 
@@ -63,8 +63,9 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 > Owner decisions at kickoff: BYOK keys plaintext in `data_dir` with `0600`
 > perms (encryption-at-rest deferred to M5); curated BYOK set (OpenAI,
 > Anthropic, DeepSeek, OpenRouter + custom); **no hard default chat model**
-> (blank — the user picks from what the backend serves); **embeddings +
-> ChromaDB deferred to M4** (items moved into M4 below).
+> (blank — the user picks from what the backend serves). Note: the
+> "embeddings + ChromaDB deferred to M4" item was **removed from v1 entirely**
+> at M4 kickoff (owner decision, Aug 6) — see the M4 section.
 
 **Phase 1 — LiteLLM client + local backends:**
 - [x] Add `litellm` (1.95.0) to `requirements.txt` (pinned) + `docs/licenses.md` row (MIT); `httpx` promoted to a direct runtime dep
@@ -90,38 +91,140 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 - [x] Docs: `docs/licenses.md` (+litellm, +httpx), this checklist, `docs/progress/M3.md` status flip
 - [x] Hygiene: `.dockerignore` fixed — `backend/data` was leaking into the image (`data/` only matched the repo root); now `**/data`
 
-## M4 — RAG chat MVP (flagship feature — validate hard before proceeding)
-> Start conditions: M3 deferred the vector foundation here (owner decision).
+## M4 — Agent context layers (Layers 1-3, no RAG)
+> Plan + progress: [docs/progress/M4.md](progress/M4.md) — written Aug 5, 2026.
+> **Owner decision (Aug 6, 2026): the RAG/embedding pipeline is DELETED from
+> v1, not deferred.** Chunking (LlamaIndex CodeSplitter), ChromaDB storage, the
+> embedding job, and the vector-retrieval chat endpoint were removed outright —
+> CPU-only embedding of a 3MB APK took 5-15 min before chat was even usable.
+> Replaced by three non-embedding layers. Status: **built + unit-tested (Aug 6,
+> 2026)**; live-model QA is manual (Ollama off during development).
 
-- [ ] **Vector foundation (deferred from M3):** `vector/store.py` — `PersistentClient` at `data_dir/chroma`, collection-per-scan naming convention, LiteLLM-backed `EmbeddingFunction` (default **nomic-embed-text via Ollama**) so Chroma auto-embeds on add/query; `model/client.py` gains `embed_texts()`; smoke test embed → store → query top-k round-trip
-- [ ] Integrate **LlamaIndex's `CodeSplitter`** (tree-sitter based) for chunking decompiled source — parses actual syntax boundaries instead of hand-testing per-class vs. per-method splitting
-- [ ] Embed chunks into ChromaDB (embedded/persistent mode, file-backed — no separate service)
-- [ ] Retrieval function: query → top-k relevant chunks
-- [ ] Chat endpoint: user question + retrieved context → LLM → answer
-- [ ] Citation formatting: answer must reference file/class/line, not just prose
-- [ ] **Stress test against obfuscated/minified code** (ProGuard/R8) — named risk, don't skip
-- [ ] Stress test against a large real-world APK for retrieval quality and latency
-- [ ] Manual QA: correct grounded answer in ≤3 chat turns? (v1 success bar from PRD)
-- [ ] **Go/no-go checkpoint** — don't proceed to M5 UI wiring until this holds up
+**Layer 1 — structured findings as direct agent context (all sources, full set):**
+- [x] `agent/context.py`: normalizes every finding source into one agent-facing schema
+      with a per-finding **precision tag** — `[file/line]` (semgrep, gitleaks,
+      androguard manifest, Info.plist) vs `[binary-level presence only, no specific
+      location]` (Mach-O protections/entitlements, import-table scanner). Platform
+      tool whitelists: **androguard is Android-only and must never appear in an iOS
+      context**; iOS = plist + lief + symbols + gitleaks + semgrep. Full findings set
+      rendered (no subsetting; explicit `max_findings` escape hatch only)
+- [x] iOS **binary profile** surfaced as info findings (was hidden in unpersisted
+      `result.meta`): exported symbols, linked dylibs, architectures, ARC, full
+      entitlement set — this is what answers "what entitlements does this app have"
+- [x] **Import-table scanner** (`analysis/ios/symbols.py`, tool id `symbols`) — the
+      explicitly-named replacement for vague "LIEF-derived findings": known-insecure
+      API blocklist matched against Mach-O imports — CC_MD5/CC_SHA1/CC_DES/CCCrypt
+      (legacy crypto), UIWebView, NSURLConnection cert-bypass selectors, ptrace/
+      sysctl/syscall anti-debug. Binary-level precision by design; findings note
+      what constant-level detail (ECB mode, PT_DENY_ATTACH) is NOT visible at the
+      import table
+- [x] iOS Gitleaks ruleset (`resources/gitleaks_ios.toml`) for the
+      `kSecAttrAccessibleAlways` insecure-keychain string — **string-level, rides
+      through Gitleaks, not the import-table scanner**
+- [x] iOS semgrep stage added for completeness — **zero yield by design** (binary
+      structure via LIEF, no decompiled Swift/ObjC source); the Layer 1 context
+      builder flags it so the agent never leans on it
+
+**Layer 2 — grep + file read as agent tools (no embeddings, both platforms):**
+- [x] `agent/tools.py::search_code(pattern, glob)` — regex over the scan's
+      decompiled/extracted tree (Android jadx tree; iOS unpacked bundle)
+- [x] `agent/tools.py::read_file(path, line_range)` — traversal-guarded, binary
+      plist decoded to text, binary files refused with a clear message
+- [x] No platform branching inside the tools — only the tree-root resolver knows
+      the platform; identical behavior both platforms
+
+**Layer 3 — Graphify as agent tools (Android only):**
+- [x] `graph_query`/`graph_path`/`graph_explain` tool wrappers over the graphify CLI
+      (`app/graph/graphify.py`, renamed from `app/vector` — no "vector" name left)
+- [x] `build_graph_scan` RQ job chained after `run_scan` (Android-only; iOS records
+      `ios-no-source`); graph state is filesystem-derived, `GET /scans/{id}/graph`
+- [x] CLI: `rag` group → `graph build|query|path|explain` + `agent context|chat`;
+      `agent context` renders the exact Layer 1 context with zero LLM
+- [x] Graphify CLI-surface corrections (validated 0.9.32): headless build is
+      `update <dir> --no-cluster`; queries via `query|path|explain|affected --graph`;
+      natural-language queries fail on code-only AST graphs → label/ID substring
+      fallback in the wrapper
+- [x] iOS graph negative confirmed (Aug 6): an unpacked `.app` tree has zero
+      source-like files → Graphify is Android-only in v1
+
+**Agent chat (mocked unit tests only — Ollama off during development):**
+- [x] `agent/chat.py`: bounded tool-calling loop (≤3 rounds) over Layers 1-3, with
+      the documented graceful fallback to context-only answers when the model
+      doesn't emit tool calls; citations resolved from file:line refs in the answer
+- [x] `POST /scans/{id}/chat` restored with Layers 1-3 semantics (same response
+      shape as the deleted RAG endpoint, so M5's chat panel contract doesn't churn)
+- [ ] Manual QA with a real model (owner, Ollama off during dev): "where is
+      certificate pinning located" + 2-3 similar Android questions, one iOS
+      entitlements question, multi-source answers (semgrep+androguard; symbols+
+      gitleaks) with precision intact
+- [ ] Stress: obfuscated + large APK — Layer 2/3 quality and findings-context size
+- [ ] **Go/no-go checkpoint** — don't proceed to M5 UI wiring until the manual QA
+      holds up
 
 ## M5 — Dashboard integration
-- [ ] Scaffold React + Vite app, port the mockup's design tokens into a Tailwind config (colors, IBM Plex fonts, spacing scale)
-- [ ] Overview tab wired to real findings JSON (risk score calc, severity counts)
-- [ ] Findings tab: expandable AI explanation per finding (calls M3's LiteLLM-backed model client)
-- [ ] Decompiler tab: real decompiled source + AI margin annotations
-- [ ] Agent chat panel wired to real M4 RAG endpoint (replace mock messages)
-- [ ] Scan queue: real upload → RQ job → poll job status every 2-3s (no WebSocket needed for v1)
-- [ ] Settings modal: Model Backends tab wired to real Ollama/LM Studio detection + model list
-- [ ] Settings modal: BYOK tab wired to real key storage (local, encrypted at rest if feasible) and provider list
+> **Status: Phases A–F COMPLETE (Aug 6, 2026); Phases G–H not started.**
+> Plan + architecture:
+> [docs/progress/M5.md](progress/M5.md). Owner decision (Phase B): the primary
+> accent is the MASA **brand emerald** from `docs/icons/masa_icon_only.svg`
+> (replaces the mockup's blue `steel`); the top bar uses the `masa_icon_text_whitetext`
+> wordmark as an image and the icon-only mark for the empty state.
+> Owner decisions at kickoff: plan-only session first, then Phase A; the
+> mockup design system is re-implemented in **Tailwind v4** (CSS-first
+> `@theme` tokens — the v4 replacement for a `tailwind.config.js`).
+
+**Backend surface (Phase A — COMPLETE, 238 tests green, ruff clean):**
+- [x] Migration 0004: `findings.explanation` (AI-explain cache) · `scans.ai_summary` (overview cache) · `scans.stage` (progress screen stage string)
+- [x] Risk score: `analysis/risk.py::compute_risk_score` (severity-weighted, documented formula), computed in `run_scan`, stored on `Scan.risk_score`, backfilled on GET for legacy scans
+- [x] `POST /api/v1/scans` — multipart upload (`.apk`/`.ipa`, zip sanity check, `MASA_MAX_UPLOAD_MB` → 413), save + `Scan(queued)` + enqueue RQ job
+- [x] `GET /api/v1/scans/{id}/findings` — severity-desc order, `?severity=` filter, `?limit/offset=` (default 1000)
+- [x] `POST /api/v1/scans/{id}/summary` — AI overview via M3 chat model, cached in `scans.ai_summary`
+- [x] `POST /api/v1/scans/{id}/findings/{fid}/explain` — FR-8 grounded explanation, cached in `findings.explanation`
+- [x] `GET /api/v1/scans/{id}/files` + `GET /files/content` — bounded tree (depth 8 / 1500 nodes, `truncated` flag; Android `sources`+`resources` roots, iOS `Payload/*.app`), traversal-guarded reads reusing `agent/tools.py` (shared `is_text_file`/`resolve_tree_root`)
+- [x] Model lifecycle: `POST /api/v1/model/backends` (create custom / activate BYOK) + `DELETE` (remove; local protected)
+- [x] `Scan.stage` written at each `run_scan` pipeline stage via orchestrator `on_stage` callbacks (decompiling → analyzing → secrets → done)
+- [x] Static serving: FastAPI mounts `frontend/dist` + SPA fallback for non-`/api` paths
+- [x] Backend tests for all of the above (mocked LLM): 238 total (was 167) — risk, insights, upload/findings/explain/summary/files API, model lifecycle, migration 0004 up+down; ruff clean
+
+**Frontend (Tailwind v4 re-implementation, Phases B–H):**
+- [x] Design system: `@theme` tokens from the mockup palette (accent re-themed to the brand emerald) + IBM Plex via `@fontsource` (no CDN), `@tailwindcss/vite`
+- [x] App shell + view machine (`empty | progress | loaded` from active-scan status, active scan id in localStorage), typed API client + types + AppContext (`state/AppContext.tsx`)
+- [x] Empty state: dropzone (click + drag&drop) → `POST /scans`, setup checklist derived from real health + model state, local-only footnote, backend-unreachable retry
+- [x] Progress screen: poll every 2.5 s while queued/running (shell `useScanPolling`), platform-aware pipeline stage list from `Scan.stage` (done ✓ / active ● pulse / pending), indeterminate bar, elapsed timer
+- [ ] Top bar: brand, real Local-only indicator, model pill dropdown (backends × served models, set default), + New scan, settings gear
+- [x] Target bar: active scan identity + "Open a different scan" dropdown (recent scans + upload) — also mounted on the progress screen (mockup-faithful)
+- [x] Overview tab: risk gauge (SVG arc), severity counts, AI summary block, top findings — all from real data
+- [x] Findings tab: real findings list, severity filter chips, expandable AI explanation per finding (explain endpoint, cached)
+- [x] Decompiler tab (read-only in M5): file tree API, highlight.js code viewer with flagged lines, annotation rail from findings (+ per-line explain)
+- [x] Decompiler follow-ups (Aug 6): **iOS no longer shows the raw unzipped bundle** — the app-bundle walk is curated to text-readable files, with the hidden binary blobs collected into a collapsed **`Binary (Mach-O)` (n) tree entry** (each listed inline with its full path, inert/dimmed rows — `FileNode.binary` flag; `filtered_binaries` count kept in the API) and a synthetic **`analysis/` root** is generated from the persisted binary-level findings: `macho-profile.md` (architectures, PIE/canary/ARC/FairPlay with honest "not flagged" phrasing, linked dylibs), `entitlements.plist` (full carved set as JSON), `exported-symbols.txt`, `insecure-imports.txt` (import-table scanner findings). **Panes are now resizable IntelliJ-style** (drag splitters between tree/code/rail, clamped, persisted to localStorage, double-click reset, narrow screens hide the rail as before). **Risk gauge color now tracks the 0–100 score** — continuous green(0)→orange(50)→red(100) hue ramp instead of a fixed amber
+- [x] Agent chat panel (Phase G): wired to `POST /scans/{id}/chat` — collapsible right dock, real welcome message (findings counts), backtick-code rendering, citations as clickable file:line chips (jump the Decompiler tab to the file), graceful 400 no-model / 409 not-analyzed / 504 timeout / network error bubbles each with Retry, Enter-to-send (Shift+Enter newline, IME-safe), web-research toggle disabled until M7. Gate: `tsc -b && vite build` green; live check — dock renders against a real scan, chat returns the designed 400 (no chat model) in ~34ms; browser click-through blocked by the recurring chrome-devtools agent outage (covered by code review, same as Phase E)
+- [ ] Settings modal → Model Backends tab: backend cards, base URL edit, Test, served-model chips, set default model
+- [ ] Settings modal → BYOK tab: provider list, add key, custom endpoint, remove
 - [ ] "Local-only" indicator reflects real state — off the moment a BYOK provider is enabled, not decorative
+- [ ] Placeholders (not built in M5): Dependencies tab (M7), Report tab + Export report (M9), Smali/edit/recompile (M8), web-research toggle (M7)
+
+**Validation (Phase I):**
+- [ ] `tsc -b && vite build` green; browser verification of all three states against a real scan (InsecureBankv2)
+- [ ] Containerized e2e: compose up → scan via CLI → dashboard served from FastAPI against the shared DB
+- [ ] Manual QA with a real model (owner, Ollama off during dev): chat, per-finding explain, overview summary
+- [ ] Docs: `docs/progress/M5.md` status flip to COMPLETE, this checklist checked, knowledge.md updated
 
 ## M6 — Agent tool-calling
-- [ ] Define tool schema: `read_manifest()`, `get_decompiled_class(name)`, `search_strings(pattern)`, `get_permissions()`, `run_secrets_scan()`
-- [ ] Implement using **LiteLLM's normalized function-calling interface** (replaces hand-parsing Ollama's native tool-call format directly)
+- [ ] M4 already ships the Layer 1-3 tools (`search_code`, `read_file`, `graph_query`,
+      `graph_path`, `graph_explain`) and the bounded tool loop. M6's remaining work:
+      the M5-era tools (`read_manifest()`, `get_decompiled_class(name)`,
+      `get_permissions()`, `run_secrets_scan()`) built on top of the analysis engine
+- [ ] Implement the M6 tool surface using **LiteLLM's normalized function-calling
+      interface** (already exercised by M4's chat loop)
 - [ ] **Restrict tool-calling to a documented known-good model list** (Qwen2.5/2.5-coder, Llama 3.1+) — LiteLLM standardizes the API shape, but doesn't fix models that don't reliably follow structured tool-call output; that's still a model capability limit, not a library problem
-- [ ] Graceful fallback: if the selected model doesn't support tool calls, degrade to plain RAG chat (M4) instead of failing
-- [ ] Guard against runaway tool-call loops (max iterations, timeout)
+- [ ] Graceful fallback: if the selected model doesn't support tool calls, degrade to
+      a context-only answer (M4 Layers 1-3 already do this in `agent/chat.py`)
+- [ ] Guard against runaway tool-call loops (max iterations, timeout) — M4's loop is
+      bounded at ≤3 rounds; extend per tool semantics if needed
 - [ ] Test agent on a multi-step question requiring 2+ tool calls
+- [ ] Test the flagship structural-question case explicitly: "where is certificate
+      pinning located" should resolve via graph traversal (Layer 3), not a
+      findings-context round-trip — confirm this actually happens, don't just assume
+      the agent picks the right tool
 
 ## M7 — Deep research / web browsing
 - [ ] Add `searxng` as a 3rd Docker Compose service, JSON output format enabled (so results are parseable, not just HTML)
@@ -166,7 +269,8 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · ChromaDB (embe
 ---
 
 ## Deferred / v1.1 candidates (unchanged from v1, not blocking v1)
-- [ ] MASVS/MASTG as an embedded RAG corpus (reuse M4's ChromaDB instance once M4 is proven)
+- [ ] MASVS/MASTG reference lookups through the agent layer (M7 web research covers
+      current guidance; an embedded corpus was removed with the RAG pipeline)
 - [ ] "Lite mode" model recommendation for low-spec hardware (Cookbook-style)
 - [ ] Multi-user / auth / team features (would also mean revisiting SQLite → Postgres)
 - [ ] Hosted cloud tier

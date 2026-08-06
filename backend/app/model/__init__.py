@@ -1,7 +1,8 @@
 """M3 — model backend abstraction: LiteLLM client + config store + health checks.
 
-Phase 1-3 of the M3 plan (see docs/progress/M3.md). Embeddings / ChromaDB
-were deferred to M4 by owner decision, so no vector code lives here yet.
+Phase 1-3 of the M3 plan (see docs/progress/M3.md). The M4 embedding path
+was removed from v1 by owner decision (RAG deleted; agent layers are
+non-embedding) — no vector/embedding code exists anywhere.
 """
 import litellm
 

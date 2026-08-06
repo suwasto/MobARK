@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class HealthResponse(BaseModel):
@@ -20,6 +20,7 @@ class ScanRead(BaseModel):
     status: str
     risk_score: int | None
     error: str | None
+    stage: str | None = None
     created_at: datetime
 
 
@@ -93,3 +94,111 @@ class ModelBackendModels(BaseModel):
     models: list[str] = []
     source: str = "none"  # "live" | "suggested" | "unavailable"
     error: str | None = None
+
+
+# ---- M4 agent layer (Layers 1-3: findings context + grep/read + graph tools) ----
+# The RAG/embedding schemas (ChatRequest.top_k, ScanIndexState) were removed
+# with the pipeline — grounding is now the full findings set + tools.
+
+
+class ChatRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    # Optional hard deadline (seconds) for the whole agent loop; falls back to
+    # settings.chat_timeout_seconds when omitted. A hung LLM call can never
+    # block the API worker beyond this.
+    timeout_seconds: int | None = Field(default=None, ge=1)
+
+
+class Citation(BaseModel):
+    file: str
+    line: int | None = None
+    snippet: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    citations: list[Citation]
+    sources: list[str]
+
+
+class ScanGraphState(BaseModel):
+    built: bool
+    nodes: int | None = None
+    edges: int | None = None
+    graph_path: str | None = None
+    reason: str | None = None
+
+
+# ---- M5 dashboard: LLM insights, decompiler tree, model lifecycle ----
+
+
+class ExplainResponse(BaseModel):
+    """Per-finding AI explanation (FR-8), cached on the finding row."""
+
+    explanation: str
+    cached: bool
+    model: str | None = None
+    generated_at: datetime | None = None
+
+
+class SummaryResponse(BaseModel):
+    """AI overview summary, cached on the scan row."""
+
+    summary: str
+    cached: bool
+    model: str | None = None
+    generated_at: datetime | None = None
+
+
+class FileNode(BaseModel):
+    """One node of the bounded decompiler tree."""
+
+    name: str
+    path: str  # relative to the tree root
+    type: str  # "dir" | "file"
+    # True for iOS hidden binary blobs listed under the synthetic
+    # "Binary (Mach-O)" folder — rendered as inert, non-viewable rows.
+    binary: bool = False
+    children: list["FileNode"] = []
+
+
+FileNode.model_rebuild()
+
+
+class FileTreeRoot(BaseModel):
+    """A bounded tree for one root (sources / resources / Payload/*.app).
+
+    ``filtered_binaries`` (iOS) counts raw binary files hidden from the
+    curated bundle walk — the UI shows the count so hiding never looks like
+    data loss.
+    """
+
+    name: str
+    total_nodes: int
+    truncated: bool
+    filtered_binaries: int = 0
+    tree: list[FileNode]
+
+
+class FileTreeResponse(BaseModel):
+    platform: str
+    roots: list[FileTreeRoot]
+
+
+class FileContentResponse(BaseModel):
+    """File content for the code viewer, with highlight.js language."""
+
+    path: str
+    content: str
+    language: str
+    truncated: bool
+    size: int
+
+
+class ModelBackendCreate(BaseModel):
+    """Create/activate a BYOK or custom backend (Settings -> BYOK tab)."""
+
+    provider_id: str
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None

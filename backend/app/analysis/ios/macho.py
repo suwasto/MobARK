@@ -81,6 +81,9 @@ def analyze_app_binary(app_root: Path) -> StageResult:
         archs.append(arch)
         _analyze_binary(binary, result)
     result.meta["architectures"] = archs
+    # M4 Layer 1: surface the binary profile as info findings so the agent's
+    # findings context can see it (result.meta is not persisted anywhere).
+    _emit_profile_findings(result, archs)
     return result
 
 
@@ -174,7 +177,7 @@ def _analyze_binary(binary, result: StageResult) -> None:
 
     # --- Linked dylibs ---
     libs = [lib.name for lib in binary.libraries if lib.name]
-    result.meta["linked_dylibs"] = sorted(libs)
+    result.meta["linked_dylibs"] = sorted(set(result.meta.get("linked_dylibs", [])) | set(libs))
 
 
 def is_macho(path: Path) -> bool:
@@ -184,3 +187,50 @@ def is_macho(path: Path) -> bool:
         return True
     except MachoError:
         return False
+
+
+def _emit_profile_findings(result: StageResult, archs: list[str]) -> None:
+    """Info findings describing the binary itself (architectures, linked
+    dylibs, exported symbols, ARC) — binary-level context for the agent.
+    Only emitted when the data is non-empty so quiet binaries stay quiet.
+    """
+    if archs:
+        result.findings.append(
+            FindingOut(
+                tool=TOOL_LIEF,
+                title=f"Binary slices: {', '.join(archs)}",
+                severity="info",
+                detail={"architectures": archs},
+            )
+        )
+    dylibs = result.meta.get("linked_dylibs") or []
+    if dylibs:
+        result.findings.append(
+            FindingOut(
+                tool=TOOL_LIEF,
+                title=f"Linked dylibs ({len(dylibs)})",
+                severity="info",
+                detail={"count": len(dylibs), "dylibs": dylibs[:50]},
+            )
+        )
+    count = result.meta.get("exported_symbol_count") or 0
+    if count:
+        sample = result.meta.get("exported_symbols_sample") or []
+        result.findings.append(
+            FindingOut(
+                tool=TOOL_LIEF,
+                title=f"Exported symbols ({count})",
+                severity="info",
+                detail={"count": count, "sample": sample[:50]},
+            )
+        )
+    if result.meta.get("arc") is True:
+        evidence = result.meta.get("arc_evidence") or []
+        result.findings.append(
+            FindingOut(
+                tool=TOOL_LIEF,
+                title="ARC enabled (ObjC runtime symbols present)",
+                severity="info",
+                detail={"evidence": evidence[:10]},
+            )
+        )

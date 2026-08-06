@@ -137,3 +137,7 @@ def test_analyze_app_binary_end_to_end(tmp_path):
     # PIE is set -> no PIE finding; canary absent -> exactly one finding.
     assert not [x for x in result.findings if "PIE" in x.title]
     assert len([x for x in result.findings if "Stack canary" in x.title]) == 1
+    # M4 Layer 1: binary profile surfaced as info findings (agent context).
+    assert any("Binary slices" in x.title for x in result.findings)
+    assert all(x.tool == TOOL_LIEF for x in result.findings)
+    assert all(x.static_only for x in result.findings)

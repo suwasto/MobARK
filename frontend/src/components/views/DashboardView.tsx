@@ -1,0 +1,180 @@
+import { useCallback, useEffect, useState } from 'react'
+import { api } from '../../api/client'
+import { useFindings } from '../../hooks/useFindings'
+import { formatRelative, platformLabel } from '../../lib/format'
+import { useApp } from '../../state/AppContext'
+import type { ScanRead } from '../../types'
+import { TargetBar } from '../TargetBar'
+import { AgentDock } from '../agent/AgentDock'
+import { DecompilerPanel } from '../panels/DecompilerPanel'
+import { FindingsPanel } from '../panels/FindingsPanel'
+import { OverviewPanel } from '../panels/OverviewPanel'
+
+type Tab = 'overview' | 'findings' | 'dependencies' | 'decompiler' | 'report'
+
+interface DashboardViewProps {
+  onPickFile: () => void
+  uploading: boolean
+}
+
+/** Loaded-state dashboard: TargetBar + tabbed main area (Overview live). */
+export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
+  const { activeScan } = useApp()
+  const [tab, setTab] = useState<Tab>('overview')
+  const [dockCollapsed, setDockCollapsed] = useState(false)
+  // Citation-click -> decompiler: agent cites `file:line` paths relative to
+  // the platform tree root; the Decompiler tab resolves them against the
+  // loaded tree and reports back via onRequestConsumed.
+  const [fileRequest, setFileRequest] = useState<{
+    file: string
+    nonce: number
+  } | null>(null)
+  // Legacy scans have risk_score backfilled on GET /scans/{id} — fetch the
+  // single scan so the gauge data is real even for pre-Phase-A rows.
+  const [scan, setScan] = useState<ScanRead | null>(null)
+
+  const openInDecompiler = useCallback((file: string) => {
+    setFileRequest((prev) => ({ file, nonce: (prev?.nonce ?? 0) + 1 }))
+    setTab('decompiler')
+  }, [])
+
+  const consumeFileRequest = useCallback(() => setFileRequest(null), [])
+
+  useEffect(() => {
+    if (!activeScan) return
+    setScan(activeScan)
+    void api
+      .getScan(activeScan.id)
+      .then(setScan)
+      .catch(() => {
+        // List data is already enough to render; backfill is best-effort.
+      })
+  }, [activeScan])
+
+  const current = scan ?? activeScan
+  const { findings, counts, total, loading, error } = useFindings(
+    current?.id ?? null,
+  )
+
+  if (!current) return null
+  const failed = current.status === 'failed'
+
+  const tabs: { key: Tab; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'findings', label: `Findings (${total})` },
+    { key: 'dependencies', label: 'Dependencies' },
+    { key: 'decompiler', label: 'Decompiler' },
+    { key: 'report', label: 'Report' },
+  ]
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <TargetBar onPickFile={onPickFile} uploading={uploading} />
+
+      <div
+        className={`grid min-h-0 flex-1 ${
+          dockCollapsed ? 'grid-cols-[1fr_44px]' : 'grid-cols-[1fr_340px]'
+        }`}
+      >
+        <main className="min-w-0 overflow-y-auto">
+          {/* Header + tabs */}
+          <div className="px-7 pt-5">
+            <div className="flex items-baseline gap-2.5">
+              <h1 className="font-mono text-[17px] font-semibold">
+                {current.filename}
+              </h1>
+              {failed && <span className="status-badge failed">Failed</span>}
+            </div>
+            <p className="mt-1 text-xs text-bone-faint">
+              {current.platform ? `${platformLabel(current.platform)} · ` : ''}
+              scanned {formatRelative(current.created_at)} · {total} findings
+            </p>
+            <div className="tabs mt-4">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  className={`tab ${tab === t.key ? 'active' : ''}`}
+                  onClick={() => setTab(t.key)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Panels */}
+          <div className="px-7 pb-16 pt-6">
+            {failed && current.error && (
+              <div className="mb-6 rounded-md border border-crimson/30 bg-crimson/10 p-4 font-mono text-[11.5px] leading-relaxed text-bone-dim">
+                Scan failed: {current.error}
+              </div>
+            )}
+
+            {tab === 'overview' && (
+              <OverviewPanel
+                scan={current}
+                findings={findings}
+                counts={counts}
+                findingsLoading={loading}
+                findingsError={error}
+                onOpenFindings={() => setTab('findings')}
+              />
+            )}
+            {tab === 'findings' && (
+              <FindingsPanel
+                scanId={current.id}
+                findings={findings}
+                counts={counts}
+                total={total}
+                loading={loading}
+                error={error}
+              />
+            )}
+            {tab === 'dependencies' && (
+              <PlaceholderPanel
+                title="Dependencies"
+                note="Dependency CVE research ships in M7. The tab is shown here as a placeholder only."
+              />
+            )}
+            {tab === 'decompiler' && (
+              <DecompilerPanel
+                scanId={current.id}
+                findings={findings}
+                findingsLoading={loading}
+                requestFile={fileRequest}
+                onRequestConsumed={consumeFileRequest}
+              />
+            )}
+            {tab === 'report' && (
+              <PlaceholderPanel
+                title="Report"
+                note="AI-drafted report generation and export ship in M9. The tab is shown here as a placeholder only."
+              />
+            )}
+          </div>
+        </main>
+
+        <AgentDock
+          key={current.id}
+          scan={current}
+          greeting={{ total, critical: counts.critical }}
+          collapsed={dockCollapsed}
+          onToggleCollapsed={() => setDockCollapsed((c) => !c)}
+          onOpenFile={openInDecompiler}
+        />
+      </div>
+    </div>
+  )
+}
+
+function PlaceholderPanel({ title, note }: { title: string; note: string }) {
+  return (
+    <div className="rounded-md border border-line-soft bg-panel p-5">
+      <div className="mb-1 font-mono text-[11px] uppercase tracking-[0.08em] text-bone-faint">
+        {title}
+      </div>
+      <p className="text-xs leading-relaxed text-bone-dim">{note}</p>
+    </div>
+  )
+}

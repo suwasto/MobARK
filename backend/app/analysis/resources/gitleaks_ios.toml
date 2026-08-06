@@ -1,0 +1,17 @@
+# MASA iOS custom Gitleaks rules (M4 Layer 1).
+# String-level checks that do NOT belong in the Mach-O import-table scanner:
+# fixed strings in the binary's __cstring section / bundled resources.
+# Passed to gitleaks via `--config` by the iOS analysis stage.
+
+title = "MASA iOS custom rules"
+
+# kSecAttrAccessibleAlways — keychain items readable while the device is
+# locked (and always, regardless of lock state). Fixed string, so entropy
+# scoring is disabled (entropy = 0) — presence of the string is the finding.
+[[rules]]
+id = "ios-insecure-keychain-accessibility"
+description = "Insecure keychain accessibility attribute (kSecAttrAccessibleAlways) — keychain items readable while the device is locked"
+regex = '''kSecAttrAccessibleAlways(?:ThisDeviceOnly)?'''
+secret-group = 0
+entropy = 0
+tags = ["ios", "keychain", "masa"]

@@ -63,7 +63,22 @@ typing-extensions (PSF), uvloop (MIT/Apache), watchfiles (MIT), websockets
 
 | Package | Version | License | Notes |
 |---|---|---|---|
-| LiteLLM | 1.95.0 | MIT | model client: chat + BYOK provider abstraction (OpenAI/Anthropic/DeepSeek/OpenRouter/local); embeddings used from M4 onward |
+| LiteLLM | 1.95.0 | MIT | model client: chat + BYOK provider abstraction (OpenAI/Anthropic/DeepSeek/OpenRouter/local) |
+
+## Installed in M4 (backend, pinned)
+
+| Package | Version | License | Notes |
+|---|---|---|---|
+| graphifyy | 0.9.32 | MIT/Apache-2.0 dual | per-scan code graphs (Layer 3); CLI invoked as a subprocess (consistent with the other analysis CLIs). Validated surface: `update <dir> --no-cluster` build + `query`/`path`/`explain`/`affected` |
+| tree-sitter | (via graphifyy) | MIT | language grammars for graph extraction |
+| networkx | (via graphifyy) | BSD-3-Clause | graph build (graphifyy) |
+| rapidfuzz | (via graphifyy) | MIT | fuzzy matching (graphifyy) |
+
+> **Removed from v1 (owner decision, Aug 6, 2026):** chromadb (1.5.9) and
+> llama-index-core (0.14.24) were uninstalled with the RAG/embedding pipeline —
+> M4 is now Layers 1-3 (findings context + search/read tools + Graphify), all
+> non-embedding. No vector store remains; `embed_texts()` was deleted from
+> `model/client.py`.
 
 ## M1 CLI tools (baked into the app image, subprocess-only)
 
@@ -82,6 +97,17 @@ app environment intact while semgrep runs as a normal subprocess. Re-verify
 Semgrep's pinned-version license at install time (its licensing has shifted
 across versions).
 
+## Installed in M5 (frontend)
+
+| Package | Version | License | Notes |
+|---|---|---|---|
+| react / react-dom | 18.3.1 | MIT | UI framework |
+| vite | 6.0.5 | MIT | dev build tool |
+| typescript | ~5.6.3 | Apache-2.0 | dev |
+| tailwindcss + @tailwindcss/vite | 4.3.3 | MIT | design system (CSS-first `@theme` tokens) |
+| @fontsource/ibm-plex-sans + @fontsource/ibm-plex-mono | 5.3.0 | SIL OFL 1.1 | bundled fonts — no Google Fonts CDN (local-first) |
+| highlight.js | 11.11.1 | BSD-3-Clause | decompiler code tokenization (Phase F) |
+
 ## Planned — installed in later milestones
 
 CLI tools are invoked as subprocesses only (never imported):
@@ -96,9 +122,6 @@ Python libraries imported by MASA (all permissive — safe under Apache-2.0):
 
 | Library | License | Milestone | Version pin |
 |---|---|---|---|
-| LlamaIndex (CodeSplitter) | MIT | M4 | pin at install |
-| tree-sitter | MIT | M4 (via LlamaIndex) | pin at install |
-| chromadb | Apache-2.0 | M4 | pin at install |
 | gpt-researcher | Apache-2.0 | M7 (adapted pipeline) | pin at install |
 
 ## Notes

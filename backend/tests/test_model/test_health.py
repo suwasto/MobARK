@@ -43,12 +43,12 @@ def _fake_get(payload=None, exc=None):
 
 
 def test_list_models_live(monkeypatch):
-    payload = {"data": [{"id": "qwen2.5:7b"}, {"id": "nomic-embed-text"}]}
+    payload = {"data": [{"id": "qwen2.5:7b"}, {"id": "llama3.1:8b"}]}
     monkeypatch.setattr("app.model.health.httpx.get", _fake_get(payload))
     models, source, error = list_models(_backend("ollama", model="qwen2.5:7b"))
     assert source == "live"
     assert error is None
-    assert models == ["qwen2.5:7b", "nomic-embed-text"]
+    assert models == ["qwen2.5:7b", "llama3.1:8b"]
 
 
 def test_list_models_unavailable_on_connection_error(monkeypatch):

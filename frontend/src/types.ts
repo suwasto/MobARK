@@ -1,0 +1,162 @@
+/**
+ * M5 typed API layer — mirrors of the backend Pydantic schemas
+ * (backend/app/schemas.py) and model enums (backend/app/models.py).
+ */
+
+export interface HealthResponse {
+  status: 'ok' | 'degraded'
+  version: string
+  redis_ok: boolean
+  db_ok: boolean
+}
+
+export type ScanStatus = 'queued' | 'running' | 'done' | 'failed'
+export type Platform = 'android' | 'ios'
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+
+export interface ScanRead {
+  id: number
+  filename: string
+  platform: Platform | null
+  status: ScanStatus
+  risk_score: number | null
+  error: string | null
+  stage: string | null
+  created_at: string
+}
+
+export interface FindingRead {
+  id: number
+  scan_id: number
+  title: string
+  severity: Severity
+  file_path: string | null
+  line_number: number | null
+  category: string | null
+  mastg_test_id: string | null
+  tool: string
+  detail: Record<string, unknown> | null
+  static_only: boolean
+  created_at: string
+}
+
+// ---- M3 model backends (consumed by the Settings modal) ----
+
+export interface ModelBackendHealth {
+  reachable: boolean
+  status: 'ok' | 'unreachable' | 'unknown'
+  latency_ms: number | null
+  models: string[]
+  model_source: 'live' | 'suggested' | 'unavailable' | 'none'
+  probe_model: string | null
+  probe_ok: boolean | null
+  error: string | null
+  checked_at: string | null
+}
+
+export interface ModelBackendRead {
+  id: string
+  provider_id: string
+  name: string
+  kind: 'local' | 'byok' | 'custom'
+  base_url: string
+  model: string
+  enabled: boolean
+  local: boolean
+  has_api_key: boolean
+  health: ModelBackendHealth | null
+}
+
+export interface ModelBackendUpsert {
+  base_url?: string | null
+  model?: string | null
+  api_key?: string | null
+  enabled?: boolean | null
+}
+
+export interface ModelBackendCreate {
+  provider_id: string
+  base_url?: string | null
+  api_key?: string | null
+  model?: string | null
+}
+
+export interface ModelBackendModels {
+  models: string[]
+  source: 'live' | 'suggested' | 'unavailable'
+  error: string | null
+}
+
+// ---- M4 agent layer ----
+
+export interface ChatRequest {
+  question: string
+  timeout_seconds?: number | null
+}
+
+export interface Citation {
+  file: string
+  line: number | null
+  snippet: string
+}
+
+export interface ChatResponse {
+  answer: string
+  citations: Citation[]
+  sources: string[]
+}
+
+export interface ScanGraphState {
+  built: boolean
+  nodes: number | null
+  edges: number | null
+  graph_path: string | null
+  reason: string | null
+}
+
+// ---- M5 dashboard: insights, decompiler tree ----
+
+export interface ExplainResponse {
+  explanation: string
+  cached: boolean
+  model: string | null
+  generated_at: string | null
+}
+
+export interface SummaryResponse {
+  summary: string
+  cached: boolean
+  model: string | null
+  generated_at: string | null
+}
+
+export interface FileNode {
+  name: string
+  path: string
+  type: 'dir' | 'file'
+  /** iOS: hidden binary blob listed under the 'Binary (Mach-O)' folder. */
+  binary?: boolean
+  children: FileNode[]
+}
+
+export interface FileTreeRoot {
+  name: string
+  total_nodes: number
+  truncated: boolean
+  /** iOS: count of raw binary files hidden from the curated bundle walk. */
+  filtered_binaries?: number
+  tree: FileNode[]
+}
+
+export interface FileTreeResponse {
+  platform: Platform
+  roots: FileTreeRoot[]
+}
+
+export interface FileContentResponse {
+  path: string
+  content: string
+  language: string
+  truncated: boolean
+  size: number
+}

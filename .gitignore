@@ -24,9 +24,6 @@ frontend/vite.config.d.ts
 # ---- Env / secrets ----
 .env
 
-# ---- Runtime session memory (generated, not project source) ----
-/knowledge.md
-
 # ---- Tooling scratch / generated analysis output (not project source) ----
 .opencode/
 graphify-out/

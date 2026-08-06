@@ -162,6 +162,31 @@ class BackendStore:
         self._write(backends)
         return backend
 
+    def add(self, backend: ModelBackend) -> None:
+        """Append a new backend (custom / re-activated BYOK) and persist.
+
+        Raises ValueError when the id already exists — the API maps it to
+        409 so the caller can switch to PUT/upsert semantics.
+        """
+        backends = self.read()
+        if any(b.id == backend.id for b in backends):
+            raise ValueError(f"backend {backend.id!r} already exists")
+        backends.append(backend)
+        self._write(backends)
+
+    def remove(self, backend_id: str) -> bool:
+        """Remove a backend entirely; returns False when unknown.
+
+        A later POST can re-add it (BYOK) — the store file, not the seed
+        table, is the source of truth after first read.
+        """
+        backends = self.read()
+        remaining = [b for b in backends if b.id != backend_id]
+        if len(remaining) == len(backends):
+            return False
+        self._write(remaining)
+        return True
+
     def _write(self, backends: list[ModelBackend]) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         payload = json.dumps([dataclasses.asdict(b) for b in backends], indent=2) + "\n"

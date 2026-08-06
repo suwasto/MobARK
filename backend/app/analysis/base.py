@@ -18,6 +18,8 @@ TOOL_SEMGREP = "semgrep"
 # Tools that produce findings in M2.
 TOOL_PLIST = "plist"
 TOOL_LIEF = "lief"
+# M4 Layer 1: iOS Mach-O import-table scanner (known-insecure API blocklist).
+TOOL_SYMBOLS = "symbols"
 
 
 @dataclass

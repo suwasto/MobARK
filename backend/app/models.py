@@ -23,11 +23,16 @@ class Scan(Base):
     platform: Mapped[str | None] = mapped_column(String(16))
     # queued | running | done | failed
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
-    # 0-100 aggregate score, computed from M5 onward.
+    # 0-100 aggregate score, computed by the scan job (M5, analysis/risk.py).
     risk_score: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     # Where the uploaded artifact + working directory live under MASA_DATA_DIR.
     storage_path: Mapped[str | None] = mapped_column(String(1024))
+    # M5: cached AI overview summary (Overview tab; POST /scans/{id}/summary).
+    ai_summary: Mapped[str | None] = mapped_column(Text)
+    # M5: human-readable pipeline stage for the progress screen, e.g.
+    # "decompiling" | "analyzing" | "secrets" | "done" (written by run_scan).
+    stage: Mapped[str | None] = mapped_column(String(32))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
@@ -70,6 +75,9 @@ class Finding(Base):
     # True = static-only finding (all current findings; runtime/dynamic
     # confirmation is out of scope for v1 — M2's mockup "static-only" label).
     static_only: Mapped[bool] = mapped_column(default=True, nullable=False)
+    # M5: cached AI explanation (POST /scans/{id}/findings/{fid}/explain).
+    # Re-running a scan deletes findings, so stale explanations never survive.
+    explanation: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow

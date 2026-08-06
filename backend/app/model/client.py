@@ -1,5 +1,8 @@
-"""Thin wrappers over LiteLLM. ``chat()`` in M3; ``embed_texts()`` lands with
-M4's vector work (embeddings deferred by owner decision).
+"""Thin wrappers over LiteLLM (M3 model client: ``chat()`` + ``model_string()``).
+
+The M4 embedding path (``embed_texts``) was removed from v1 by owner
+decision — RAG was replaced with non-embedding agent layers; no vector
+store exists anymore.
 """
 from __future__ import annotations
 

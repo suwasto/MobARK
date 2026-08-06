@@ -78,5 +78,5 @@ All settings are optional and read from the `MASA_` environment prefix (see
 |---|---|---|
 | `MASA_DATABASE_URL` | `sqlite:///./data/masa.db` | SQLite location |
 | `MASA_REDIS_URL` | `redis://localhost:6379/0` | RQ queue/worker broker |
-| `MASA_DATA_DIR` | `./data` | Uploads / decompiled output / embeddings |
+| `MASA_DATA_DIR` | `./data` | Uploads / decompiled output / graphs |
 | `MASA_LOG_LEVEL` | `INFO` | Logging level |

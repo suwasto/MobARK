@@ -119,6 +119,19 @@ def analyze_app_binary(app_root: Path) -> StageResult:
                 )
             )
 
+    # M4 Layer 1: the full entitlement set is agent context (answer source for
+    # "what entitlements does this app have") — not just the notable ones.
+    if merged:
+        result.findings.append(
+            FindingOut(
+                tool=TOOL_LIEF,
+                title=f"Entitlements granted ({len(merged)})",
+                severity="info",
+                category="MASVS-PLATFORM-1",
+                detail={"entitlements": {k: v for k, v in sorted(merged.items())}},
+            )
+        )
+
     if not sources:
         result.meta["entitlements_carved"] = False
         result.findings.append(

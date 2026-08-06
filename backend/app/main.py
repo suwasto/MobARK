@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import health, models, scans
 from app.config import settings
@@ -23,3 +25,24 @@ app.include_router(models.router, prefix="/api/v1")
 @app.get("/")
 def root() -> dict:
     return {"app": settings.app_name, "version": settings.version, "docs": "/docs"}
+
+
+# ---- M5: serve the built frontend from the same origin -----------------------
+# No-op while frontend/dist doesn't exist (backend-only dev); when it does,
+# the SPA fallback answers every non-/api path with index.html so the Vite
+# build works without a separate static server. Unknown /api/* paths still
+# 404 rather than silently returning the SPA shell.
+_frontend_dist = settings.frontend_dist.resolve()
+if (_frontend_dist / "index.html").is_file():
+    _assets = _frontend_dist / "assets"
+    if _assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=_assets), name="assets")
+
+    @app.get("/{path:path}", include_in_schema=False)
+    def spa_fallback(path: str) -> FileResponse:
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="unknown API route")
+        candidate = _frontend_dist / path
+        if path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_frontend_dist / "index.html")

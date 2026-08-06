@@ -26,8 +26,18 @@ def gitleaks_binary() -> str:
     return bin_path
 
 
-def scan_directory(target: Path, report_path: Path, timeout: int | None = None) -> StageResult:
-    """Run gitleaks over ``target`` and write a JSON report to ``report_path``."""
+def scan_directory(
+    target: Path,
+    report_path: Path,
+    timeout: int | None = None,
+    config: Path | None = None,
+) -> StageResult:
+    """Run gitleaks over ``target`` and write a JSON report to ``report_path``.
+
+    ``config`` (optional) points at a custom TOML ruleset passed via
+    ``--config`` — e.g. the iOS keychain-accessibility rules
+    (``app/analysis/resources/gitleaks_ios.toml``, M4 Layer 1).
+    """
     result = StageResult()
     # Resolve to absolute paths: the tool runs with cwd=target, so relative
     # target/report args would be re-resolved against the tool's cwd and break.
@@ -45,8 +55,10 @@ def scan_directory(target: Path, report_path: Path, timeout: int | None = None) 
         str(report_path),
         "--max-target-megabytes",
         "50",
-        str(target),
     ]
+    if config is not None:
+        cmd += ["--config", str(Path(config).resolve())]
+    cmd.append(str(target))
     timeout = timeout or settings.gitleaks_timeout_seconds
     r = run_tool(cmd, timeout=timeout, cwd=target)
     if r.timed_out:

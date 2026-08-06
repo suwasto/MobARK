@@ -1,16 +1,27 @@
-"""M1/M2/M3 CLI: artifact analysis + model backend health checks.
+"""M1/M2/M3/M4 CLI: artifact analysis + model health + agent/graph commands.
 
 Usage:
   python -m app.cli run <apk|ipa> [--out <results.json>]   # synchronous, no RQ
   python -m app.cli scan <apk|ipa>                         # create scan + enqueue RQ job
   python -m app.cli jobs <scan_id>                         # run an existing scan id synchronously
   python -m app.cli model health [--backend <id>]          # backend reachability + models
+  python -m app.cli graph build <scan_id>                  # build the per-scan code graph
+  python -m app.cli graph query <scan_id> "question"      # graph traversal (no LLM)
+  python -m app.cli graph path <scan_id> <a> <b>           # shortest path between nodes
+  python -m app.cli graph explain <scan_id> <node>         # explain a graph node
+  python -m app.cli agent context <scan_id> [--out f]      # render Layer 1 findings context
+  python -m app.cli agent chat <scan_id> "question" [--timeout N]  # Layers 1-3 answer
 
 The synchronous ``run`` path is the fastest way to validate the pipeline
 end-to-end against a real artifact without Redis running. Platform is
 auto-detected from the file extension (``.apk`` -> android, ``.ipa`` -> ios).
 The ``model health`` path is the UI-free way to verify Ollama/LM Studio/BYOK
 connectivity (exit 0 = all requested backends reachable).
+
+The RAG/embedding pipeline was removed from v1 by owner decision — the agent
+layers are non-embedding: Layer 1 = full findings context, Layer 2 =
+search/read tools, Layer 3 = Graphify graph (Android). ``agent context`` is
+the LLM-free way to inspect exactly what the agent sees.
 """
 from __future__ import annotations
 
@@ -21,6 +32,14 @@ import sys
 from pathlib import Path
 
 from app.config import settings
+
+
+def _positive_seconds(value: str) -> float:
+    """argparse type: a strictly positive number of seconds."""
+    t = float(value)
+    if t <= 0:
+        raise argparse.ArgumentTypeError(f"timeout must be > 0, got {value!r}")
+    return t
 
 
 def _artifact_path(value: str) -> Path:
@@ -118,6 +137,100 @@ def cmd_jobs(scan_id: int) -> int:
     return 0 if result.get("ok") else 1
 
 
+def cmd_graph_build(scan_id: int) -> int:
+    """Run the Layer 3 graph build synchronously (no Redis needed)."""
+    from app.workers.jobs import build_graph_scan
+
+    result = build_graph_scan(scan_id)
+    print(json.dumps(result, indent=2, default=str))
+    return 0 if result.get("ok") else 1
+
+
+def cmd_graph_query(scan_id: int, question: str, budget: int = 1500) -> int:
+    """Graph traversal answer (zero LLM) against the per-scan code graph."""
+    from app.graph import graphify
+
+    graph_path = graphify.graph_path_for(scan_id)
+    if not graph_path.is_file():
+        print(f"no graph for scan {scan_id} at {graph_path} — run 'graph build' first")
+        return 1
+    result = graphify.query(graph_path, question, budget=budget)
+    print(result["text"])
+    if result["nodes"]:
+        print(f"\n({len(result['nodes'])} nodes via {result['via']})")
+    return 0 if result["found"] else 1
+
+
+def cmd_graph_path(scan_id: int, node_a: str, node_b: str) -> int:
+    """Shortest path between two graph nodes."""
+    from app.graph import graphify
+
+    graph_path = graphify.graph_path_for(scan_id)
+    if not graph_path.is_file():
+        print(f"no graph for scan {scan_id} — run 'graph build' first")
+        return 1
+    print(graphify.path_between(graph_path, node_a, node_b))
+    return 0
+
+
+def cmd_graph_explain(scan_id: int, node: str) -> int:
+    """Plain-language explanation of a graph node."""
+    from app.graph import graphify
+
+    graph_path = graphify.graph_path_for(scan_id)
+    if not graph_path.is_file():
+        print(f"no graph for scan {scan_id} — run 'graph build' first")
+        return 1
+    print(graphify.explain(graph_path, node))
+    return 0
+
+
+def cmd_agent_context(scan_id: int, out: Path | None) -> int:
+    """Render the Layer 1 findings context — LLM-free inspection of the
+    exact findings set (and precision tags) the agent will see."""
+    from app.agent.context import build_findings_context
+    from app.db import SessionLocal
+    from app.models import Scan
+
+    db = SessionLocal()
+    try:
+        scan = db.get(Scan, scan_id)
+        if scan is None:
+            print(f"scan {scan_id} not found", file=sys.stderr)
+            return 1
+        context = build_findings_context(db, scan)
+    finally:
+        db.close()
+    print(context.rendered)
+    if out:
+        out.write_text(context.rendered)
+        print(f"context written to {out}")
+    return 0
+
+
+def cmd_agent_chat(scan_id: int, question: str, timeout: float | None) -> int:
+    """Layers 1-3 grounded answer (needs a configured chat model).
+
+    ``--timeout`` is a hard overall deadline for the whole tool loop — a hung
+    LLM call exits with an error instead of blocking forever.
+    """
+    from app.agent.chat import AgentTimeout, ChatNotConfigured, answer_question
+
+    try:
+        result = answer_question(scan_id, question, timeout=timeout)
+    except (ChatNotConfigured, AgentTimeout) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(result.answer)
+    print()
+    for n, c in enumerate(result.citations, 1):
+        loc = f"{c.file}:{c.line}" if c.line else c.file
+        print(f"  [{n}] {loc}")
+    if result.tools_used:
+        print(f"\n(tools used: {', '.join(result.tools_used)})")
+    return 0
+
+
 def cmd_model_health(backend_id: str | None) -> int:
     """Reachability + model listing per configured backend (UI-free check).
 
@@ -174,6 +287,38 @@ def main() -> None:
         help="backend id (ollama, lm-studio, openai, ...); default: all",
     )
 
+    p_graph = sub.add_parser("graph", help="Graphify code-graph commands (Layer 3, Android)")
+    p_graph_sub = p_graph.add_subparsers(dest="graph_command", required=True)
+    p_gb = p_graph_sub.add_parser("build", help="build the per-scan code graph")
+    p_gb.add_argument("scan_id", type=int)
+    p_gq = p_graph_sub.add_parser("query", help="structural question -> graph traversal")
+    p_gq.add_argument("scan_id", type=int)
+    p_gq.add_argument("question")
+    p_gq.add_argument("--budget", type=int, default=1500)
+    p_gp = p_graph_sub.add_parser("path", help="shortest path between two nodes")
+    p_gp.add_argument("scan_id", type=int)
+    p_gp.add_argument("node_a")
+    p_gp.add_argument("node_b")
+    p_ge = p_graph_sub.add_parser("explain", help="explain a graph node")
+    p_ge.add_argument("scan_id", type=int)
+    p_ge.add_argument("node")
+
+    p_agent = sub.add_parser("agent", help="M4 Layers 1-3 agent commands (no embeddings)")
+    p_agent_sub = p_agent.add_subparsers(dest="agent_command", required=True)
+    p_ac = p_agent_sub.add_parser("context", help="render the Layer 1 findings context (no LLM)")
+    p_ac.add_argument("scan_id", type=int)
+    p_ac.add_argument("--out", type=Path, default=None)
+    p_ach = p_agent_sub.add_parser("chat", help="Layers 1-3 answer (needs a chat model)")
+    p_ach.add_argument("scan_id", type=int)
+    p_ach.add_argument("question")
+    p_ach.add_argument(
+        "--timeout",
+        type=_positive_seconds,
+        default=None,
+        help="overall deadline in seconds for the whole agent loop "
+        "(default: settings.chat_timeout_seconds)",
+    )
+
     args = parser.parse_args()
     if args.command == "run":
         raise SystemExit(cmd_run(args.artifact, args.out))
@@ -184,6 +329,20 @@ def main() -> None:
     if args.command == "model":
         if args.model_command == "health":
             raise SystemExit(cmd_model_health(args.backend))
+    if args.command == "graph":
+        if args.graph_command == "build":
+            raise SystemExit(cmd_graph_build(args.scan_id))
+        if args.graph_command == "query":
+            raise SystemExit(cmd_graph_query(args.scan_id, args.question, args.budget))
+        if args.graph_command == "path":
+            raise SystemExit(cmd_graph_path(args.scan_id, args.node_a, args.node_b))
+        if args.graph_command == "explain":
+            raise SystemExit(cmd_graph_explain(args.scan_id, args.node))
+    if args.command == "agent":
+        if args.agent_command == "context":
+            raise SystemExit(cmd_agent_context(args.scan_id, args.out))
+        if args.agent_command == "chat":
+            raise SystemExit(cmd_agent_chat(args.scan_id, args.question, args.timeout))
 
 
 if __name__ == "__main__":

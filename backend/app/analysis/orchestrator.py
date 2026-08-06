@@ -15,34 +15,53 @@ Platform dispatch is by file extension: ``.apk`` -> android, ``.ipa`` -> ios.
 from __future__ import annotations
 
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from app.analysis import gitleaks, jadx, manifest, semgrep
 from app.analysis.base import FindingOut, ScanResult
-from app.analysis.ios import entitlements, ipa, macho, plist
+from app.analysis.ios import entitlements, ipa, macho, plist, symbols
 from app.analysis.mastg import test_ids_for_control
 from app.config import settings
+
+# M4 Layer 1: iOS string-level rules (kSecAttrAccessibleAlways) ride through
+# Gitleaks as a custom ruleset — the import-table scanner cannot see strings.
+_IOS_GITLEAKS_CONFIG = Path(__file__).parent / "resources" / "gitleaks_ios.toml"
 
 
 class ScanAborted(RuntimeError):
     """A required stage failed; the scan cannot produce results."""
 
 
-def run_analysis(artifact_path: Path, work_dir: Path) -> ScanResult:
-    """Dispatch to the platform pipeline based on the artifact extension."""
+def run_analysis(
+    artifact_path: Path,
+    work_dir: Path,
+    on_stage: Callable[[str], None] | None = None,
+) -> ScanResult:
+    """Dispatch to the platform pipeline based on the artifact extension.
+
+    ``on_stage`` (optional, M5 progress screen) is invoked with a
+    human-readable stage string at each pipeline boundary — the RQ job
+    persists it to ``Scan.stage`` so the dashboard shows real progress.
+    """
     suffix = Path(artifact_path).suffix.lower()
     if suffix == ".apk":
-        return run_android_analysis(artifact_path, work_dir)
+        return run_android_analysis(artifact_path, work_dir, on_stage=on_stage)
     if suffix == ".ipa":
-        return run_ios_analysis(artifact_path, work_dir)
+        return run_ios_analysis(artifact_path, work_dir, on_stage=on_stage)
     raise ScanAborted(f"unsupported artifact type {suffix!r} (expected .apk or .ipa)")
 
 
-def run_android_analysis(apk_path: Path, work_dir: Path) -> ScanResult:
+def run_android_analysis(
+    apk_path: Path,
+    work_dir: Path,
+    on_stage: Callable[[str], None] | None = None,
+) -> ScanResult:
     """Analyze an APK, returning normalized findings plus diagnostics.
 
     :param apk_path: path to the APK file
     :param work_dir: scratch directory for decompiled output and tool reports
+    :param on_stage: optional progress callback (M5 Scan.stage)
     :raises ScanAborted: on preflight/decompile/manifest failure
     """
     apk_path = Path(apk_path)
@@ -57,6 +76,8 @@ def run_android_analysis(apk_path: Path, work_dir: Path) -> ScanResult:
     reports.mkdir(parents=True, exist_ok=True)
 
     # --- required: decompile ---
+    if on_stage:
+        on_stage("decompiling")
     try:
         jadx.decompile(apk_path, decompiled, timeout=settings.jadx_timeout_seconds)
     except jadx.JadxError as exc:
@@ -64,6 +85,8 @@ def run_android_analysis(apk_path: Path, work_dir: Path) -> ScanResult:
     result.decompiled_root = decompiled
 
     # --- required: manifest / certificate ---
+    if on_stage:
+        on_stage("analyzing")
     try:
         manifest_result = manifest.analyze(apk_path)
     except manifest.ManifestError as exc:
@@ -74,6 +97,8 @@ def run_android_analysis(apk_path: Path, work_dir: Path) -> ScanResult:
     source_root = decompiled / "sources" if (decompiled / "sources").is_dir() else decompiled
 
     # --- enrichment: code pattern analysis ---
+    if on_stage:
+        on_stage("code analysis")
     sg = semgrep.scan_source_tree(
         source_root,
         reports / "semgrep.json",
@@ -83,6 +108,8 @@ def run_android_analysis(apk_path: Path, work_dir: Path) -> ScanResult:
     result.warnings.extend(sg.errors + sg.warnings)
 
     # --- enrichment: secret scanning ---
+    if on_stage:
+        on_stage("secrets")
     gl = gitleaks.scan_directory(decompiled, reports / "gitleaks.json")
     result.findings.extend(gl.findings)
     result.warnings.extend(gl.errors + gl.warnings)
@@ -91,14 +118,19 @@ def run_android_analysis(apk_path: Path, work_dir: Path) -> ScanResult:
     return result
 
 
-def run_ios_analysis(ipa_path: Path, work_dir: Path) -> ScanResult:
+def run_ios_analysis(
+    ipa_path: Path,
+    work_dir: Path,
+    on_stage: Callable[[str], None] | None = None,
+) -> ScanResult:
     """Analyze an IPA, returning normalized findings plus diagnostics.
 
     Stages: unpack (required) -> Info.plist (required) -> Mach-O (required)
-    -> entitlements (best-effort) -> gitleaks (enrichment).
+    -> entitlements (best-effort) -> symbols -> gitleaks (enrichment).
 
     :param ipa_path: path to the IPA file
     :param work_dir: scratch directory for the unpacked bundle and reports
+    :param on_stage: optional progress callback (M5 Scan.stage)
     :raises ScanAborted: on any required-stage failure
     """
     ipa_path = Path(ipa_path)
@@ -107,6 +139,8 @@ def run_ios_analysis(ipa_path: Path, work_dir: Path) -> ScanResult:
     result = ScanResult(platform="ios")
 
     # --- required: unpack ---
+    if on_stage:
+        on_stage("unpacking")
     bundle_root = work_dir / "bundle"
     try:
         bundle = ipa.extract(ipa_path, bundle_root)
@@ -115,7 +149,9 @@ def run_ios_analysis(ipa_path: Path, work_dir: Path) -> ScanResult:
     app_root = bundle_root / "Payload" / bundle.app_dir_name
     result.app_root = app_root
 
-    # --- required: Info.plist ---
+    # --- required: Info.plist + Mach-O ---
+    if on_stage:
+        on_stage("analyzing")
     info_plist_path = app_root / "Info.plist"
     try:
         plist_result = plist.analyze_info_plist(info_plist_path)
@@ -136,17 +172,47 @@ def run_ios_analysis(ipa_path: Path, work_dir: Path) -> ScanResult:
     result.warnings.extend(macho_result.warnings)
 
     # --- best-effort: entitlements (extraction limits are a finding) ---
+    if on_stage:
+        on_stage("entitlements")
     entitlements_result = entitlements.analyze_app_binary(app_root)
     result.findings.extend(entitlements_result.findings)
     result.warnings.extend(entitlements_result.errors + entitlements_result.warnings)
     result.meta.update(entitlements_result.meta)
 
-    # --- enrichment: secret scanning over the bundle tree ---
     reports = work_dir / "reports"
     reports.mkdir(parents=True, exist_ok=True)
-    gl = gitleaks.scan_directory(app_root, reports / "gitleaks.json")
+
+    # --- enrichment: import-table scanner (known-insecure API blocklist) ---
+    # M4 Layer 1 iOS source #2 — named explicitly; this is the "symbol /
+    # import-table scanning" stage, not a vague "LIEF-derived" catch-all.
+    if on_stage:
+        on_stage("symbols")
+    symbols_result = symbols.analyze_app_binary(app_root)
+    result.findings.extend(symbols_result.findings)
+    result.warnings.extend(symbols_result.errors + symbols_result.warnings)
+    result.meta.update(symbols_result.meta)
+
+    # --- enrichment: secret + string scanning over the bundle tree ---
+    # iOS uses the custom ruleset (kSecAttrAccessibleAlways) — string-level,
+    # not import-table-level.
+    if on_stage:
+        on_stage("secrets")
+    gl = gitleaks.scan_directory(
+        app_root,
+        reports / "gitleaks.json",
+        config=_IOS_GITLEAKS_CONFIG if _IOS_GITLEAKS_CONFIG.is_file() else None,
+    )
     result.findings.extend(gl.findings)
     result.warnings.extend(gl.errors + gl.warnings)
+
+    # --- enrichment: semgrep, for completeness (zero yield by design) ---
+    # iOS is binary structure via LIEF, not decompiled Swift/ObjC source, so
+    # semgrep finds no parseable source. Kept as an honest stage: the Layer 1
+    # context builder flags it as zero-yield so the agent never leans on it.
+    sg = semgrep.scan_source_tree(app_root, reports / "semgrep-ios.json")
+    result.findings.extend(sg.findings)
+    result.warnings.extend(sg.errors + sg.warnings)
+    result.meta["semgrep_ios_findings"] = len(sg.findings)
 
     _fill_mastg_test_ids(result.findings, platform="ios")
     return result

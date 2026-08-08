@@ -34,6 +34,10 @@ services:
       # this needs the extra_hosts host-gateway mapping below.
       MASA_OLLAMA_BASE_URL: http://host.docker.internal:11434
       MASA_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      # M4 agent chat: local models (especially thinking models with big
+      # findings contexts) are slow — give the tool loop a realistic budget.
+      # The per-request payload.timeout_seconds can still override this.
+      MASA_CHAT_TIMEOUT_SECONDS: 600
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

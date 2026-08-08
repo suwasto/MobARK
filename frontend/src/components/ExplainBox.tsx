@@ -1,4 +1,5 @@
 import type { ExplainState } from '../hooks/useExplain'
+import { Markdown } from './Markdown'
 
 interface ExplainBoxProps {
   state: ExplainState
@@ -21,7 +22,7 @@ export function ExplainBox({ state, onRetry, className }: ExplainBoxProps) {
       )}
       {state.kind === 'ok' && (
         <>
-          <div className="whitespace-pre-wrap">{state.data.explanation}</div>
+          <Markdown text={state.data.explanation} />
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-line-soft pt-2.5">
             <span className="font-mono text-[10px] text-bone-faint">
               {state.data.model ? `via ${state.data.model} · ` : ''}

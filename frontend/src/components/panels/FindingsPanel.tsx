@@ -152,7 +152,9 @@ function FindingRow({
         )}
 
         {open && (
-          <ExplainBox state={explain} onRetry={() => void fetchExplain()} />
+          // Regenerate explicitly bypasses the server cache (costs one
+          // generation); the row's first expand stays cache-first.
+          <ExplainBox state={explain} onRetry={() => void fetchExplain(true)} />
         )}
       </div>
     </div>

@@ -5,8 +5,13 @@ import type { ModelBackendRead } from '../../types'
 /**
  * Settings -> "Model backends" tab (mockup 1:1). One card per configured
  * backend: connection state, editable base URL, Test (full health probe),
- * served-model chips (set default), and an enable switch. Edits persist on
+ * model chips (set default), and an enable switch. Edits persist on
  * blur / action — the footer "Save changes" is a close that refreshes.
+ *
+ * Model chips are CURATED by default (owner UX request, Aug 8): the
+ * provider's suggested models that the backend actually serves — a
+ * "See all (N more)" chip reveals the full served list. The configured
+ * default model is never hidden behind the fold.
  */
 export function BackendsTab() {
   const { backends } = useApp()
@@ -24,18 +29,30 @@ export function BackendsTab() {
   )
 }
 
+// How many served models are shown by default for providers without a
+// curated list (local/custom) — the rest sit behind the "see all" reveal.
+const CURATED_LIMIT = 6
+
 function BackendCard({ backend }: { backend: ModelBackendRead }) {
   const { actions } = useApp()
   const [baseUrl, setBaseUrl] = useState(backend.base_url)
   const [busy, setBusy] = useState<'url' | 'test' | 'enable' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+
+  const h = backend.health
 
   // Follow external updates (e.g. a fresh probe merged a newer base_url).
   useEffect(() => {
     setBaseUrl(backend.base_url)
   }, [backend.base_url])
 
-  const h = backend.health
+  // A fresh probe can shrink/grow the served list — collapse the "see all"
+  // reveal so the curated view is never left showing a stale count.
+  const served = h?.models ?? []
+  useEffect(() => {
+    setExpanded(false)
+  }, [served])
 
   const conn = busy === 'test'
     ? { cls: 'testing', text: 'Testing…' }
@@ -103,8 +120,27 @@ function BackendCard({ backend }: { backend: ModelBackendRead }) {
     }
   }
 
-  const models = h?.models ?? []
   const kindLabel = backend.kind === 'local' ? 'local' : backend.kind === 'custom' ? 'custom' : 'cloud'
+
+  // Curated default view (owner UX request, Aug 8): show the provider's
+  // suggested models that the backend actually serves; local/custom backends
+  // have no curated list, so fall back to the first few served models. The
+  // configured default is never hidden behind the fold. "See all" reveals
+  // the complete served list.
+  const curatedServed = (backend.suggested_models ?? []).filter((m) =>
+    served.includes(m),
+  )
+  let defaultVisible =
+    curatedServed.length > 0 ? curatedServed : served.slice(0, CURATED_LIMIT)
+  if (
+    backend.model &&
+    served.includes(backend.model) &&
+    !defaultVisible.includes(backend.model)
+  ) {
+    defaultVisible = [backend.model, ...defaultVisible]
+  }
+  const visible = expanded ? served : defaultVisible
+  const hiddenCount = served.length - defaultVisible.length
 
   return (
     <div className={`backend-card ${backend.enabled ? '' : 'opacity-70'}`}>
@@ -147,10 +183,10 @@ function BackendCard({ backend }: { backend: ModelBackendRead }) {
         </button>
       </div>
 
-      {models.length > 0 && (
+      {served.length > 0 && (
         <div className="model-chip-row">
           <span className="model-chip-label">Models</span>
-          {models.map((m) => {
+          {visible.map((m) => {
             const isDefault = backend.enabled && backend.model === m
             return (
               <button
@@ -166,10 +202,21 @@ function BackendCard({ backend }: { backend: ModelBackendRead }) {
               </button>
             )
           })}
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              className="model-chip see-all"
+              title={expanded ? 'Collapse to curated models' : 'Show every model this backend serves'}
+              disabled={busy != null}
+              onClick={() => setExpanded((e) => !e)}
+            >
+              {expanded ? '▲ Show fewer' : `▼ See all (${hiddenCount} more)`}
+            </button>
+          )}
         </div>
       )}
 
-      {models.length === 0 && backend.enabled && (
+      {served.length === 0 && backend.enabled && (
         <p className="field-hint">
           {backend.local
             ? 'No models listed — start the local server (or confirm the URL), '
@@ -182,6 +229,10 @@ function BackendCard({ backend }: { backend: ModelBackendRead }) {
         <p className="field-hint">Disabled — the agent will not use this backend.</p>
       )}
       {error && <p className="field-error">{error}</p>}
+      {/* Probe diagnostics: the backend health carries *why* the test
+          failed (e.g. the model server can't load the model) — surface it
+          instead of leaving the failure at a bare red dot. */}
+      {h?.error && <p className="field-error">{h.error}</p>}
     </div>
   )
 }

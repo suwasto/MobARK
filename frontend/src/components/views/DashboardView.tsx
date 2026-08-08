@@ -6,19 +6,30 @@ import { useApp } from '../../state/AppContext'
 import type { ScanRead } from '../../types'
 import { TargetBar } from '../TargetBar'
 import { AgentDock } from '../agent/AgentDock'
+import { CodeMapsPanel } from '../panels/CodeMapsPanel'
 import { DecompilerPanel } from '../panels/DecompilerPanel'
 import { FindingsPanel } from '../panels/FindingsPanel'
 import { OverviewPanel } from '../panels/OverviewPanel'
 
-type Tab = 'overview' | 'findings' | 'dependencies' | 'decompiler' | 'report'
+type Tab =
+  | 'overview'
+  | 'findings'
+  | 'dependencies'
+  | 'decompiler'
+  | 'codemaps'
+  | 'report'
 
 interface DashboardViewProps {
   onPickFile: () => void
   uploading: boolean
+  /** Render a different scan than the active one — the progress-dialog
+   * backdrop shows the last completed scan's dashboard while a new scan
+   * runs, and flips to the finished scan automatically when it completes. */
+  scanOverride?: ScanRead | null
 }
 
 /** Loaded-state dashboard: TargetBar + tabbed main area (Overview live). */
-export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
+export function DashboardView({ onPickFile, uploading, scanOverride }: DashboardViewProps) {
   const { activeScan } = useApp()
   const [tab, setTab] = useState<Tab>('overview')
   const [dockCollapsed, setDockCollapsed] = useState(false)
@@ -41,18 +52,20 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
 
   const consumeFileRequest = useCallback(() => setFileRequest(null), [])
 
+  const current = scan ?? scanOverride ?? activeScan
+
+  // Keyed on the id (not the object) so the backdrop's scan rows refreshing
+  // during background polling never triggers a backfill storm.
   useEffect(() => {
-    if (!activeScan) return
-    setScan(activeScan)
+    if (!current) return
+    setScan(current)
     void api
-      .getScan(activeScan.id)
+      .getScan(current.id)
       .then(setScan)
       .catch(() => {
         // List data is already enough to render; backfill is best-effort.
       })
-  }, [activeScan])
-
-  const current = scan ?? activeScan
+  }, [current?.id])
   const {
     findings,
     suppressed,
@@ -68,15 +81,16 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
   // both the findings list and the scan row so the gauge stays honest.
   const onFindingsChanged = useCallback(() => {
     refetchFindings()
-    if (activeScan) {
+    const id = current?.id
+    if (id != null) {
       void api
-        .getScan(activeScan.id)
+        .getScan(id)
         .then(setScan)
         .catch(() => {
           // Gauge refresh is best-effort; the list refetch already happened.
         })
     }
-  }, [refetchFindings, activeScan])
+  }, [refetchFindings, current?.id])
 
   if (!current) return null
   const failed = current.status === 'failed'
@@ -86,12 +100,13 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
     { key: 'findings', label: `Findings (${total})` },
     { key: 'dependencies', label: 'Dependencies' },
     { key: 'decompiler', label: 'Decompiler' },
+    { key: 'codemaps', label: 'Code maps' },
     { key: 'report', label: 'Report' },
   ]
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <TargetBar onPickFile={onPickFile} uploading={uploading} />
+      <TargetBar onPickFile={onPickFile} uploading={uploading} scan={current} />
 
       <div
         className={`grid min-h-0 flex-1 ${
@@ -142,7 +157,6 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
                 scan={current}
                 findings={findings}
                 counts={counts}
-                suppressedCount={suppressedCount}
                 findingsLoading={loading}
                 findingsError={error}
                 onOpenFindings={() => setTab('findings')}
@@ -174,6 +188,16 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
                 findingsLoading={loading}
                 requestFile={fileRequest}
                 onRequestConsumed={consumeFileRequest}
+              />
+            )}
+            {tab === 'codemaps' && (
+              /* Keyed per scan so search/hubs/selection never leak from the
+                 previous scan (same remount pattern as AgentDock). */
+              <CodeMapsPanel
+                key={current.id}
+                scanId={current.id}
+                platform={current.platform}
+                onOpenFile={openInDecompiler}
               />
             )}
             {tab === 'report' && (

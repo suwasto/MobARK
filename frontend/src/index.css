@@ -963,6 +963,203 @@
     color: var(--color-bone-dim);
   }
 
+  /* ---- Code maps tab (graphify explorer, Android only) ---- */
+  .codemap-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .codemap-search {
+    flex: 1;
+    min-width: 0;
+    background: var(--color-panel-raised);
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    color: var(--color-bone);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+  .codemap-search:focus {
+    outline: none;
+    border-color: var(--color-steel-dim);
+  }
+  .codemap-search::placeholder {
+    color: var(--color-bone-faint);
+  }
+  .codemap-search:disabled {
+    opacity: 0.5;
+  }
+  .codemap-search::-webkit-search-cancel-button {
+    filter: invert(0.6);
+  }
+  .codemap-meta {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-bone-faint);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .codemap-layout {
+    display: grid;
+    grid-template-columns: minmax(230px, 38%) minmax(0, 1fr);
+    border: 1px solid var(--color-line);
+    border-radius: 5px;
+    overflow: hidden;
+    height: 560px;
+  }
+  .codemap-list {
+    background: var(--color-panel);
+    border-right: 1px solid var(--color-line);
+    overflow-y: auto;
+    padding: 10px 0;
+    min-width: 0;
+  }
+  .codemap-list-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-bone-faint);
+    padding: 6px 14px 8px;
+    border-bottom: 1px solid var(--color-line-soft);
+    margin-bottom: 4px;
+  }
+  .codemap-node {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 14px;
+    border: none;
+    border-left: 2px solid transparent;
+    background: none;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .codemap-node:hover {
+    background: var(--color-line-soft);
+  }
+  .codemap-node.active {
+    background: rgba(35, 207, 146, 0.1);
+    border-left-color: var(--color-steel);
+  }
+  .codemap-node .nlabel {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-bone);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .codemap-node .nloc {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-bone-faint);
+    flex-shrink: 0;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .codemap-empty {
+    padding: 14px;
+    font-size: 11.5px;
+    color: var(--color-bone-faint);
+    font-style: italic;
+    line-height: 1.6;
+  }
+  .codemap-detail {
+    background: var(--color-panel);
+    overflow-y: auto;
+    min-width: 0;
+  }
+  .codemap-detail-head {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .codemap-detail-head .dl {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-bone);
+    word-break: break-all;
+  }
+  .codemap-detail-head .dm {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-bone-faint);
+    margin-top: 5px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    word-break: break-all;
+  }
+  .codemap-neighbors {
+    padding: 10px 0 14px;
+  }
+  .codemap-group-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-bone-faint);
+    padding: 10px 16px 4px;
+  }
+  .codemap-neighbor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--color-bone-dim);
+  }
+  .codemap-neighbor:hover {
+    background: var(--color-line-soft);
+  }
+  .codemap-neighbor .nlabel {
+    color: var(--color-bone);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .codemap-neighbor .nloc {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-bone-faint);
+    flex-shrink: 0;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .codemap-arrow {
+    color: var(--color-steel-dim);
+    flex-shrink: 0;
+    font-size: 11px;
+  }
+  .codemap-rel {
+    font-size: 9.5px;
+    color: var(--color-bone-faint);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 0 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .codemap-neighbor .link-btn {
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
   /* ---- Agent dock (Phase G): right rail chat (mockup 1:1, re-themed) ---- */
   .agent {
     border-left: 1px solid var(--color-line);
@@ -1161,6 +1358,58 @@
     cursor: not-allowed;
   }
 
+  /* Stop button (agent interrupt): the send button's crimson counterpart,
+     shown while the agent is answering. Aborts the request client-side AND
+     tells the server to halt the LLM loop. */
+  .stop-btn {
+    background: var(--color-crimson);
+    border: none;
+    color: var(--color-bone);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 6px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: filter 0.15s ease, background 0.15s ease;
+  }
+  .stop-btn:hover {
+    filter: brightness(1.2);
+  }
+
+  /* Thinking indicator: the bubble carries only the animated dots — the
+     stop affordance lives at the input row (owner follow-up, Aug 8). */
+  .thinking-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .thinking-dots {
+    animation: thinking-pulse 1.3s ease-in-out infinite;
+  }
+  @keyframes thinking-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.4;
+    }
+  }
+
+  /* Icon-only stop (owner follow-up, Aug 8): most AI chat UIs show the stop
+     as a bare square in the input row, no label. */
+  .stop-btn.stop-icon {
+    width: 34px;
+    padding: 6px 0;
+    text-align: center;
+    font-size: 11px;
+  }
+
+  /* No-model hint — amber so the disabled send button's reason is visible. */
+  .hint.warn {
+    color: var(--color-amber);
+  }
+
   /* Toggle switch (dock research toggle now; Settings modal reuses in H). */
   .switch {
     width: 36px;
@@ -1333,6 +1582,25 @@
     align-items: flex-start;
     justify-content: center;
     padding-top: 6vh;
+  }
+
+  /* Scan-in-progress dialog (owner follow-up, Aug 8): absolute within
+     <main> (position: relative) instead of fixed, so the top bar stays
+     visible while a scan runs — the old full-view progress screen scrolled
+     header/footer off-screen on short viewports. Backdrop click dismisses. */
+  .progress-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 12, 14, 0.62);
+    backdrop-filter: blur(1px);
+    z-index: 150;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 4vh;
+  }
+  .progress-modal {
+    width: 460px;
   }
   .modal {
     width: 640px;
@@ -1569,6 +1837,16 @@
     border-color: var(--color-steel-dim);
     color: var(--color-steel);
   }
+  /* "See all (N more)" reveal — a control, not a model: dashed border,
+     muted color so it never reads as a selectable model chip. */
+  .model-chip.see-all {
+    border-style: dashed;
+    color: var(--color-bone-faint);
+  }
+  .model-chip.see-all:hover {
+    border-color: var(--color-bone-dim);
+    color: var(--color-bone);
+  }
   .model-chip-row .model-chip-label {
     align-self: center;
     font-family: var(--font-mono);
@@ -1703,6 +1981,123 @@
   .annot-rail {
     display: none;
   }
+}
+
+/* Code maps: below ~760px stack the list above the detail pane instead of
+   cramming two panes into a narrow width. */
+@media (max-width: 760px) {
+  .codemap-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 220px minmax(0, 1fr);
+  }
+  .codemap-list {
+    border-right: none;
+    border-bottom: 1px solid var(--color-line);
+  }
+}
+
+/* LLM markdown (AI summary / per-finding explain / agent chat), rendered by
+   react-markdown. Unlayered so it beats the layered .ai-explain/.msg code
+   rules; font-size inherits so it adapts to each container. */
+.md {
+  font-size: inherit;
+  line-height: 1.65;
+  color: var(--color-bone-dim);
+  word-wrap: break-word;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p {
+  margin: 0 0 0.75em;
+}
+.md strong {
+  font-weight: 600;
+  color: var(--color-bone);
+}
+.md em {
+  color: var(--color-bone);
+}
+.md ul,
+.md ol {
+  margin: 0 0 0.75em;
+  padding-left: 1.5em;
+}
+.md li {
+  margin: 0.25em 0;
+}
+.md li::marker {
+  color: var(--color-steel);
+}
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--color-graphite);
+  padding: 1px 5px;
+  border-radius: 2px;
+  color: var(--color-bone);
+}
+.md pre {
+  margin: 0 0 0.75em;
+  padding: 10px 12px;
+  background: var(--color-graphite);
+  border: 1px solid var(--color-line-soft);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 11.5px;
+  color: var(--color-bone-dim);
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  color: var(--color-bone);
+  margin: 1em 0 0.5em;
+  line-height: 1.3;
+}
+.md h1 {
+  font-size: 1.15em;
+}
+.md h2 {
+  font-size: 1.1em;
+}
+.md h3 {
+  font-size: 1.05em;
+}
+.md a {
+  color: var(--color-steel);
+  text-decoration: underline;
+}
+.md blockquote {
+  margin: 0 0 0.75em;
+  padding-left: 12px;
+  border-left: 2px solid var(--color-line);
+  color: var(--color-bone-faint);
+}
+.md hr {
+  border: none;
+  border-top: 1px solid var(--color-line);
+  margin: 1em 0;
+}
+.md table {
+  border-collapse: collapse;
+  margin: 0 0 0.75em;
+  font-size: 0.95em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--color-line);
+  padding: 4px 8px;
+  text-align: left;
 }
 
 /* ---- Animations (mockup: pulse-ring; M5 progress bar: indeterminate) ---- */

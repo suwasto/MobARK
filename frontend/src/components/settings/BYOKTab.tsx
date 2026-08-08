@@ -4,26 +4,32 @@ import type { ModelBackendRead } from '../../types'
 
 /**
  * Settings -> "Bring your own key" tab (mockup 1:1, scoped to the v1
- * provider set). A master cloud-fallback toggle, one row per configured
- * cloud backend (Active / Remove), and an add-provider form for the four
- * seeded BYOK providers plus a base-URL-only custom endpoint. Cloud
- * backends surface as pickable providers in the top-bar provider dropdown.
+ * provider set). Pure add/remove: one row per configured cloud backend
+ * (read-only Active/Inactive status + Remove — per-backend enable/disable
+ * lives entirely in the Model backends tab, owner review Aug 8), and an
+ * add-provider form for the BYOK providers plus a custom endpoint (base
+ * URL + optional API key). BYOK backends are NOT seeded keyless (owner
+ * decision, Aug 8 2026) — this menu is the only way to add a cloud
+ * provider. Cloud backends surface as pickable providers in the top-bar
+ * provider dropdown.
  */
-const ADDABLE_PROVIDERS: { id: string; name: string; needsBaseUrl: boolean }[] = [
-  { id: 'openai', name: 'OpenAI', needsBaseUrl: false },
-  { id: 'anthropic', name: 'Anthropic', needsBaseUrl: false },
-  { id: 'deepseek', name: 'DeepSeek', needsBaseUrl: false },
-  { id: 'openrouter', name: 'OpenRouter', needsBaseUrl: false },
-  { id: 'custom', name: 'Custom endpoint…', needsBaseUrl: true },
+const ADDABLE_PROVIDERS: {
+  id: string
+  name: string
+  needsBaseUrl: boolean
+  needsApiKey: boolean
+}[] = [
+  { id: 'openai', name: 'OpenAI', needsBaseUrl: false, needsApiKey: true },
+  { id: 'anthropic', name: 'Anthropic', needsBaseUrl: false, needsApiKey: true },
+  { id: 'gemini', name: 'Google Gemini', needsBaseUrl: false, needsApiKey: true },
+  { id: 'deepseek', name: 'DeepSeek', needsBaseUrl: false, needsApiKey: true },
+  { id: 'openrouter', name: 'OpenRouter', needsBaseUrl: false, needsApiKey: true },
+  { id: 'custom', name: 'Custom endpoint…', needsBaseUrl: true, needsApiKey: true },
 ]
 
 export function BYOKTab() {
   const { backends, actions } = useApp()
   const cloud = backends.filter((b) => !b.local)
-  // A cloud route exists when an enabled backend is keyed (BYOK) or is a
-  // custom endpoint (counts even without a key, per the M5 owner decision).
-  const usable = (b: ModelBackendRead) => b.has_api_key || b.kind === 'custom'
-  const cloudActive = cloud.some((b) => b.enabled && usable(b))
 
   const [selected, setSelected] = useState(ADDABLE_PROVIDERS[0].id)
   const [apiKey, setApiKey] = useState('')
@@ -34,29 +40,11 @@ export function BYOKTab() {
 
   const sel = ADDABLE_PROVIDERS.find((p) => p.id === selected) ?? ADDABLE_PROVIDERS[0]
 
+  // BYOK providers need a key; custom endpoints need a base URL (its key is
+  // optional — some OpenAI-compatible endpoints are keyless).
   const canAdd =
-    !busy && (sel.needsBaseUrl ? baseUrl.trim().length > 0 : apiKey.trim().length > 0)
-
-  const toggleCloud = async () => {
-    if (busy) return
-    setBusy(true)
-    setFormError(null)
-    try {
-      // Master switch, batched into one PUT round + one refresh: disable
-      // every cloud backend, or enable every one that can actually send
-      // (keyed BYOK, or a custom endpoint regardless of key).
-      const entries = cloud
-        .filter((b) => (cloudActive ? b.enabled : usable(b)))
-        .map((b) => ({ id: b.id, payload: { enabled: !cloudActive } as const }))
-      if (entries.length > 0) {
-        await actions.updateBackends(entries)
-      }
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setBusy(false)
-    }
-  }
+    !busy &&
+    (sel.needsBaseUrl ? baseUrl.trim().length > 0 : apiKey.trim().length > 0)
 
   const addProvider = async () => {
     if (!canAdd) return
@@ -104,21 +92,6 @@ export function BYOKTab() {
         </span>
       </div>
 
-      <div className="toggle-row">
-        <div>
-          <div className="label">Enable cloud fallback</div>
-          <div className="sub">
-            Off by default. Only used if you explicitly select a cloud model.
-          </div>
-        </div>
-        <span
-          role="switch"
-          aria-checked={cloudActive}
-          className={`switch ${cloudActive ? 'on' : ''}`}
-          onClick={() => void toggleCloud()}
-        />
-      </div>
-
       <label className="field-label" style={{ marginBottom: 4, display: 'block' }}>
         Connected providers
       </label>
@@ -142,25 +115,12 @@ export function BYOKTab() {
             </div>
           </div>
           <div className="mcp-actions">
+            {/* Read-only status: enable/disable lives in the Model backends
+                tab (the master and per-row switches were removed, owner
+                review Aug 8) — this tab is pure add/remove. */}
             <span className={`conn-status ${b.enabled && b.has_api_key ? 'ok' : 'off'}`}>
               {b.enabled && b.has_api_key ? 'Active' : 'Inactive'}
             </span>
-            <span
-              role="switch"
-              aria-checked={b.enabled}
-              aria-label={`${b.name} enabled`}
-              className={`switch ${b.enabled ? 'on' : ''}`}
-              onClick={() => {
-                if (busy) return
-                setBusy(true)
-                void actions
-                  .updateBackend(b.id, { enabled: !b.enabled })
-                  .catch((err: unknown) => {
-                    setFormError(err instanceof Error ? err.message : String(err))
-                  })
-                  .finally(() => setBusy(false))
-              }}
-            />
             <button
               type="button"
               className="link-btn danger"
@@ -206,12 +166,12 @@ export function BYOKTab() {
           </div>
         )}
 
-        {!sel.needsBaseUrl && (
+        {sel.needsApiKey && (
           <div className="field-group" style={{ marginBottom: 10 }}>
             <input
               className="field-input"
               type="password"
-              placeholder="API key"
+              placeholder={sel.needsBaseUrl ? 'API key (optional)' : 'API key'}
               value={apiKey}
               disabled={busy}
               autoComplete="off"
@@ -224,7 +184,7 @@ export function BYOKTab() {
           Any provider exposing an OpenAI-compatible{' '}
           <code>/v1/chat/completions</code> endpoint works via{' '}
           &ldquo;Custom endpoint…&rdquo; — the base URL field appears when
-          selected.
+          selected; its API key is optional for keyless endpoints.
         </p>
 
         {formError && <p className="field-error">{formError}</p>}

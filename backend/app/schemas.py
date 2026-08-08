@@ -115,6 +115,10 @@ class ModelBackendRead(BaseModel):
     enabled: bool = True
     local: bool
     has_api_key: bool  # never the key itself
+    # Provider's curated model list (``Provider.suggested_models``) — the
+    # Settings UI shows these by default with a "see all" reveal for the
+    # full served list (owner UX request, Aug 8).
+    suggested_models: list[str] = []
     health: ModelBackendHealth | None = None
 
 
@@ -165,6 +169,54 @@ class ScanGraphState(BaseModel):
     edges: int | None = None
     graph_path: str | None = None
     reason: str | None = None
+
+
+class GraphNodeRow(BaseModel):
+    """One searchable graph node (Code maps tab, Android only)."""
+
+    id: str
+    label: str
+    file_type: str | None = None
+    file: str | None = None
+    line: int | None = None
+
+
+class GraphSearchResponse(BaseModel):
+    """Code maps search: substring matches over node labels/ids.
+
+    ``total`` is the pre-limit match count — the UI can show "n of m".
+    """
+
+    query: str
+    total: int
+    nodes: list[GraphNodeRow]
+
+
+class GraphNeighbor(BaseModel):
+    """A node linked to/from the inspected node."""
+
+    node: GraphNodeRow
+    relation: str | None = None
+    direction: str  # "in" | "out"
+
+
+class GraphNodeDetail(BaseModel):
+    """One node + its neighbors (relation/direction tagged)."""
+
+    node: GraphNodeRow
+    degree: int = 0
+    neighbors: list[GraphNeighbor] = []
+
+
+class GraphHubRow(BaseModel):
+    """A most-connected node for the explorer's initial view."""
+
+    node: GraphNodeRow
+    degree: int = 0
+
+
+class GraphHubsResponse(BaseModel):
+    hubs: list[GraphHubRow] = []
 
 
 # ---- M5 dashboard: LLM insights, decompiler tree, model lifecycle ----

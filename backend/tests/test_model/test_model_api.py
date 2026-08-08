@@ -8,6 +8,7 @@ from app.config import Settings
 from app.main import app
 from app.model.backends import BackendStore
 from app.model.health import BackendHealth
+from app.model.providers import PROVIDERS
 
 
 @pytest.fixture()
@@ -44,7 +45,10 @@ def test_list_backends_shape_and_redaction(api):
     assert r.status_code == 200
     data = r.json()
     ids = {b["id"] for b in data}
-    assert {"ollama", "lm-studio", "openai", "anthropic", "deepseek", "openrouter"} <= ids
+    # BYOK backends are NOT seeded keyless (owner decision, Aug 8 2026) — a
+    # fresh store carries only the local backends; cloud providers are added
+    # via POST /backends (the BYOK menu).
+    assert {"ollama", "lm-studio"} == ids
     assert all("api_key" not in b for b in data)
 
     ollama = next(b for b in data if b["id"] == "ollama")
@@ -52,10 +56,22 @@ def test_list_backends_shape_and_redaction(api):
     assert ollama["kind"] == "local"
     assert ollama["health"]["reachable"] is True
 
-    openai = next(b for b in data if b["id"] == "openai")
-    assert openai["local"] is False
-    assert openai["has_api_key"] is False
-    assert openai["health"]["status"] == "ok"
+
+def test_gemini_added_via_byok_carries_suggested_models(api):
+    """The curated model list rides along so the Settings UI can show a
+    small set by default with a "see all" reveal for the full served list."""
+    r = api.post(
+        "/api/v1/model/backends",
+        json={"provider_id": "gemini", "api_key": "gkey-secret"},
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["id"] == "gemini"
+    assert body["local"] is False
+    assert body["has_api_key"] is True
+    assert body["suggested_models"] == list(  # provider table is source of truth
+        PROVIDERS["gemini"].suggested_models
+    )
 
 
 def test_test_endpoint_runs_full_check(api):
@@ -80,6 +96,8 @@ def test_unknown_backend_404(api):
 
 
 def test_upsert_persists_config_and_never_leaks_key(api):
+    # BYOK backends start absent — add via POST (the BYOK menu) first.
+    api.post("/api/v1/model/backends", json={"provider_id": "openai", "api_key": "sk-secret"})
     r = api.put("/api/v1/model/backends/openai", json={"model": "gpt-4o", "api_key": "sk-secret"})
     assert r.status_code == 200
     body = r.json()
@@ -96,7 +114,7 @@ def test_upsert_persists_config_and_never_leaks_key(api):
 
 
 def test_upsert_empty_key_clears(api):
-    api.put("/api/v1/model/backends/openai", json={"api_key": "sk-secret"})
+    api.post("/api/v1/model/backends", json={"provider_id": "openai", "api_key": "sk-secret"})
     api.put("/api/v1/model/backends/openai", json={"api_key": ""})
     openai = next(b for b in api.get("/api/v1/model/backends").json() if b["id"] == "openai")
     assert openai["has_api_key"] is False
@@ -190,7 +208,7 @@ def test_delete_unknown_backend_404(api):
 
 
 def test_delete_byok_then_reactivate(api, store):
-    api.put("/api/v1/model/backends/openai", json={"api_key": "sk-secret"})
+    api.post("/api/v1/model/backends", json={"provider_id": "openai", "api_key": "sk-secret"})
     assert api.delete("/api/v1/model/backends/openai").status_code == 204
     ids = {b["id"] for b in api.get("/api/v1/model/backends").json()}
     assert "openai" not in ids

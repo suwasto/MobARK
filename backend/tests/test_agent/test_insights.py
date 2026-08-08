@@ -98,6 +98,27 @@ def test_explain_generates_and_persists(monkeypatch):
     assert "Source context" in user
 
 
+def test_explain_regenerate_bypasses_cache(monkeypatch):
+    """regenerate=True re-runs the LLM even on a cached finding and overwrites
+    the stored explanation — the Regenerate button's explicit cost spend."""
+    finding = _finding(explanation="already explained")
+    calls = {"n": 0}
+
+    def fake_chat(backend, messages, **kwargs):
+        calls["n"] += 1
+        return _Resp("fresh explanation")
+
+    monkeypatch.setattr(insights, "client_chat", fake_chat)
+    monkeypatch.setattr(insights, "pick_chat_backend", lambda: _backend())
+    monkeypatch.setattr(insights, "read_file", lambda *a, **k: "ctx")
+    result = insights.explain_finding(1, finding, regenerate=True)
+
+    assert result["cached"] is False
+    assert result["explanation"] == "fresh explanation"
+    assert calls["n"] == 1  # LLM called despite the cache
+    assert finding.explanation == "fresh explanation"
+
+
 def test_explain_no_model_configured_propagates(monkeypatch):
     def no_model():
         raise NoModelConfigured("no chat model configured")
@@ -187,6 +208,28 @@ def test_summary_cache_hit_skips_llm(monkeypatch):
     result = insights.summarize_scan(scan, _findings(), security_score=100)
     assert result["cached"] is True
     assert result["summary"] == "cached summary"
+
+
+def test_summary_regenerate_bypasses_cache(monkeypatch):
+    """regenerate=True re-runs the LLM even with a cached summary and
+    overwrites the stored row — same explicit-opt-in contract as explain."""
+    scan = _scan(ai_summary="cached summary")
+    calls = {"n": 0}
+
+    def fake_chat(backend, messages, **kwargs):
+        calls["n"] += 1
+        return _Resp("fresh overview")
+
+    monkeypatch.setattr(insights, "client_chat", fake_chat)
+    monkeypatch.setattr(insights, "pick_chat_backend", lambda: _backend())
+    result = insights.summarize_scan(
+        scan, _findings(), security_score=100, regenerate=True
+    )
+
+    assert result["cached"] is False
+    assert result["summary"] == "fresh overview"
+    assert calls["n"] == 1  # LLM called despite the cache
+    assert scan.ai_summary == "fresh overview"
 
 
 def test_summary_no_model_propagates(monkeypatch):

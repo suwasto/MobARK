@@ -13,20 +13,34 @@ def _settings(**overrides) -> Settings:
     return Settings(**{"data_dir": ".", **overrides})
 
 
-def test_seed_creates_file_with_all_non_custom_providers(tmp_path):
+def test_seed_creates_file_with_local_backends_only(tmp_path, monkeypatch):
+    """BYOK backends are no longer seeded keyless (owner decision, Aug 8
+    2026) — an unusable cloud entry only confuses Settings. Fresh installs
+    get local backends; cloud providers are added via the BYOK menu."""
+    # Deterministic: a dev machine may have MASA_*_API_KEY exported.
+    for key in ("OPENAI", "ANTHROPIC", "DEEPSEEK", "OPENROUTER", "GEMINI"):
+        monkeypatch.delenv(f"MASA_{key}_API_KEY", raising=False)
     store = BackendStore(tmp_path, settings_obj=_settings())
     backends = store.read()
     ids = {b.id for b in backends}
-    assert {"ollama", "lm-studio", "openai", "anthropic", "deepseek", "openrouter"} <= ids
+    assert {"ollama", "lm-studio"} == ids
     assert "custom" not in ids, "custom backends are user-created, not seeded"
     assert store.path.is_file()
+
+
+def test_seed_byok_backends_when_key_configured(tmp_path, monkeypatch):
+    """BYOK backends seed only when a real key is configured (env/settings)."""
+    monkeypatch.setenv("MASA_OPENAI_API_KEY", "sk-secret-123")
+    by_id = {b.id: b for b in BackendStore(tmp_path, settings_obj=Settings()).read()}
+    assert "openai" in by_id
+    assert by_id["openai"].api_key == "sk-secret-123"
+    assert "anthropic" not in by_id, "unkeyed BYOK must not seed"
 
 
 def test_seed_local_backends_have_dummy_keys(tmp_path):
     by_id = {b.id: b for b in BackendStore(tmp_path, settings_obj=_settings()).read()}
     assert by_id["ollama"].api_key == "ollama"
     assert by_id["lm-studio"].api_key == "lm-studio"
-    assert by_id["openai"].api_key is None
 
 
 def test_seed_respects_env_overrides(tmp_path, monkeypatch):
@@ -59,7 +73,19 @@ def test_store_honors_existing_file_over_env(tmp_path, monkeypatch):
 
 def test_upsert_persists_and_clears_key(tmp_path):
     store = BackendStore(tmp_path, settings_obj=_settings())
-    store.read()  # seed
+    store.read()  # seed (local backends only — unkeyed BYOK no longer seeds)
+    # Add a BYOK backend the way the app does (store.add, keyed) — owner
+    # decision Aug 8 2026: keyless BYOK entries are never seeded/created.
+    store.add(
+        ModelBackend(
+            id="openai",
+            provider_id="openai",
+            name="OpenAI",
+            kind="byok",
+            base_url="https://api.openai.com/v1",
+            api_key="sk-seed",
+        )
+    )
     b = store.upsert(
         "openai", base_url="https://custom.example/v1", model="gpt-4o", api_key="sk-abc"
     )

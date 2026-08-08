@@ -30,12 +30,14 @@ _BASE_URL_FIELD = {
     "anthropic": "anthropic_base_url",
     "deepseek": "deepseek_base_url",
     "openrouter": "openrouter_base_url",
+    "gemini": "gemini_base_url",
 }
 _API_KEY_FIELD = {
     "openai": "openai_api_key",
     "anthropic": "anthropic_api_key",
     "deepseek": "deepseek_api_key",
     "openrouter": "openrouter_api_key",
+    "gemini": "gemini_api_key",
 }
 
 
@@ -65,7 +67,14 @@ class ModelBackend:
 
 
 def _seed_backends(cfg: Settings) -> list[ModelBackend]:
-    """Build the initial backend list from the provider table + env/`Settings`."""
+    """Build the initial backend list from the provider table + env/`Settings`.
+
+    Local backends are always seeded (they need no key). BYOK backends are
+    seeded ONLY when an API key is configured via env/`Settings` — a keyless
+    cloud entry is unusable and only confuses the Settings UI (owner
+    decision, Aug 8 2026): add cloud providers with a key via the BYOK menu
+    (POST /api/v1/model/backends) instead.
+    """
     seeded: list[ModelBackend] = []
     for provider_id, provider in PROVIDERS.items():
         if provider.kind == "custom":
@@ -78,6 +87,10 @@ def _seed_backends(cfg: Settings) -> list[ModelBackend]:
             api_key = provider.dummy_key
         else:
             api_key = getattr(cfg, _API_KEY_FIELD.get(provider_id, ""), "") or None
+            if api_key is None:
+                # No real key configured — don't seed an unusable cloud
+                # entry. It appears only when added via the BYOK menu.
+                continue
         seeded.append(
             ModelBackend(
                 id=provider_id,

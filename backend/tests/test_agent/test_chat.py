@@ -171,7 +171,7 @@ def test_agent_timeout_raises_when_budget_exhausted(env, monkeypatch):
 
     monkeypatch.setattr(chat_mod.time, "monotonic", fast_forward)
     with pytest.raises(chat_mod.AgentTimeout, match="budget"):
-        answer_question(scan_id, "hi", timeout=120.0)
+        answer_question(scan_id, "what is the main risk?", timeout=120.0)
 
 
 def test_fallback_gets_remaining_budget_not_full_timeout(env, monkeypatch):
@@ -191,7 +191,7 @@ def test_fallback_gets_remaining_budget_not_full_timeout(env, monkeypatch):
         return _resp(_msg("recovered."))
 
     monkeypatch.setattr(chat_mod, "client_chat", flaky_chat)
-    result = answer_question(scan_id, "hi", timeout=60.0)
+    result = answer_question(scan_id, "what is the storage risk?", timeout=60.0)
     assert result.answer == "recovered."
     assert len(timeouts) == 2
     first, fallback = timeouts
@@ -231,7 +231,40 @@ def test_fallback_skipped_when_first_call_exhausted_budget(env, monkeypatch):
 
     monkeypatch.setattr(chat_mod.time, "monotonic", stateful_clock)
     with pytest.raises(chat_mod.AgentTimeout, match="budget"):
-        answer_question(scan_id, "hi", timeout=1.0)
+        answer_question(scan_id, "what is the main risk?", timeout=1.0)
+
+
+def test_upstream_llm_failure_wrapped_not_raw(env, monkeypatch):
+    """Regression: a model call that fails on both the tools attempt and the
+    no-tools fallback must raise ChatUpstreamError carrying the upstream
+    message — the API maps it to 502, not a raw 500 (the 500 the user saw
+    when Ollama couldn't load the model)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls = {"n": 0}
+
+    def dead_chat(backend, messages, **kwargs):
+        calls["n"] += 1
+        raise RuntimeError("OllamaException - unknown model architecture: 'nanbeige'")
+
+    monkeypatch.setattr(chat_mod, "client_chat", dead_chat)
+    with pytest.raises(chat_mod.ChatUpstreamError, match="unknown model architecture"):
+        answer_question(scan_id, "what is the main risk?", timeout=60.0)
+    assert calls["n"] == 2  # tools call + plain-chat fallback both failed
+
+
+def test_upstream_error_carries_arch_hint(env, monkeypatch):
+    """The nanbeige-style error gets the shared actionable hint in the chat
+    bubble too — not just in the Settings probe."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def dead_chat(backend, messages, **kwargs):
+        raise RuntimeError("OllamaException - unknown model architecture: 'nanbeige'")
+
+    monkeypatch.setattr(chat_mod, "client_chat", dead_chat)
+    with pytest.raises(chat_mod.ChatUpstreamError, match="upgrade Ollama"):
+        answer_question(scan_id, "what is the main risk?", timeout=60.0)
 
 
 def test_default_budget_from_settings(env, monkeypatch):
@@ -248,7 +281,7 @@ def test_default_budget_from_settings(env, monkeypatch):
         return _resp(_msg("ok"))
 
     monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
-    result = answer_question(scan_id, "hi")
+    result = answer_question(scan_id, "what is the main risk?")
     assert result.answer == "ok"
     assert 0 < captured["timeout"] <= 7.0
 
@@ -261,7 +294,7 @@ def test_chat_not_configured_when_no_backend(env, monkeypatch):
 
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", no_backend)
     with pytest.raises(ChatNotConfigured, match="no chat model configured"):
-        answer_question(scan_id, "hi")
+        answer_question(scan_id, "what is the main risk?")
 
 
 def test_citations_deduplicated_and_capped(env, monkeypatch):
@@ -276,6 +309,204 @@ def test_citations_deduplicated_and_capped(env, monkeypatch):
     result = answer_question(scan_id, "cite it many times")
     assert len(result.citations) == 1  # deduped
     assert result.citations[0].line == 42
+
+
+# ---- greetings + loop-exhaustion fallback -------------------------------------
+
+
+def test_greeting_answered_without_llm_or_backend(env, monkeypatch):
+    """'hi' gets a canned greeting — no backend pick, no LLM call, no tool
+    loop (regression: it used to burn the whole tool budget and return the
+    confusing 'tool-call limit' message)."""
+    scan_id = env
+    calls = {"chat": 0, "pick": 0}
+
+    def fake_pick():
+        calls["pick"] += 1
+        return object()
+
+    def fake_chat(backend, messages, **kwargs):
+        calls["chat"] += 1
+        return _resp(_msg("should never run"))
+
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", fake_pick)
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(scan_id, "hi")
+    assert "MASA" in result.answer
+    assert result.citations == []
+    assert calls["chat"] == 0
+    assert calls["pick"] == 0
+
+
+def test_greeting_variants_short_circuit(env, monkeypatch):
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    monkeypatch.setattr(chat_mod, "client_chat", lambda *a, **k: _resp(_msg("nope")))
+    for q in ("Hello!", "hey", "yo", "HI", "howdy", "hola!"):
+        result = answer_question(scan_id, q)
+        assert "MASA" in result.answer
+
+
+def test_greeting_like_question_still_uses_llm(env, monkeypatch):
+    """'hi, …' is a real question, not a greeting — it must go through the
+    agent normally (the short-circuit only catches bare greetings)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def fake_chat(backend, messages, **kwargs):
+        return _resp(_msg("Here's what the scan covers."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(scan_id, "hi, what does this scan cover?")
+    assert "scan" in result.answer
+
+
+def test_loop_exhaustion_falls_back_to_plain_chat(env, monkeypatch):
+    """If the model only ever emits tool calls, the loop ends and ONE final
+    no-tools attempt replays the original grounded prompt — the 'tool-call
+    limit' message must not be the answer (regression: 'hi' style prompts)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls = []
+
+    def tool_loop_then_answer(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "kwargs": kwargs})
+        if "tools" in kwargs:  # the 4 tool rounds
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        return _resp(_msg("The WebView client lives in com/app/W.java:42."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", tool_loop_then_answer)
+    result = answer_question(scan_id, "where is the webview client?", timeout=60.0)
+    assert "WebView client" in result.answer
+    assert len(calls) == 5  # 4 tool rounds + 1 plain fallback
+    # the fallback carries no tool schemas and replays the original 2-turn
+    # prompt (system + user), not the tool-polluted conversation
+    assert "tools" not in calls[-1]["kwargs"]
+    assert len(calls[-1]["messages"]) == 2
+
+
+def test_loop_exhaustion_fallback_failure_raises_upstream(env, monkeypatch):
+    """If the final plain-chat attempt also fails, it surfaces as
+    ChatUpstreamError (502) like any other LLM failure."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls = {"n": 0}
+
+    def tool_loop_then_boom(backend, messages, **kwargs):
+        calls["n"] += 1
+        if "tools" in kwargs:
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        raise RuntimeError("upstream refused the final plain call")
+
+    monkeypatch.setattr(chat_mod, "client_chat", tool_loop_then_boom)
+    with pytest.raises(chat_mod.ChatUpstreamError, match="LLM call failed"):
+        answer_question(scan_id, "where is the webview client?", timeout=60.0)
+    assert calls["n"] == 5
+
+
+def test_loop_exhaustion_empty_fallback_returns_graceful_message(env, monkeypatch):
+    """If even the final plain-chat attempt returns nothing, the answer is
+    the graceful 'tool-call limit' guidance instead of a bare empty string."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def tool_loop_then_empty(backend, messages, **kwargs):
+        if "tools" in kwargs:
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        return _resp(_msg("   "))
+
+    monkeypatch.setattr(chat_mod, "client_chat", tool_loop_then_empty)
+    result = answer_question(scan_id, "where is the webview client?", timeout=60.0)
+    assert "tool-call limit" in result.answer
+    assert "Try a more specific question" in result.answer
+
+
+# ---- interrupt (Stop button) --------------------------------------------------
+
+
+def test_request_cancel_stops_loop_at_next_round(env, monkeypatch):
+    """The Stop button's server side: request_cancel(scan_id) makes the loop
+    raise ChatInterrupted at the next round boundary — the second LLM call
+    never happens, and the registry entry is cleared in the finally."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls = {"n": 0}
+
+    def one_round_then_interrupt(backend, messages, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # First round returns a tool call (forcing a second round) and
+            # the cancel lands before round 2's boundary check runs.
+            chat_mod.request_cancel(scan_id)
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        raise AssertionError("the second LLM call must never happen after cancel")
+
+    monkeypatch.setattr(chat_mod, "client_chat", one_round_then_interrupt)
+    with pytest.raises(chat_mod.ChatInterrupted, match="interrupted"):
+        answer_question(scan_id, "where is the webview?", timeout=60.0)
+    assert calls["n"] == 1
+    # The flag must not leak into the next chat for the same scan.
+    assert scan_id not in chat_mod._CANCEL_FLAGS
+
+
+def test_cancel_registry_cleared_after_normal_answer(env, monkeypatch):
+    """A chat that completes normally must not leave a cancel flag behind
+    (otherwise a stale flag could kill the *next* chat for the scan)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def fake_chat(backend, messages, **kwargs):
+        return _resp(_msg("plain answer, no tools"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    assert scan_id not in chat_mod._CANCEL_FLAGS
+    result = answer_question(scan_id, "what is the main risk?")
+    assert result.answer == "plain answer, no tools"
+    assert scan_id not in chat_mod._CANCEL_FLAGS
+
+
+def test_request_cancel_noop_without_in_flight_chat(env, monkeypatch):
+    """Cancelling before/after a chat changes nothing (the flag only exists
+    while a request is in flight) — a later chat still answers normally."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    chat_mod.request_cancel(scan_id)  # no event registered yet
+    assert scan_id not in chat_mod._CANCEL_FLAGS
+
+    def fake_chat(backend, messages, **kwargs):
+        return _resp(_msg("still answers"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(scan_id, "what is the main risk?")
+    assert result.answer == "still answers"
 
 
 def json_args(args: dict) -> str:

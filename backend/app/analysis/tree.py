@@ -30,6 +30,11 @@ MAX_NODES_PER_ROOT = 1500
 MAX_CONTENT_CHARS = 200_000
 _BINARY_SNIFF_BYTES = 8192
 
+# Directory names never shown in the tree. graphify-out is where the graph
+# CLI writes while a build is in flight (it is relocated to data/graphs/ by
+# graphify.build, but the decompiler tab must not render it mid-build).
+_IGNORED_DIRS = {"graphify-out"}
+
 # iOS synthetic root: generated documents from the persisted binary-level
 # analysis (Mach-O profile, entitlements, symbols, import-table findings).
 _ANALYSIS_ROOT = "analysis"
@@ -167,6 +172,8 @@ def _walk(
         if counter["nodes"] >= max_nodes:
             counter["truncated"] = True
             break
+        if entry.is_dir() and entry.name in _IGNORED_DIRS:
+            continue
         rel = entry.relative_to(root).as_posix()
         if entry.is_dir():
             children = _walk(

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrandMark } from './components/BrandMark'
 import { SettingsModal } from './components/settings/SettingsModal'
 import { TopBar } from './components/TopBar'
@@ -18,14 +18,39 @@ function BootSplash() {
 }
 
 function Shell() {
-  const { booting, view, actions } = useApp()
+  const { booting, view, scans, activeScan, actions } = useApp()
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Progress is a dismissible dialog now — the scan keeps running in the
+  // background, and the dashboard flips to it automatically when it finishes.
+  const [progressDismissed, setProgressDismissed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // M5 progress contract: poll every 2.5s while a scan is queued/running.
-  useScanPolling(view === 'progress', actions.refreshScans)
+  // Poll every 2.5s while the active scan is queued/running, or while ANY
+  // background scan is still going (the progress-dialog copy: "MASA keeps
+  // analyzing in the background") so completion always lands on the list.
+  const anyScanRunning = useMemo(
+    () => scans.some((s) => s.status === 'queued' || s.status === 'running'),
+    [scans],
+  )
+  useScanPolling(view === 'progress' || anyScanRunning, actions.refreshScans)
+
+  // A newly active scan (new upload, or selecting another running scan)
+  // brings the dialog back — the dismiss flag is per-scan.
+  useEffect(() => setProgressDismissed(false), [activeScan?.id])
+
+  // Backdrop for the progress dialog: the newest non-running scan's
+  // dashboard, or the empty state on a fresh install.
+  const backdropScan = useMemo(() => {
+    if (view !== 'progress') return null
+    return (
+      [...scans]
+        .sort((a, b) => b.id - a.id)
+        .find((s) => s.id !== activeScan?.id && (s.status === 'done' || s.status === 'failed')) ??
+      null
+    )
+  }, [view, scans, activeScan?.id])
 
   const handleFile = async (file: File) => {
     setUploadError(null)
@@ -53,19 +78,31 @@ function Shell() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
-      <main className="min-h-0 overflow-hidden">
+      {/* `relative` scopes the progress-dialog overlay to the main area so
+          the top bar stays visible while a scan runs (the old full-view
+          progress screen could push header/footer off-screen). */}
+      <main className="relative min-h-0 overflow-hidden">
         {view === 'empty' && <EmptyState onFile={(f) => void handleFile(f)} error={uploadError} />}
-        {view === 'progress' && (
-          <ProgressScreen
-            onPickFile={() => fileInputRef.current?.click()}
-            uploading={uploading}
-          />
-        )}
         {view === 'loaded' && (
           <DashboardView
             onPickFile={() => fileInputRef.current?.click()}
             uploading={uploading}
           />
+        )}
+        {/* The progress backdrop: the last completed scan's dashboard (or the
+            empty state) stays interactive behind the dialog. */}
+        {view === 'progress' && backdropScan && (
+          <DashboardView
+            onPickFile={() => fileInputRef.current?.click()}
+            uploading={uploading}
+            scanOverride={backdropScan}
+          />
+        )}
+        {view === 'progress' && !backdropScan && (
+          <EmptyState onFile={(f) => void handleFile(f)} error={uploadError} />
+        )}
+        {view === 'progress' && !progressDismissed && (
+          <ProgressScreen onClose={() => setProgressDismissed(true)} />
         )}
       </main>
 

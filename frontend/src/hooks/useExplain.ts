@@ -12,32 +12,37 @@ export type ExplainState =
 /**
  * Per-finding AI explanation (POST /scans/{id}/findings/{fid}/explain),
  * shared by the Findings tab rows and the Decompiler annotation rail.
- * The backend caches in findings.explanation, so repeat calls are free.
+ * The backend caches in findings.explanation, so repeat calls are free
+ * (cache-first). `fetchExplain(true)` is the explicit Regenerate opt-in
+ * that bypasses the cache and spends an LLM call.
  */
 export function useExplain(scanId: number, findingId: number) {
   const [state, setState] = useState<ExplainState>({ kind: 'idle' })
   const requestIdRef = useRef(0)
 
-  const fetchExplain = useCallback(() => {
-    const id = ++requestIdRef.current
-    setState({ kind: 'loading' })
-    api
-      .explainFinding(scanId, findingId)
-      .then((data) => {
-        if (requestIdRef.current === id) setState({ kind: 'ok', data })
-      })
-      .catch((err: unknown) => {
-        if (requestIdRef.current !== id) return
-        if (err instanceof ApiError && err.status === 400) {
-          setState({ kind: 'no-model' })
-        } else {
-          setState({
-            kind: 'error',
-            message: err instanceof Error ? err.message : String(err),
-          })
-        }
-      })
-  }, [scanId, findingId])
+  const fetchExplain = useCallback(
+    (regenerate = false) => {
+      const id = ++requestIdRef.current
+      setState({ kind: 'loading' })
+      api
+        .explainFinding(scanId, findingId, regenerate)
+        .then((data) => {
+          if (requestIdRef.current === id) setState({ kind: 'ok', data })
+        })
+        .catch((err: unknown) => {
+          if (requestIdRef.current !== id) return
+          if (err instanceof ApiError && err.status === 400) {
+            setState({ kind: 'no-model' })
+          } else {
+            setState({
+              kind: 'error',
+              message: err instanceof Error ? err.message : String(err),
+            })
+          }
+        })
+    },
+    [scanId, findingId],
+  )
 
   return { state, fetchExplain }
 }

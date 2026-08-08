@@ -9,8 +9,10 @@ M5 Phase A endpoints (see docs/progress/M5.md):
 - ``GET  /scans/{id}/files/content?path=``     traversal-guarded content read
 
 LLM error contract (shared by chat/explain/summary): 400 no chat model
-configured (NoModelConfigured) · 502 upstream LLM failure (InsightError) ·
-504 agent-loop deadline exceeded (AgentTimeout) · 409 scan not analyzed.
+configured (NoModelConfigured) · 502 upstream LLM failure (InsightError /
+ChatUpstreamError) · 504 agent-loop deadline exceeded (AgentTimeout) ·
+409 scan not analyzed (or the user interrupted the chat via the Stop
+button — ChatInterrupted).
 """
 from __future__ import annotations
 
@@ -23,7 +25,14 @@ from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.agent import insights
-from app.agent.chat import AgentTimeout, ChatNotConfigured, answer_question
+from app.agent.chat import (
+    AgentTimeout,
+    ChatInterrupted,
+    ChatNotConfigured,
+    ChatUpstreamError,
+    answer_question,
+    request_cancel,
+)
 from app.analysis import tree
 from app.analysis.risk import SEVERITY_ORDER, compute_risk_score, security_from_risk
 from app.config import settings
@@ -39,6 +48,9 @@ from app.schemas import (
     FileContentResponse,
     FileTreeResponse,
     FindingRead,
+    GraphHubsResponse,
+    GraphNodeDetail,
+    GraphSearchResponse,
     ScanGraphState,
     ScanRead,
     SummaryResponse,
@@ -75,6 +87,28 @@ def _require_analyzed(scan: Scan) -> None:
             status_code=409,
             detail=f"scan {scan.id} is not analyzed yet (status={scan.status})",
         )
+
+
+def _require_graph(scan: Scan) -> Path:
+    """Android-only + built-graph guard shared by the Code maps endpoints.
+
+    The graph build job is chained after analysis for Android scans, so a
+    built graph implies a done scan; 409 carries the human-readable reason
+    either way (same wording as ``scan_graph_state``).
+    """
+    if scan.platform != "android":
+        raise HTTPException(
+            status_code=409,
+            detail="graph is Android-only — iOS has no decompiled source tree",
+        )
+    graph_path = graphify.graph_path_for(scan.id)
+    if not graph_path.is_file():
+        raise HTTPException(
+            status_code=409,
+            detail="graph not built yet — the graph build job is chained after "
+            "analysis for Android scans",
+        )
+    return graph_path
 
 
 def _recompute_risk(db: Session, scan: Scan) -> None:
@@ -250,10 +284,16 @@ def unsuppress_finding(scan_id: int, finding_id: int, db: DbSession) -> Finding:
 
 
 @router.post("/{scan_id}/summary", response_model=SummaryResponse)
-def scan_summary(scan_id: int, db: DbSession) -> SummaryResponse:
+def scan_summary(
+    scan_id: int,
+    db: DbSession,
+    regenerate: bool = Query(default=False),
+) -> SummaryResponse:
     """AI overview summary (severity counts + top findings), cached on the row.
 
     A cached summary returns immediately with ``cached: true`` — no LLM call.
+    Pass ``regenerate=true`` to bypass the cache and re-run the model (the
+    UI's Regenerate button; explicit user opt-in that spends cost).
     """
     scan = _get_scan_or_404(db, scan_id)
     _require_analyzed(scan)
@@ -271,7 +311,9 @@ def scan_summary(scan_id: int, db: DbSession) -> SummaryResponse:
     )
     try:
         # The summary prompt speaks the public score: higher is better.
-        result = insights.summarize_scan(scan, findings, security_from_risk(risk))
+        result = insights.summarize_scan(
+            scan, findings, security_from_risk(risk), regenerate=regenerate
+        )
     except NoModelConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except insights.InsightError as exc:
@@ -281,11 +323,18 @@ def scan_summary(scan_id: int, db: DbSession) -> SummaryResponse:
 
 
 @router.post("/{scan_id}/findings/{finding_id}/explain", response_model=ExplainResponse)
-def explain_finding(scan_id: int, finding_id: int, db: DbSession) -> ExplainResponse:
+def explain_finding(
+    scan_id: int,
+    finding_id: int,
+    db: DbSession,
+    regenerate: bool = Query(default=False),
+) -> ExplainResponse:
     """FR-8: plain-language explanation + fix guidance for one finding.
 
     Grounded in the finding's detail + surrounding source lines; cached in
-    ``findings.explanation`` so repeat requests are free.
+    ``findings.explanation`` so repeat requests return it free (no LLM call).
+    Pass ``regenerate=true`` to bypass the cache (the UI's Regenerate button
+    — an explicit user opt-in that spends cost; default is cache-first).
     """
     scan = _get_scan_or_404(db, scan_id)
     finding = db.get(Finding, finding_id)
@@ -293,7 +342,7 @@ def explain_finding(scan_id: int, finding_id: int, db: DbSession) -> ExplainResp
         raise HTTPException(status_code=404, detail="finding not found")
     _require_analyzed(scan)
     try:
-        result = insights.explain_finding(scan_id, finding)
+        result = insights.explain_finding(scan_id, finding, regenerate=regenerate)
     except NoModelConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except insights.InsightError as exc:
@@ -361,13 +410,61 @@ def scan_graph_state(scan_id: int, db: DbSession) -> ScanGraphState:
     )
 
 
+@router.get("/{scan_id}/graph/search", response_model=GraphSearchResponse)
+def graph_search(
+    scan_id: int,
+    db: DbSession,
+    q: str = Query(default="", max_length=200),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> GraphSearchResponse:
+    """Code maps: substring search over graph node labels/ids (Android only).
+
+    404 unknown scan · 409 non-Android or graph not built yet. The graph.json
+    is compacted into a per-scan explorer index on first access (cached), so
+    repeated searches never re-parse the multi-MB file.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    graph_path = _require_graph(scan)
+    rows, total = graphify.search(graph_path, q.strip(), limit=limit)
+    return GraphSearchResponse(query=q, total=total, nodes=rows)
+
+
+@router.get("/{scan_id}/graph/hubs", response_model=GraphHubsResponse)
+def graph_hubs(
+    scan_id: int,
+    db: DbSession,
+    limit: int = Query(default=25, ge=1, le=100),
+) -> GraphHubsResponse:
+    """Code maps: most-connected nodes by link degree — the initial view."""
+    scan = _get_scan_or_404(db, scan_id)
+    graph_path = _require_graph(scan)
+    return GraphHubsResponse(hubs=graphify.hubs(graph_path, limit=limit))
+
+
+@router.get("/{scan_id}/graph/node/{node_id}", response_model=GraphNodeDetail)
+def graph_node(scan_id: int, node_id: str, db: DbSession) -> GraphNodeDetail:
+    """Code maps: one node + its neighbors (in/out, relation-tagged).
+
+    404 unknown node id (id is a graphify internal, e.g. ``@127.0.0.1`` or a
+    symbol) · 409 non-Android / graph not built.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    graph_path = _require_graph(scan)
+    detail = graphify.node_detail(graph_path, node_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"graph node {node_id!r} not found")
+    return detail
+
+
 @router.post("/{scan_id}/chat", response_model=ChatResponse)
 def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse:
     """M4: grounded agent answer over Layers 1-3 (findings context + tools).
 
     Zero embeddings — the RAG/vector path was removed from v1. 404 unknown
-    scan · 409 scan not analyzed · 400 no chat model configured · 504 the
-    agent loop exceeded its overall deadline (hung LLM call, hard-capped by
+    scan · 409 scan not analyzed · 400 no chat model configured · 502 the
+    upstream LLM backend failed (model not loadable, connection error — the
+    detail carries the upstream message) · 504 the agent loop exceeded its
+    overall deadline (hung LLM call, hard-capped by
     ``payload.timeout_seconds`` / ``settings.chat_timeout_seconds``). The
     chat model comes from the M3 backend store — no new config surface.
     """
@@ -382,8 +479,14 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
         result = answer_question(scan_id, payload.question, timeout=payload.timeout_seconds)
     except ChatNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ChatInterrupted as exc:
+        # The user hit Stop — the client already aborted and reads nothing,
+        # but a curl/test caller must never mistake the 409 for an answer.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AgentTimeout as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ChatUpstreamError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     return ChatResponse(
         answer=result.answer,
         citations=[
@@ -391,3 +494,18 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
         ],
         sources=result.sources,
     )
+
+
+@router.post("/{scan_id}/chat/cancel")
+def cancel_chat(scan_id: int, db: DbSession) -> dict:
+    """Stop any in-flight agent chat for the scan (the Stop button).
+
+    Sets the in-process cancel flag that ``answer_question`` polls at every
+    agent-loop boundary, so the LLM stops at the next round instead of
+    burning the whole budget. No-op when nothing is running — the flag only
+    exists while a request is in flight. The aborted chat request itself
+    comes back 409 (``ChatInterrupted``).
+    """
+    _get_scan_or_404(db, scan_id)
+    request_cancel(scan_id)
+    return {"cancelled": True}

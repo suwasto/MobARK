@@ -72,6 +72,9 @@ export interface ModelBackendRead {
   enabled: boolean
   local: boolean
   has_api_key: boolean
+  /** Provider's curated model list — Settings shows these by default with a
+   * "see all" reveal for the full served list (owner UX request, Aug 8). */
+  suggested_models: string[]
   health: ModelBackendHealth | null
 }
 
@@ -120,6 +123,44 @@ export interface ScanGraphState {
   edges: number | null
   graph_path: string | null
   reason: string | null
+}
+
+// ---- Code maps tab (graphify explorer, Android only) ----
+
+export interface GraphNodeRow {
+  id: string
+  label: string
+  file_type: string | null
+  file: string | null
+  line: number | null
+}
+
+export interface GraphSearchResponse {
+  query: string
+  /** Pre-limit match count — the UI shows "n of m". */
+  total: number
+  nodes: GraphNodeRow[]
+}
+
+export interface GraphNeighbor {
+  node: GraphNodeRow
+  relation: string | null
+  direction: 'in' | 'out'
+}
+
+export interface GraphNodeDetail {
+  node: GraphNodeRow
+  degree: number
+  neighbors: GraphNeighbor[]
+}
+
+export interface GraphHubRow {
+  node: GraphNodeRow
+  degree: number
+}
+
+export interface GraphHubsResponse {
+  hubs: GraphHubRow[]
 }
 
 // ---- M5 dashboard: insights, decompiler tree ----

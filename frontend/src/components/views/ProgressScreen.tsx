@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../../state/AppContext'
-import { TargetBar } from '../TargetBar'
 
 interface StageDef {
   key: string
@@ -42,12 +41,19 @@ function formatElapsed(totalSeconds: number): string {
 }
 
 interface ProgressScreenProps {
-  onPickFile: () => void
-  uploading: boolean
+  /** Dismiss the dialog — the scan keeps analyzing in the background and the
+   * dashboard flips to it automatically when it finishes. */
+  onClose: () => void
 }
 
-/** Scan-in-progress screen: live stage pipeline driven by Scan.stage. */
-export function ProgressScreen({ onPickFile, uploading }: ProgressScreenProps) {
+/**
+ * Scan-in-progress dialog (owner follow-up, Aug 8): the pipeline used to be a
+ * full scrollable view, so on short screens the header/footer could end up
+ * off-screen. Now it's a modal over the app shell — the top bar stays visible,
+ * the last completed scan's dashboard shows through the backdrop, and only the
+ * dialog body scrolls (86vh cap) if the screen is really short.
+ */
+export function ProgressScreen({ onClose }: ProgressScreenProps) {
   const { activeScan } = useApp()
   const stage = activeScan?.stage ?? 'queued'
   const [elapsed, setElapsed] = useState(0)
@@ -70,6 +76,21 @@ export function ProgressScreen({ onPickFile, uploading }: ProgressScreenProps) {
     else if (ANDROID_ONLY.has(stage)) platformRef.current = 'android'
   }, [stage])
 
+  // Escape dismisses; body scroll is locked while the dialog is open (same
+  // contract as the Settings modal).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+
   // Both stage lists are module constants — a plain per-render pick is
   // always correct (a useMemo with a missing dep would freeze the platform
   // flip that happens when a stage string first reveals the platform).
@@ -78,71 +99,99 @@ export function ProgressScreen({ onPickFile, uploading }: ProgressScreenProps) {
   const active = stages[activeIdx]
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <TargetBar onPickFile={onPickFile} uploading={uploading} />
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto p-6">
-          <div className="w-full max-w-[480px] rounded-lg border border-line bg-panel px-7 py-6">
-        {/* Head */}
-        <div className="mb-1.5 flex items-center gap-2.5">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line bg-panel-raised text-xs">
-            📦
-          </span>
-          <span className="truncate font-mono text-sm text-bone">
-            {activeScan?.filename ?? 'Scan'}
-          </span>
-          {platformRef.current && (
-            <span className="rounded-[2px] border border-line px-1 py-0.5 font-mono text-[9px] tracking-wider text-bone-faint">
-              {platformRef.current === 'ios' ? 'iOS' : 'Android'}
-            </span>
-          )}
-        </div>
-        <p className="mb-5 text-[11.5px] text-bone-faint">
-          {activeScan?.status === 'queued'
-            ? 'Queued — waiting for a worker…'
-            : `${active.label} — ${active.sub}`}
-        </p>
-
-        {/* Bar */}
-        <div className="mb-1 h-[5px] w-full overflow-hidden rounded-[3px] bg-line-soft">
-          <div className="animate-indeterminate h-full w-1/3 rounded-[3px] bg-steel" />
-        </div>
-        <div className="mb-5 flex justify-between font-mono text-[10.5px] text-bone-faint">
-          <span>
-            Step {activeIdx + 1} of {stages.length}
-          </span>
-          <span>{formatElapsed(elapsed)} elapsed</span>
-        </div>
-
-        {/* Pipeline */}
-        <div className="border-t border-line-soft pt-2">
-          {stages.map((s, i) => {
-            const state = i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'pending'
-            return (
-              <div key={s.key} className={`pipeline-step ${state}`}>
-                <div className={`pipeline-icon ${state === 'active' ? 'active' : ''}`}>
-                  {state === 'done' ? '✓' : state === 'active' ? '●' : String(i + 1)}
-                </div>
-                <div className="min-w-0">
-                  <div className="pstep-name">{s.label}</div>
-                  <div className="pstep-sub">{s.sub}</div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="mt-4 flex justify-end border-t border-line-soft pt-4">
-          <button className="btn" disabled title="Scans always complete in the background in v1">
-            Cancel scan
+    <div
+      className="progress-overlay"
+      onMouseDown={(e) => {
+        // Backdrop click dismisses (the scan keeps running) — same contract
+        // as the Settings modal.
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div
+        className="modal progress-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Scan in progress"
+      >
+        <div className="modal-head">
+          <div className="modal-title">Scan in progress</div>
+          <button
+            type="button"
+            className="modal-close"
+            aria-label="Keep scanning in the background"
+            title="Keep scanning in the background"
+            onClick={onClose}
+          >
+            ×
           </button>
         </div>
-          <p className="mt-4 text-[11px] leading-relaxed text-bone-faint">
-            You can switch to any other scan or start a new one — MASA keeps
-            analyzing in the background and this scan will show up in “Open a
-            different scan” when it’s done.
-          </p>
+
+        <div className="modal-body">
+          {/* Head */}
+          <div className="mb-1.5 flex items-center gap-2.5">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line bg-panel-raised text-xs">
+              📦
+            </span>
+            <span className="truncate font-mono text-sm text-bone">
+              {activeScan?.filename ?? 'Scan'}
+            </span>
+            {platformRef.current && (
+              <span className="rounded-[2px] border border-line px-1 py-0.5 font-mono text-[9px] tracking-wider text-bone-faint">
+                {platformRef.current === 'ios' ? 'iOS' : 'Android'}
+              </span>
+            )}
           </div>
+          <p className="mb-5 text-[11.5px] text-bone-faint">
+            {activeScan?.status === 'queued'
+              ? 'Queued — waiting for a worker…'
+              : `${active.label} — ${active.sub}`}
+          </p>
+
+          {/* Bar */}
+          <div className="mb-1 h-[5px] w-full overflow-hidden rounded-[3px] bg-line-soft">
+            <div className="animate-indeterminate h-full w-1/3 rounded-[3px] bg-steel" />
+          </div>
+          <div className="mb-5 flex justify-between font-mono text-[10.5px] text-bone-faint">
+            <span>
+              Step {activeIdx + 1} of {stages.length}
+            </span>
+            <span>{formatElapsed(elapsed)} elapsed</span>
+          </div>
+
+          {/* Pipeline */}
+          <div className="border-t border-line-soft pt-2">
+            {stages.map((s, i) => {
+              const state = i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'pending'
+              return (
+                <div key={s.key} className={`pipeline-step ${state}`}>
+                  <div className={`pipeline-icon ${state === 'active' ? 'active' : ''}`}>
+                    {state === 'done' ? '✓' : state === 'active' ? '●' : String(i + 1)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="pstep-name">{s.label}</div>
+                    <div className="pstep-sub">{s.sub}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="mt-4 flex justify-end border-t border-line-soft pt-4">
+            <button
+              className="btn"
+              disabled
+              title="Scans always complete in the background in v1"
+            >
+              Cancel scan
+            </button>
+          </div>
+          <p className="mt-4 text-[11px] leading-relaxed text-bone-faint">
+            MASA keeps analyzing in the background — dismiss this dialog and
+            keep using the last scan; this one appears in “Open a different
+            scan” when it’s done.
+          </p>
         </div>
+      </div>
     </div>
   )
 }

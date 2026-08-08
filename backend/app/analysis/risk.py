@@ -9,9 +9,20 @@ mapping. Owner decision (Aug 7, 2026): the scoring system is **CVSS 4.0**.
   (high 7.0-8.9, medium 4.0-6.9, low 0.1-3.9, none 0): high 8.0, medium
   5.5, low 2.0, info 0. Owner decision (Aug 8, 2026): the critical band
   was removed from the findings vocabulary — high is the top severity.
-- **risk = round(10 × max_cvss)** — the overall score is driven by the
-  single worst finding (owner decision: max, not mean). 0 when there is
-  nothing to score.
+- **risk = round(10 × max_cvss)** driven by the single worst finding, plus
+  a **breadth bonus within the worst severity band** (owner decision Aug 7:
+  max, not mean; follow-ups Aug 8: "worst + count", then band-symmetric):
+  each additional finding at the worst band adds ~1 point of risk, capped
+  at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 — the
+  qualitative band tops 8.9/6.9/3.9 × 10, so the removed critical band is
+  never re-introduced and the gauge caption "CVSS 4.0 · risk n/100 · band"
+  stays literally true in every band). Remediating/suppressing findings
+  visibly moves the gauge within each band (11 highs = 89 · 9 = 87 · 1 =
+  80 · none = 55; 16 mediums = 69 · 10 = 63 · 2 = 56 · 1 = 55), and
+  worst-first ordering is preserved with no band overlap (any high ≥ 80 > any
+  no-high ≤ 69 > any low-only ≤ 39). Bulk bands saturate at their ceiling
+  (446 mediums read 69 until the count drops below ~16 — visible progress
+  returns in the tail). 0 when there is nothing to score.
 - **security = 100 - risk** — the public-facing score (owner decision, Aug
   7: higher is better). An empty scan scores 100; risk 80 → security 20.
 - **Suppressed findings are excluded** (Aug 8, 2026): a false positive that
@@ -34,6 +45,20 @@ SEVERITY_CVSS = {
     "info": 0.0,
 }
 
+# Worst + breadth, band-symmetric (owner decisions, Aug 8 2026): each
+# additional finding at the worst severity band adds ~0.9 points of risk
+# (rounded) — the more independent paths of that severity an app has, the
+# worse the posture — capped at the band's CVSS 4.0 ceiling: (base
+# representative risk, ceiling, bonus slope). Ceilings are the qualitative
+# band tops × 10 (high 8.9, medium 6.9, low 3.9) so the gauge caption stays
+# literally true, bands never overlap (any high ≥ 80 > any no-high ≤ 69 >
+# any low-only ≤ 39), and the removed critical band is never re-introduced.
+_BAND_RISK = {
+    "high": (80, 89, 0.9),
+    "medium": (55, 69, 0.9),
+    "low": (20, 39, 0.9),
+}
+
 # Display order by severity for the findings list.
 SEVERITY_ORDER: tuple[str, ...] = ("high", "medium", "low", "info")
 
@@ -46,23 +71,43 @@ def cvss_base_score(severity: str) -> float:
 def compute_risk_score(findings) -> int:
     """0-100 risk score for a collection of findings.
 
-    Driven by the single worst finding: ``round(10 * max(cvss))`` over the
-    scored findings (severity != info). ``findings`` is any iterable of
-    objects exposing ``.severity`` — the analysis layer's ``FindingOut``
-    dataclass and the persisted ``Finding`` ORM both qualify. Unknown
-    severities are ignored rather than crashing the scan or the dashboard.
-    Suppressed findings (``suppressed=True`` on persisted rows) are skipped
-    so a suppressed false positive never drives the posture.
+    Worst + breadth, band-symmetric, over the scored findings (severity !=
+    info): the worst finding picks the severity band, ``round(10 * max_cvss)``
+    sets the base, and each extra finding at that band adds ~1 point capped
+    at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39). So
+    suppressing/fixing findings visibly moves the gauge within each band
+    (11 highs = 89 · 9 = 87 · 1 = 80 · none = 55; 16 mediums = 69 · 10 = 63
+    · 2 = 56 · 1 = 55), worst-first order is preserved with no band overlap,
+    and the "CVSS 4.0 · risk n/100 · band" caption stays literally true.
+    ``findings`` is any iterable of objects exposing ``.severity`` — the
+    analysis layer's ``FindingOut`` dataclass and the persisted ``Finding``
+    ORM both qualify. Unknown severities are ignored rather than crashing
+    the scan or the dashboard. Suppressed findings (``suppressed=True`` on
+    persisted rows) are skipped so a suppressed false positive never drives
+    the posture.
     """
-    scored = [
-        cvss_base_score(f.severity)
-        for f in findings
-        if not getattr(f, "suppressed", False)
-        and cvss_base_score(f.severity) > 0
-    ]
+    scored = []
+    for f in findings:
+        if getattr(f, "suppressed", False):
+            continue
+        cvss = cvss_base_score(f.severity)
+        if cvss > 0:
+            scored.append((f.severity, cvss))
     if not scored:
         return 0
-    return min(100, round(10 * max(scored)))
+    worst_sev, worst_cvss = max(scored, key=lambda pair: pair[1])
+    # Defensive: a severity that scores > 0 but has no band entry degrades to
+    # its plain representative score rather than crashing the scan/dashboard
+    # (the module contract — unknown severities are ignored, never fatal).
+    base, ceiling, per_extra = _BAND_RISK.get(
+        worst_sev, (round(10 * worst_cvss), round(10 * worst_cvss), 0.0)
+    )
+    extra = sum(1 for _, cvss in scored if cvss == worst_cvss) - 1
+    bonus = min(
+        ceiling - base,
+        int(per_extra * max(0, extra) + 0.5),
+    )
+    return base + bonus
 
 
 def compute_security_score(findings) -> int:

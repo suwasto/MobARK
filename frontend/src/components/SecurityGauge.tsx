@@ -5,15 +5,18 @@
  * score is the public-facing SECURITY score (100 - risk): higher is better.
  *
  * Scoring is CVSS 4.0 (owner decision, Aug 7): each severity band maps to a
- * CVSS 4.0 base score (high 8.0, medium 5.5, low 2.0, info 0 — the critical
- * band was removed Aug 8, so risk maxes at 80) and the overall risk is
- * driven by the WORST finding (max aggregation). The label follows the CVSS
- * 4.0 qualitative bands of the underlying risk — a 60/100 security score
- * means risk 40 → CVSS 4.0 Medium → "Medium security" (not "High").
+ * CVSS 4.0 base score (high 8.0, medium 5.5, low 2.0, info 0) and the
+ * overall risk is driven by the WORST finding plus a breadth bonus within
+ * its severity band, capped at the band's CVSS 4.0 ceiling (high 89 ·
+ * medium 69 · low 39 — the removed critical band is never re-introduced).
+ * 11 highs = 89 · 1 high = 80 · 16 mediums = 69 · 1 medium = 55. The label
+ * follows the CVSS 4.0 qualitative bands of the underlying risk — a 60/100
+ * security score means risk 40 → CVSS 4.0 Medium → "Medium security" (not
+ * "High").
  *
  * The arc color snaps to the CVSS 4.0 band of the underlying risk instead
  * of a continuous ramp, so the band boundaries read at a glance: risk
- * 70–80 crimson (worst) · 40–69 amber · 1–39 olive · 0 bright emerald
+ * 70–89 crimson (worst) · 40–69 amber · 1–39 olive · 0 bright emerald
  * (owner decision, Aug 7 — discrete bands, not a gradient).
  */
 

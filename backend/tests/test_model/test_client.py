@@ -71,6 +71,9 @@ def test_chat_passes_backend_mapping(monkeypatch):
     assert captured["api_base"] == "http://localhost:11434"
     assert captured["api_key"] == "ollama"  # dummy key for local servers
     assert captured["max_tokens"] == 1
+    # Local thinking models (Nanbeige4.2) would burn the budget on <think>
+    # blocks — Ollama calls must carry think:false.
+    assert captured["extra_body"] == {"think": False}
 
 
 def test_chat_byok_passes_key(monkeypatch):
@@ -85,6 +88,21 @@ def test_chat_byok_passes_key(monkeypatch):
     client.chat(b, [{"role": "user", "content": "ping"}])
     assert captured["model"] == "openai/gpt-4o-mini"
     assert captured["api_key"] == "sk-real"
+    assert "extra_body" not in captured  # think:false is Ollama-only
+
+
+def test_chat_callers_extra_body_merged_with_think_false(monkeypatch):
+    """A caller-supplied extra_body survives alongside the think flag."""
+    captured = {}
+
+    def fake_completion(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(client.litellm, "completion", fake_completion)
+    b = _backend("ollama", "http://localhost:11434")
+    client.chat(b, [{"role": "user", "content": "ping"}], extra_body={"num_ctx": 8192})
+    assert captured["extra_body"] == {"num_ctx": 8192, "think": False}
 
 
 def test_chat_raises_without_model(monkeypatch):

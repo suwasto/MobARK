@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ScanRead } from '../../types'
 import { useChat, type ChatMessage } from '../../hooks/useChat'
+import { useApp } from '../../state/AppContext'
+import { Markdown } from '../Markdown'
 
 interface AgentDockProps {
   scan: ScanRead
@@ -10,17 +12,6 @@ interface AgentDockProps {
   onToggleCollapsed: () => void
   /** A citation was clicked — jump the Decompiler tab to that file. */
   onOpenFile: (file: string) => void
-}
-
-/** Backticks → `<code>` spans so agent answers render like the mockup. */
-function renderCodeSpans(text: string) {
-  return text.split('`').map((part, i) =>
-    i % 2 === 1 ? (
-      <code key={i}>{part}</code>
-    ) : (
-      <span key={i}>{part}</span>
-    ),
-  )
 }
 
 function AgentMessage({
@@ -40,7 +31,7 @@ function AgentMessage({
       <span className="msg-tag">
         {message.errorKind ? 'Agent · failed' : 'Agent'}
       </span>
-      <div className="whitespace-pre-wrap">{renderCodeSpans(message.content)}</div>
+      <Markdown text={message.content} />
 
       {message.citations && message.citations.length > 0 && (
         <div className="src-row" aria-label="Sources cited by the agent">
@@ -83,9 +74,19 @@ export function AgentDock({
   onToggleCollapsed,
   onOpenFile,
 }: AgentDockProps) {
-  const { messages, sending, send } = useChat(scan.id)
+  const { messages, sending, send, stop } = useChat(scan.id)
+  const { backends } = useApp()
   const [draft, setDraft] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
+
+  // A chat is only possible when some backend is enabled WITH a model — the
+  // exact mirror of backend `pick_chat_backend` (and the ModelPicker's
+  // active lookup). Without one the send button is disabled and the hint
+  // says why (owner follow-up, Aug 8).
+  const modelConnected = useMemo(
+    () => backends.some((b) => b.enabled && b.model),
+    [backends],
+  )
 
   // Per-scan welcome message. Rebuilt on every render so the counts update
   // once findings finish loading (they start at 0); cheap string work.
@@ -104,7 +105,7 @@ export function AgentDock({
   }, [messages, sending])
 
   const submit = () => {
-    if (!draft.trim() || sending) return
+    if (!draft.trim() || sending || !modelConnected) return
     send(draft)
     setDraft('')
   }
@@ -152,7 +153,9 @@ export function AgentDock({
         {sending && (
           <div className="msg ai">
             <span className="msg-tag">Agent</span>
-            <span className="text-bone-faint">Thinking…</span>
+            <div className="thinking-row">
+              <span className="thinking-dots text-bone-faint">Thinking</span>
+            </div>
           </div>
         )}
       </div>
@@ -174,15 +177,36 @@ export function AgentDock({
           }}
         />
         <div className="row">
-          <span className="hint">⏎ to send</span>
-          <button
-            type="button"
-            className="send-btn"
-            disabled={sending || !draft.trim()}
-            onClick={submit}
-          >
-            {sending ? 'Thinking…' : 'Send'}
-          </button>
+          <span className={`hint${modelConnected ? '' : ' warn'}`}>
+            {modelConnected
+              ? '⏎ to send'
+              : 'No model connected — pick one in the top bar or Settings'}
+          </span>
+          {sending ? (
+            <button
+              type="button"
+              className="stop-btn stop-icon"
+              onClick={stop}
+              aria-label="Stop the agent"
+              title="Stop the agent — it stops at the next round"
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="send-btn"
+              disabled={!draft.trim() || !modelConnected}
+              title={
+                modelConnected
+                  ? undefined
+                  : 'No chat model connected — pick one in the top bar or Settings'
+              }
+              onClick={submit}
+            >
+              Send
+            </button>
+          )}
         </div>
       </div>
     </aside>

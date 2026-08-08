@@ -45,11 +45,13 @@ class Settings(BaseSettings):
     anthropic_base_url: str = "https://api.anthropic.com"
     deepseek_base_url: str = "https://api.deepseek.com"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
     deepseek_api_key: str | None = None
     openrouter_api_key: str | None = None
+    gemini_api_key: str | None = None
 
     # No hard default (M3 owner decision): blank means the user picks a model
     # from what the backend actually serves. Set MASA_DEFAULT_CHAT_MODEL to

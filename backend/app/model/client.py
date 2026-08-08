@@ -15,6 +15,29 @@ from app.model.backends import ModelBackend
 litellm.drop_params = True
 
 
+def model_arch_hint(message: str) -> str:
+    """Append an actionable hint when the upstream LLM server rejects the
+    model: it cannot load the model's architecture (classic old-Ollama-vs-
+    newer-model case), or the provider no longer serves the model (Google's
+    ``no longer available to new users`` deprecation 404, Aug 2026).
+
+    Shared by the Settings probe, agent chat, and the explain/summary
+    insights so every surface gives the same actionable guidance.
+    """
+    if "unknown model architecture" in message:
+        return message + (
+            " — the model server cannot load this model's architecture; "
+            "update the server (e.g. upgrade Ollama) or pick a model it supports"
+        )
+    if "no longer available to new users" in message:
+        return message + (
+            " — this model is no longer served to this account; pick a model "
+            "the provider currently serves (Settings → model chip) or update "
+            "the configured model"
+        )
+    return message
+
+
 def model_string(backend: ModelBackend) -> str:
     """LiteLLM model string for a backend: provider prefix + configured model.
 
@@ -43,7 +66,17 @@ def chat(
     response object — callers read ``response.choices[0].message.content``.
     Raises ValueError if no model is configured, or the underlying litellm
     error otherwise (M5's callers decide how to surface it).
+
+    Ollama backends additionally send ``think: false`` — local thinking
+    models (e.g. Nanbeige4.2) would otherwise spend the whole agent budget
+    inside ``<think>`` blocks and return near-empty content. Non-thinking
+    models ignore the flag.
     """
+    extra = dict(kwargs)
+    if backend.provider_id == "ollama":
+        body = dict(extra.get("extra_body") or {})
+        body["think"] = False
+        extra["extra_body"] = body
     return litellm.completion(
         model=model_string(backend),
         messages=messages,
@@ -52,5 +85,5 @@ def chat(
         max_tokens=max_tokens,
         temperature=temperature,
         timeout=timeout,
-        **kwargs,
+        **extra,
     )

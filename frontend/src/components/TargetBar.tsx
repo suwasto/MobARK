@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatRelative, platformLabel } from '../lib/format'
 import { useApp } from '../state/AppContext'
+import type { ScanRead } from '../types'
 
 interface TargetBarProps {
   onPickFile: () => void
   uploading: boolean
+  /** Override the identity shown — the progress-dialog backdrop renders the
+   * last completed scan while the active one runs. Defaults to the active
+   * scan. */
+  scan?: ScanRead | null
 }
 
 /**
@@ -12,8 +17,9 @@ interface TargetBarProps {
  * switch dropdown (upload new artifact or jump to any recent scan). One scan
  * at a time, matching the mockup.
  */
-export function TargetBar({ onPickFile, uploading }: TargetBarProps) {
-  const { activeScan, scans, actions } = useApp()
+export function TargetBar({ onPickFile, uploading, scan }: TargetBarProps) {
+  const { activeScan: active, scans, actions } = useApp()
+  const activeScan = scan ?? active
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 

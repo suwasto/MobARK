@@ -62,7 +62,14 @@ def _resolve_cmd() -> str:
 def build(scan_id: int, decompiled_root: Path, graphs_dir: Path) -> GraphStats:
     """Build the per-scan code graph; returns node/edge counts + graph path.
 
-    Raises GraphifyError when the CLI fails or ``graph.json`` isn't produced.
+    graphify 0.9.32 writes its output into the INPUT directory
+    (``<decompiled>/graphify-out/``), not the cwd — verified empirically
+    (Aug 8: rc=0 builds produced ``graph.json`` inside the decompiled tree,
+    never at ``<cwd>/graphify-out/``). After a successful run the whole
+    ``graphify-out`` folder is therefore MOVED into the per-scan graphs dir
+    (same volume → instant rename) so the decompiler tree stays clean and
+    ``graph_path_for`` keeps resolving. Raises GraphifyError when the CLI
+    fails or no ``graph.json`` is produced anywhere.
     """
     graphs_dir = Path(graphs_dir)
     target = graphs_dir / str(scan_id)
@@ -81,10 +88,25 @@ def build(scan_id: int, decompiled_root: Path, graphs_dir: Path) -> GraphStats:
             f"graphify build timed out after {settings.graphify_timeout_seconds}s"
         ) from exc
 
-    graph_path = target / "graphify-out" / "graph.json"
-    if proc.returncode != 0 or not graph_path.is_file():
+    if proc.returncode != 0:
         stderr = (proc.stderr or "")[-2000:]
         raise GraphifyError(f"graphify build failed (rc={proc.returncode}): {stderr}")
+
+    graph_path = target / "graphify-out" / "graph.json"
+    built_in_input = decompiled_root / "graphify-out"
+    if built_in_input.is_dir() and not graph_path.is_file():
+        # Relocate the CLI's input-dir output into the per-scan graphs dir.
+        # A pre-existing target (re-run) is replaced first.
+        out_target = target / "graphify-out"
+        if out_target.exists():
+            shutil.rmtree(out_target)
+        shutil.move(str(built_in_input), str(out_target))
+
+    if not graph_path.is_file():
+        stderr = (proc.stderr or "")[-2000:]
+        raise GraphifyError(
+            f"graphify build produced no graph.json (rc={proc.returncode}): {stderr}"
+        )
 
     nodes, edges = count_graph(graph_path)
     return GraphStats(nodes=nodes, edges=edges, graph_path=graph_path)
@@ -140,6 +162,223 @@ def graph_path_for(scan_id: int) -> Path:
 
     return settings.data_dir / "graphs" / str(scan_id) / "graphify-out" / "graph.json"
 
+
+# ---- Code maps explorer (search / detail / hubs) ------------------------------
+
+
+@dataclass(frozen=True)
+class ExplorerData:
+    """Compact in-memory view of a graph for the Code maps explorer.
+
+    ``nodes`` are public-shape rows (``id/label/file_type/file/line``),
+    ``links`` are ``(source, target, relation)`` tuples, ``degree`` counts
+    in+out links per node. Built once per graph and cached; the raw 64 MB
+    graph.json is never parsed per request.
+    """
+
+    nodes: list[dict]
+    by_id: dict[str, int]
+    links: list[tuple[str, str, str]]
+    degree: dict[str, int]
+
+
+# graph_path -> (mtime, data). Keyed on absolute paths so distinct scans (and
+# test tmp dirs) never collide; mtime check picks up a rebuilt graph. Bounded
+# to the most-recently built graphs — each compact index is tens of MB in
+# memory, so an unbounded cache would creep on a machine that scans many apps.
+_EXPLORER_CACHE: dict[str, tuple[float, ExplorerData]] = {}
+_EXPLORER_CACHE_MAX = 4
+
+
+def _row_from_node(node: dict) -> dict:
+    """Public-shape explorer row — the agent citation row plus file_type."""
+    row = _node_row(node)
+    # _node_row keeps label/file optional (agent citations); the explorer
+    # schema requires a label, so fall back to the id like the old builder.
+    row["label"] = row["label"] or row["id"]
+    row["file_type"] = node.get("file_type") or ""
+    return row
+
+
+def _build_explorer(graph_path: Path, index_path: Path) -> ExplorerData:
+    """One-time compaction of graph.json into the explorer index.
+
+    Writes ``explorer.json`` next to ``graph.json`` (compact node rows +
+    (source, target, relation) links) so later process starts skip the full
+    parse. ``json.load`` of the raw file is a few hundred MB peak — accepted
+    for the local-first tool, and only happens once per graph.
+    """
+    with open(graph_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    nodes: list[dict] = []
+    by_id: dict[str, int] = {}
+    for node in data.get("nodes", []):
+        nid = node.get("id")
+        if not nid:
+            continue
+        by_id[nid] = len(nodes)
+        nodes.append(_row_from_node(node))
+    links: list[tuple[str, str, str]] = []
+    degree: dict[str, int] = {}
+    for link in data.get("links", []) or data.get("edges", []):
+        source, target = link.get("source"), link.get("target")
+        if not source or not target:
+            continue
+        rel = link.get("relation") or ""
+        links.append((source, target, rel))
+        degree[source] = degree.get(source, 0) + 1
+        degree[target] = degree.get(target, 0) + 1
+    try:
+        index_path.write_text(
+            json.dumps({"nodes": nodes, "links": links}, separators=(",", ":")),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # in-memory cache alone is enough for this process
+    return ExplorerData(nodes=nodes, by_id=by_id, links=links, degree=degree)
+
+
+def _load_explorer_index(index_path: Path) -> ExplorerData:
+    with open(index_path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    nodes: list[dict] = []
+    by_id: dict[str, int] = {}
+    for row in data.get("nodes", []):
+        nid = row.get("id")
+        if not nid:
+            continue
+        by_id[nid] = len(nodes)
+        nodes.append(row)
+    links: list[tuple[str, str, str]] = []
+    degree: dict[str, int] = {}
+    for link in data.get("links", []):
+        source, target, rel = link
+        links.append((source, target, rel))
+        degree[source] = degree.get(source, 0) + 1
+        degree[target] = degree.get(target, 0) + 1
+    return ExplorerData(nodes=nodes, by_id=by_id, links=links, degree=degree)
+
+
+def explorer_data(graph_path: Path) -> ExplorerData:
+    """Load (lazily building once) the compact explorer index for a graph.
+
+    ``graph.json`` can be tens of MB (InsecureBankv2: 46k nodes / 116k edges
+    ≈ 64 MB) — far too heavy to parse per search. The first access compacts
+    it into ``explorer.json`` next to the graph and caches the result in
+    memory (mtime-keyed, so a rebuilt graph re-compacts).
+    """
+    key = str(graph_path)
+    mtime = graph_path.stat().st_mtime
+    cached = _EXPLORER_CACHE.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    index_path = graph_path.with_name("explorer.json")
+    if index_path.is_file() and index_path.stat().st_mtime >= mtime:
+        data = _load_explorer_index(index_path)
+    else:
+        data = _build_explorer(graph_path, index_path)
+    _EXPLORER_CACHE[key] = (mtime, data)
+    # Evict the oldest-inserted entry when over the bound (dicts preserve
+    # insertion order, so the first key is the oldest).
+    while len(_EXPLORER_CACHE) > _EXPLORER_CACHE_MAX:
+        _EXPLORER_CACHE.pop(next(iter(_EXPLORER_CACHE)))
+    return data
+
+
+def search(
+    graph_path: Path, query: str, limit: int = 25
+) -> tuple[list[dict], int]:
+    """Substring search over node labels/ids for the Code maps explorer.
+
+    Tokens come from the query (camelCase/snake identifiers kept whole,
+    stopwords dropped — same tokenizer as ``search_labels``). A node matches
+    when any token appears in its label or id; results rank label-prefix >
+    label-substring > id-substring, then label asc. Returns ``(rows, total)``
+    where ``total`` is the pre-limit match count.
+    """
+    tokens = {
+        t for t in re.split(r"[^a-zA-Z0-9_]+", query.lower())
+        if len(t) >= 3 and t not in _STOPWORDS
+    }
+    if not tokens:
+        return [], 0
+    data = explorer_data(graph_path)
+    scored: list[tuple[int, dict]] = []
+    for row in data.nodes:
+        label = (row["label"] or "").lower()
+        nid = (row["id"] or "").lower()
+        score = 0
+        for token in tokens:
+            if token in label:
+                score += 2 if label.startswith(token) else 1
+            if token in nid:
+                score += 1
+        if score:
+            scored.append((score, row))
+    total = len(scored)
+    scored.sort(key=lambda pair: (-pair[0], (pair[1]["label"] or "").lower()))
+    return [dict(row) for _, row in scored[:limit]], total
+
+
+def node_detail(
+    graph_path: Path, node_id: str, max_neighbors: int = 40
+) -> dict | None:
+    """One node + its graph neighbors for the explorer detail pane.
+
+    Neighbors are the nodes linked to/from ``node_id`` in either direction,
+    each with the link's ``relation`` and its ``direction`` ("in"/"out").
+    Out-neighbors come first, each group sorted by neighbor degree (the
+    most-connected first), capped at ``max_neighbors``. Returns None for an
+    unknown node id.
+    """
+    data = explorer_data(graph_path)
+    idx = data.by_id.get(node_id)
+    if idx is None:
+        return None
+    node = data.nodes[idx]
+    outgoing: list[dict] = []
+    incoming: list[dict] = []
+    # A pair can carry several relations (a->b "calls" AND a->b "imports");
+    # dedupe by neighbor id, keeping the first relation seen, so the list
+    # reads as a map rather than a raw edge dump.
+    seen_out: set[str] = set()
+    seen_in: set[str] = set()
+    for source, target, rel in data.links:
+        if source == node_id:
+            nidx = data.by_id.get(target)
+            if nidx is not None and data.nodes[nidx]["id"] not in seen_out:
+                seen_out.add(data.nodes[nidx]["id"])
+                outgoing.append(
+                    {"node": data.nodes[nidx], "relation": rel, "direction": "out"}
+                )
+        elif target == node_id:
+            nidx = data.by_id.get(source)
+            if nidx is not None and data.nodes[nidx]["id"] not in seen_in:
+                seen_in.add(data.nodes[nidx]["id"])
+                incoming.append(
+                    {"node": data.nodes[nidx], "relation": rel, "direction": "in"}
+                )
+    outgoing.sort(key=lambda n: -data.degree.get(n["node"]["id"], 0))
+    incoming.sort(key=lambda n: -data.degree.get(n["node"]["id"], 0))
+    return {
+        "node": node,
+        "degree": data.degree.get(node_id, 0),
+        "neighbors": (outgoing + incoming)[:max_neighbors],
+    }
+
+
+def hubs(graph_path: Path, limit: int = 25) -> list[dict]:
+    """Most-connected nodes by link degree — the explorer's initial view."""
+    data = explorer_data(graph_path)
+    rows: list[dict] = []
+    for node_id, degree in sorted(data.degree.items(), key=lambda kv: -kv[1]):
+        idx = data.by_id.get(node_id)
+        if idx is None:
+            continue
+        rows.append({"node": data.nodes[idx], "degree": degree})
+        if len(rows) >= limit:
+            break
+    return rows
 
 # ---- query -------------------------------------------------------------------
 

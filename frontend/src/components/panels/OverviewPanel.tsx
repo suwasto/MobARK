@@ -4,15 +4,13 @@ import type { SeverityCounts } from '../../hooks/useFindings'
 import { findingLocation } from '../../lib/findings'
 import { formatRelative } from '../../lib/format'
 import type { FindingRead, ScanRead, SummaryResponse } from '../../types'
+import { Markdown } from '../Markdown'
 import { SecurityGauge } from '../SecurityGauge'
 
 interface OverviewPanelProps {
   scan: ScanRead
   findings: FindingRead[]
   counts: SeverityCounts
-  /** Suppressed (false-positive) count — visible at a glance without opening
-   * the Findings tab (Aug 8 suppression follow-up). */
-  suppressedCount: number
   findingsLoading: boolean
   findingsError: string | null
   onOpenFindings: () => void
@@ -27,7 +25,9 @@ type SummaryState =
 
 function StatBox({ n, label, cls }: { n: number; label: string; cls: string }) {
   return (
-    <div className="rounded-[5px] border border-line bg-panel px-4 py-3.5">
+    // Stretches to fill the gauge card's height (the row's tallest cell) so
+    // the stat column stays full even without the suppressed-count pill.
+    <div className="flex flex-col justify-center rounded-[5px] border border-line bg-panel px-4 py-3.5">
       <div className={`font-mono text-[22px] font-semibold leading-none ${cls}`}>
         {n}
       </div>
@@ -43,36 +43,41 @@ export function OverviewPanel({
   scan,
   findings,
   counts,
-  suppressedCount,
   findingsLoading,
   findingsError,
   onOpenFindings,
 }: OverviewPanelProps) {
   // ---- AI summary (POST /scans/{id}/summary, cached backend-side) ----
-  // No model configured → 400 → a quiet "connect a model" state, not an error.
+  // Cached in scans.ai_summary: the auto-fetch on mount hits the cache (no
+  // LLM cost); `regenerate` is the explicit Regenerate-button opt-in that
+  // bypasses it. No model configured → 400 → a quiet "connect a model" state,
+  // not an error.
   const [summary, setSummary] = useState<SummaryState>({ kind: 'idle' })
   const requestIdRef = useRef(0)
 
-  const fetchSummary = useCallback(() => {
-    const id = ++requestIdRef.current
-    setSummary({ kind: 'loading' })
-    api
-      .scanSummary(scan.id)
-      .then((data) => {
-        if (requestIdRef.current === id) setSummary({ kind: 'ok', data })
-      })
-      .catch((err: unknown) => {
-        if (requestIdRef.current !== id) return
-        if (err instanceof ApiError && err.status === 400) {
-          setSummary({ kind: 'no-model' })
-        } else {
-          setSummary({
-            kind: 'error',
-            message: err instanceof Error ? err.message : String(err),
-          })
-        }
-      })
-  }, [scan.id])
+  const fetchSummary = useCallback(
+    (regenerate = false) => {
+      const id = ++requestIdRef.current
+      setSummary({ kind: 'loading' })
+      api
+        .scanSummary(scan.id, regenerate)
+        .then((data) => {
+          if (requestIdRef.current === id) setSummary({ kind: 'ok', data })
+        })
+        .catch((err: unknown) => {
+          if (requestIdRef.current !== id) return
+          if (err instanceof ApiError && err.status === 400) {
+            setSummary({ kind: 'no-model' })
+          } else {
+            setSummary({
+              kind: 'error',
+              message: err instanceof Error ? err.message : String(err),
+            })
+          }
+        })
+    },
+    [scan.id],
+  )
 
   useEffect(() => {
     void fetchSummary()
@@ -90,24 +95,11 @@ export function OverviewPanel({
         <div className="flex flex-col items-center rounded-[5px] border border-line bg-panel p-5">
           <SecurityGauge score={scan.security_score} />
         </div>
-        <div>
-          <div className="grid grid-cols-4 gap-3.5">
-            <StatBox n={counts.high} label="High" cls="text-amber" />
-            <StatBox n={counts.medium} label="Medium" cls="text-steel" />
-            <StatBox n={counts.low} label="Low" cls="text-moss" />
-            <StatBox n={counts.info} label="Info" cls="text-bone-faint" />
-          </div>
-          {suppressedCount > 0 && (
-            <button
-              type="button"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 font-mono text-[11px] text-bone-faint transition-colors hover:border-steel-dim hover:text-bone-dim"
-              onClick={onOpenFindings}
-              title="These findings were reviewed out as false positives — open the Findings tab to restore any"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-bone-faint" />
-              Suppressed ({suppressedCount})
-            </button>
-          )}
+        <div className="grid h-full grid-cols-4 gap-3.5">
+          <StatBox n={counts.high} label="High" cls="text-amber" />
+          <StatBox n={counts.medium} label="Medium" cls="text-steel" />
+          <StatBox n={counts.low} label="Low" cls="text-moss" />
+          <StatBox n={counts.info} label="Info" cls="text-bone-faint" />
         </div>
       </div>
 
@@ -124,7 +116,7 @@ export function OverviewPanel({
           <div className="ai-tag">
             Agent{summary.data.model ? ` · ${summary.data.model}` : ''}
           </div>
-          <div className="whitespace-pre-wrap">{summary.data.summary}</div>
+          <Markdown text={summary.data.summary} />
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-line-soft pt-2.5">
             <span className="font-mono text-[10px] text-bone-faint">
               {summary.data.cached ? 'cached · ' : ''}
@@ -135,7 +127,8 @@ export function OverviewPanel({
             <button
               type="button"
               className="link-btn"
-              onClick={() => void fetchSummary()}
+              title="Re-run the model — bypasses the cached summary (costs one generation)"
+              onClick={() => void fetchSummary(true)}
             >
               Regenerate
             </button>

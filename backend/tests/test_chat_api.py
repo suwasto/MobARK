@@ -101,10 +101,81 @@ def test_chat_timeout_forwarded_and_504(client, db_session_factory, monkeypatch)
     assert "budget" in r.json()["detail"]
 
 
+def test_chat_upstream_llm_failure_502(client, db_session_factory, monkeypatch):
+    """An upstream LLM failure (e.g. Ollama can't load the model's
+    architecture) maps to 502 with the upstream message — not a raw 500."""
+    from app.agent.chat import ChatUpstreamError
+    from app.api.routes import scans as routes
+
+    def boom(*args, **kwargs):
+        raise ChatUpstreamError(
+            "LLM call failed: litellm.APIConnectionError: OllamaException - "
+            "unknown model architecture: 'nanbeige'"
+        )
+
+    monkeypatch.setattr(routes, "answer_question", boom)
+    scan_id = _add_scan(db_session_factory)
+    r = client.post(f"/api/v1/scans/{scan_id}/chat", json={"question": "hi"})
+    assert r.status_code == 502
+    assert "unknown model architecture" in r.json()["detail"]
+
+
 def test_chat_validation_empty_question_422(client, db_session_factory):
     scan_id = _add_scan(db_session_factory)
     r = client.post(f"/api/v1/scans/{scan_id}/chat", json={"question": ""})
     assert r.status_code == 422
+
+
+# ---- chat cancel (Stop button) ------------------------------------------------
+
+
+def test_chat_cancel_calls_request_cancel(client, db_session_factory, monkeypatch):
+    """The Stop button's endpoint sets the in-process cancel flag (which the
+    agent loop polls between rounds) — verified against the real handler."""
+    from app.api.routes import scans as routes
+
+    called = {"scan_id": None}
+
+    def fake_cancel(scan_id):
+        called["scan_id"] = scan_id
+
+    monkeypatch.setattr(routes, "request_cancel", fake_cancel)
+    scan_id = _add_scan(db_session_factory)
+    r = client.post(f"/api/v1/scans/{scan_id}/chat/cancel")
+    assert r.status_code == 200
+    assert r.json() == {"cancelled": True}
+    assert called["scan_id"] == scan_id
+
+
+def test_chat_cancel_is_noop_without_in_flight_chat(client, db_session_factory):
+    """Cancelling when nothing is running is a clean 200 no-op — the flag
+    only exists while a request is in flight (request_cancel on a missing
+    event must never raise)."""
+    scan_id = _add_scan(db_session_factory)
+    r = client.post(f"/api/v1/scans/{scan_id}/chat/cancel")
+    assert r.status_code == 200
+    assert r.json() == {"cancelled": True}
+
+
+def test_chat_cancel_unknown_scan_404(client):
+    r = client.post("/api/v1/scans/999999/chat/cancel")
+    assert r.status_code == 404
+
+
+def test_chat_interrupted_409(client, db_session_factory, monkeypatch):
+    """A cancelled chat (Stop button -> ChatInterrupted) maps to 409 — never
+    a fake 200 answer."""
+    from app.agent.chat import ChatInterrupted
+    from app.api.routes import scans as routes
+
+    def boom(*args, **kwargs):
+        raise ChatInterrupted("agent chat for scan 1 was interrupted by the user")
+
+    monkeypatch.setattr(routes, "answer_question", boom)
+    scan_id = _add_scan(db_session_factory)
+    r = client.post(f"/api/v1/scans/{scan_id}/chat", json={"question": "hi"})
+    assert r.status_code == 409
+    assert "interrupted" in r.json()["detail"]
 
 
 # ---- graph state endpoint -----------------------------------------------------
@@ -158,3 +229,137 @@ def test_graph_state_ios_is_android_only(client, db_session_factory, monkeypatch
 
 def test_graph_state_missing_scan_404(client):
     assert client.get("/api/v1/scans/999999/graph").status_code == 404
+
+
+# ---- Code maps explorer endpoints (search / hubs / node detail) ---------------
+
+
+def _write_graph_file(tmp_path, scan_id, nodes, links):
+    p = tmp_path / "graphs" / str(scan_id) / "graphify-out" / "graph.json"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps({"nodes": nodes, "links": links}))
+    return p
+
+
+def _graph_nodes():
+    return [
+        {
+            "id": "n_wv",
+            "label": "MyWebViewClient",
+            "file_type": "class",
+            "source_file": "com/app/MyWebViewClient.java",
+            "source_location": "L42",
+        },
+        {
+            "id": "n_act",
+            "label": "LoginActivity",
+            "file_type": "class",
+            "source_file": "com/app/LoginActivity.java",
+            "source_location": "L7",
+        },
+        {
+            "id": "n_net",
+            "label": "NetworkConfig",
+            "file_type": "class",
+            "source_file": "com/app/NetworkConfig.java",
+            "source_location": "L1",
+        },
+    ]
+
+
+def _graph_links():
+    return [
+        {"source": "n_act", "target": "n_wv", "relation": "calls"},
+        {"source": "n_wv", "target": "n_net", "relation": "imports"},
+    ]
+
+
+def test_graph_search_happy(client, db_session_factory, monkeypatch, tmp_path):
+    scan_id = _add_scan(db_session_factory)
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
+    _write_graph_file(tmp_path, scan_id, _graph_nodes(), _graph_links())
+
+    r = client.get(f"/api/v1/scans/{scan_id}/graph/search", params={"q": "webview"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    node = body["nodes"][0]
+    assert node["label"] == "MyWebViewClient"
+    assert node["file_type"] == "class"
+    assert node["file"] == "com/app/MyWebViewClient.java"
+    assert node["line"] == 42
+
+
+def test_graph_search_empty_query_returns_empty(client, db_session_factory, monkeypatch, tmp_path):
+    scan_id = _add_scan(db_session_factory)
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
+    _write_graph_file(tmp_path, scan_id, _graph_nodes(), _graph_links())
+    r = client.get(f"/api/v1/scans/{scan_id}/graph/search", params={"q": "  "})
+    assert r.status_code == 200
+    assert r.json() == {"query": "  ", "total": 0, "nodes": []}
+
+
+def test_graph_search_ios_409(client, db_session_factory, monkeypatch, tmp_path):
+    scan_id = _add_scan(db_session_factory, platform="ios")
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
+    r = client.get(f"/api/v1/scans/{scan_id}/graph/search", params={"q": "x"})
+    assert r.status_code == 409
+    assert "Android-only" in r.json()["detail"]
+
+
+def test_graph_search_not_built_409(client, db_session_factory, monkeypatch, tmp_path):
+    scan_id = _add_scan(db_session_factory)
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
+    r = client.get(f"/api/v1/scans/{scan_id}/graph/search", params={"q": "x"})
+    assert r.status_code == 409
+    assert "not built yet" in r.json()["detail"]
+
+
+def test_graph_search_unknown_scan_404(client):
+    r = client.get("/api/v1/scans/999999/graph/search", params={"q": "x"})
+    assert r.status_code == 404
+
+
+def test_graph_hubs_and_node_detail(client, db_session_factory, monkeypatch, tmp_path):
+    scan_id = _add_scan(db_session_factory)
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
+    _write_graph_file(tmp_path, scan_id, _graph_nodes(), _graph_links())
+
+    r = client.get(f"/api/v1/scans/{scan_id}/graph/hubs")
+    assert r.status_code == 200
+    hubs = r.json()["hubs"]
+    assert hubs[0]["node"]["id"] == "n_wv"  # linked both ways -> degree 2
+    assert hubs[0]["degree"] == 2
+
+    r = client.get(f"/api/v1/scans/{scan_id}/graph/node/n_wv")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["node"]["id"] == "n_wv"
+    assert body["degree"] == 2
+    out = [n for n in body["neighbors"] if n["direction"] == "out"]
+    inn = [n for n in body["neighbors"] if n["direction"] == "in"]
+    assert [n["node"]["id"] for n in out] == ["n_net"]
+    assert [n["node"]["id"] for n in inn] == ["n_act"]
+    assert out[0]["relation"] == "imports"
+    assert inn[0]["relation"] == "calls"
+
+
+def test_graph_node_unknown_404(client, db_session_factory, monkeypatch, tmp_path):
+    scan_id = _add_scan(db_session_factory)
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
+    _write_graph_file(tmp_path, scan_id, _graph_nodes(), _graph_links())
+    r = client.get(f"/api/v1/scans/{scan_id}/graph/node/zzz")
+    assert r.status_code == 404
+    assert "not found" in r.json()["detail"]

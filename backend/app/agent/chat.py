@@ -16,17 +16,25 @@ The whole loop runs under a hard overall deadline (``AgentTimeout``,
 ``settings.chat_timeout_seconds`` by default): each round hands the model
 client only the *remaining* budget, so a hung LLM call — including the
 no-tools fallback retry — can never block the API worker beyond it.
+
+The Stop button's server side: each in-flight chat registers a cancel flag
+keyed by scan id (``_CANCEL_FLAGS``) and polls it at every round boundary
+(and after each tool call). The cancel endpoint sets the flag, the loop
+raises :class:`ChatInterrupted`, and the flag is cleared in a ``finally``
+so the next chat starts fresh.
 """
 from __future__ import annotations
 
 import dataclasses
 import json
 import re
+import threading
 import time
 
 from app.agent.context import FindingsContext, build_findings_context
 from app.agent.tools import TOOL_SCHEMAS, read_file
 from app.model.client import chat as client_chat
+from app.model.client import model_arch_hint
 
 SYSTEM_PROMPT = (
     "You are MASA, a mobile application security assistant answering "
@@ -62,6 +70,15 @@ class ChatNotConfigured(RuntimeError):
     """No chat model configured in the M3 backend store."""
 
 
+class ChatUpstreamError(RuntimeError):
+    """The upstream LLM backend failed (connection, model load, …).
+
+    Raised when the model call fails even after the no-tools fallback. The
+    API maps it to HTTP 502 carrying the upstream message so the UI can show
+    *why* (e.g. Ollama's ``unknown model architecture``) instead of a raw 500.
+    """
+
+
 class AgentTimeout(RuntimeError):
     """The agent loop exceeded its overall deadline (hung LLM call).
 
@@ -69,6 +86,70 @@ class AgentTimeout(RuntimeError):
     budget — the API maps it to HTTP 504 so a hung upstream never blocks the
     worker forever.
     """
+
+
+# Trivial greetings are answered without any LLM call (cost + reliability):
+# no backend pick, no tool loop, no chance of the "tool-call limit" message.
+_GREETING_RE = re.compile(r"^(hi+|hello+|hey+|yo+|howdy|hola)[!. ]*$", re.IGNORECASE)
+_GREETING_ANSWER = (
+    "Hello! I'm MASA, the security agent for this scan. Ask me anything about "
+    "the findings, the decompiled code, or the app's security posture — try "
+    "\"where is certificate pinning handled?\" or \"explain the WebView risk.\""
+)
+
+
+class ChatInterrupted(RuntimeError):
+    """The user asked to stop this chat (Stop button -> cancel endpoint).
+
+    Raised at the next agent-loop boundary after :func:`request_cancel` fires
+    for the scan — the API maps it to HTTP 409 so a cancelled request never
+    looks like a real answer. The registry entry is cleared in a ``finally``.
+    """
+
+
+# In-flight chat cancellation: scan_id -> threading.Event. Set by
+# ``request_cancel`` (the POST /scans/{id}/chat/cancel endpoint, which runs on
+# a *different* thread than the chat loop); polled by ``answer_question`` at
+# every loop boundary so a Stop click halts the LLM loop at the next round
+# instead of running to the end of the budget.
+#
+# One event per scan: the UI enforces a single in-flight chat per scan (the
+# dock's ``sending`` guard), so collisions are only reachable through the raw
+# API. ``_clear_cancel`` still identity-checks so an older request's ``finally``
+# can never pop a *newer* request's flag.
+_CANCEL_FLAGS: dict[int, threading.Event] = {}
+
+
+def request_cancel(scan_id: int) -> None:
+    """Ask any in-flight chat for ``scan_id`` to stop as soon as possible.
+
+    No-op when nothing is running — the event only exists while a request is
+    in flight, so cancelling before/after a chat changes nothing. Thread-safe:
+    the cancel endpoint sets the flag while the chat loop reads it.
+    """
+    event = _CANCEL_FLAGS.get(scan_id)
+    if event is not None:
+        event.set()
+
+
+def _register_cancel(scan_id: int) -> threading.Event:
+    event = threading.Event()
+    _CANCEL_FLAGS[scan_id] = event
+    return event
+
+
+def _clear_cancel(scan_id: int, event: threading.Event) -> None:
+    # Identity check: with (rare) concurrent chats for the same scan, never
+    # pop a flag registered by a *different* request.
+    if _CANCEL_FLAGS.get(scan_id) is event:
+        _CANCEL_FLAGS.pop(scan_id, None)
+
+
+def _raise_if_cancelled(scan_id: int, event: threading.Event) -> None:
+    if event.is_set():
+        raise ChatInterrupted(
+            f"agent chat for scan {scan_id} was interrupted by the user"
+        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -149,7 +230,22 @@ def answer_question(
     remaining budget to the model client, so the no-tools fallback retry
     cannot double the hang. Raises ``AgentTimeout`` when the budget is
     exhausted before an answer arrives.
+
+    Trivial greetings ("hi", "hello") are answered with a canned reply — no
+    LLM call, no backend pick. If the loop ends without a text answer (the
+    model only emitted tool calls), one final plain-chat attempt is made with
+    the original grounded prompt (the documented context-only fallback) before
+    the graceful "tool-call limit" message is returned.
     """
+    # Trivial greetings get a canned answer — no backend pick, no LLM call,
+    # no tool loop. Regression: 'hi' used to make the model emit tool calls
+    # every round, burn the whole budget, and come back as the confusing
+    # "could not complete within the tool-call limit" message.
+    if _GREETING_RE.match(question.strip()):
+        return AgentResult(
+            answer=_GREETING_ANSWER, citations=[], sources=[], tools_used=[]
+        )
+
     from app.agent.tools import execute_tool
     from app.config import settings
 
@@ -164,84 +260,124 @@ def answer_question(
         {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + context.rendered},
         {"role": "user", "content": question},
     ]
+    # The original 2-turn prompt — used by the exhaustion fallback so the
+    # final plain-chat call never carries tool-role messages a server may
+    # reject without a `tools` parameter.
+    prompt = list(messages)
     tools = TOOL_SCHEMAS
     tools_used: list[str] = []
     final_text = ""
 
-    for _round in range(max_tool_rounds + 1):
-        remaining = _deadline_remaining(deadline, scan_id, timeout)
-        try:
-            response = client_chat(
-                backend,
-                messages,
-                temperature=temperature,
-                timeout=remaining,
-                tools=tools,
-            )
-        except Exception:
-            # Some backends reject the tools kwarg — degrade to plain chat,
-            # but only with the *freshly* remaining budget. If the first call
-            # already burned it (hung upstream), stop rather than retry — the
-            # worker block stays bounded by the overall deadline.
+    cancel = _register_cancel(scan_id)
+    try:
+        for _round in range(max_tool_rounds + 1):
+            # Stop button: checked at every round boundary so an interrupt
+            # lands before the next (expensive) LLM call.
+            _raise_if_cancelled(scan_id, cancel)
             remaining = _deadline_remaining(deadline, scan_id, timeout)
             try:
                 response = client_chat(
-                    backend, messages, temperature=temperature, timeout=remaining
+                    backend,
+                    messages,
+                    temperature=temperature,
+                    timeout=remaining,
+                    tools=tools,
                 )
             except Exception:
-                # If the fallback itself burns the budget (hung upstream),
-                # surface a clean 504 rather than a raw 500; a fast backend
-                # error still re-raises as-is.
-                _deadline_remaining(deadline, scan_id, timeout)
-                raise
+                # Some backends reject the tools kwarg — degrade to plain chat,
+                # but only with the *freshly* remaining budget. If the first call
+                # already burned it (hung upstream), stop rather than retry — the
+                # worker block stays bounded by the overall deadline.
+                remaining = _deadline_remaining(deadline, scan_id, timeout)
+                try:
+                    response = client_chat(
+                        backend, messages, temperature=temperature, timeout=remaining
+                    )
+                except Exception as exc:
+                    # If the fallback itself burns the budget (hung upstream),
+                    # surface a clean 504 rather than a raw 500; a fast backend
+                    # error is wrapped so the API can surface a clean 502 with the
+                    # upstream message (the request was valid, the upstream wasn't).
+                    _deadline_remaining(deadline, scan_id, timeout)
+                    raise ChatUpstreamError(
+                        model_arch_hint(f"LLM call failed: {exc}")
+                    ) from exc
 
-        message = response.choices[0].message
-        content = (message.content or "").strip()
-        tool_calls = list(getattr(message, "tool_calls", None) or [])
+            message = response.choices[0].message
+            content = (message.content or "").strip()
+            tool_calls = list(getattr(message, "tool_calls", None) or [])
 
-        if not tool_calls:
-            final_text = content
-            break
+            if not tool_calls:
+                final_text = content
+                break
 
-        if content:
-            final_text = content
-        messages.append(
-            {
-                "role": "assistant",
-                "content": content or None,
-                "tool_calls": [
-                    {
-                        "id": getattr(tc, "id", None) or f"call_{i}",
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name if tc.function else None,
-                            "arguments": tc.function.arguments if tc.function else "{}",
-                        },
-                    }
-                    for i, tc in enumerate(tool_calls)
-                ],
-            }
-        )
-        for i, tc in enumerate(tool_calls):
-            fn = tc.function if tc.function else None
-            name = fn.name if fn else None
-            raw_args = fn.arguments if fn else "{}"
-            call_id = getattr(tc, "id", None) or f"call_{i}"
-            try:
-                args = json.loads(raw_args or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            if name:
-                tools_used.append(name)
-            result = (
-                execute_tool(scan_id, name, args)
-                if name
-                else json.dumps({"error": "malformed tool call"})
+            if content:
+                final_text = content
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": content or None,
+                    "tool_calls": [
+                        {
+                            "id": getattr(tc, "id", None) or f"call_{i}",
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name if tc.function else None,
+                                "arguments": tc.function.arguments if tc.function else "{}",
+                            },
+                        }
+                        for i, tc in enumerate(tool_calls)
+                    ],
+                }
             )
-            messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
-    else:
+            for i, tc in enumerate(tool_calls):
+                fn = tc.function if tc.function else None
+                name = fn.name if fn else None
+                raw_args = fn.arguments if fn else "{}"
+                call_id = getattr(tc, "id", None) or f"call_{i}"
+                try:
+                    args = json.loads(raw_args or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                if name:
+                    tools_used.append(name)
+                result = (
+                    execute_tool(scan_id, name, args)
+                    if name
+                    else json.dumps({"error": "malformed tool call"})
+                )
+                # Also checked after each tool so a slow tool can't hide an
+                # interrupt until the whole round is done.
+                _raise_if_cancelled(scan_id, cancel)
+                messages.append(
+                    {"role": "tool", "tool_call_id": call_id, "content": result}
+                )
+    finally:
+        # Never leave a stale flag behind: the next chat for the same scan
+        # must start fresh.
+        _clear_cancel(scan_id, cancel)
+
+    if not final_text:
+        # The tool loop never produced a text answer (the model only ever
+        # emitted tool calls, or returned empty content). One final plain-chat
+        # attempt with the original grounded prompt — no tools — bounded by the
+        # remaining budget. This is the documented context-only fallback, and
+        # it fixes trivial prompts that used to end in "tool-call limit".
+        remaining = _deadline_remaining(deadline, scan_id, timeout)
+        try:
+            response = client_chat(
+                backend, prompt, temperature=temperature, timeout=remaining
+            )
+        except Exception as exc:
+            _deadline_remaining(deadline, scan_id, timeout)
+            raise ChatUpstreamError(model_arch_hint(f"LLM call failed: {exc}")) from exc
+        final_text = (response.choices[0].message.content or "").strip()
         if not final_text:
-            final_text = "I could not complete the answer within the tool-call limit."
+            final_text = (
+                "I could not complete a grounded answer within the tool-call "
+                "limit. Try a more specific question, or ask about a specific "
+                "file or finding."
+            )
 
     return _build_result(scan_id, final_text, tools_used)
 

@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from app.agent.tools import read_file
 from app.analysis.risk import SEVERITY_CVSS
 from app.model.client import chat as client_chat
+from app.model.client import model_arch_hint
 from app.model.selection import pick_chat_backend
 
 MAX_EXPLAIN_TOKENS = 700
@@ -113,20 +114,23 @@ def _chat_text(backend, messages: list[dict], max_tokens: int) -> str:
             temperature=0.2, timeout=60.0,
         )
     except Exception as exc:  # noqa: BLE001 - surface any upstream failure
-        raise InsightError(f"LLM call failed: {exc}") from exc
+        raise InsightError(model_arch_hint(f"LLM call failed: {exc}")) from exc
     text = (response.choices[0].message.content or "").strip()
     if not text:
         raise InsightError("LLM call returned an empty response")
     return text
 
 
-def explain_finding(scan_id: int, finding) -> dict:
+def explain_finding(scan_id: int, finding, *, regenerate: bool = False) -> dict:
     """Plain-language explanation of one finding (cached on ``finding``).
 
     Returns ``{explanation, cached, model, generated_at}``. Mutates
     ``finding.explanation`` on a fresh generation; the route commits.
+    A cached explanation is returned without any LLM call unless
+    ``regenerate`` is set — the UI's Regenerate button is the explicit opt-in
+    that spends cost; the default path is always cache-first.
     """
-    if finding.explanation:
+    if finding.explanation and not regenerate:
         return {
             "explanation": finding.explanation,
             "cached": True,
@@ -155,15 +159,20 @@ def explain_finding(scan_id: int, finding) -> dict:
     }
 
 
-def summarize_scan(scan, findings, security_score: int) -> dict:
+def summarize_scan(
+    scan, findings, security_score: int, *, regenerate: bool = False
+) -> dict:
     """Executive summary of a whole scan (cached on ``scan.ai_summary``).
 
     Grounded in severity counts, total, security score (higher = better,
-    CVSS 4.0-driven — worst finding), and the top findings by severity.
+    CVSS 4.0-driven — worst finding plus a breadth bonus within its
+    severity band), and the top findings by severity.
     Returns ``{summary, cached, model, generated_at}`` and mutates
-    ``scan.ai_summary``; the route commits.
+    ``scan.ai_summary``; the route commits. A cached summary is returned
+    without any LLM call unless ``regenerate`` is set (the UI's Regenerate
+    button — explicit, cost-spending opt-in; default is cache-first).
     """
-    if scan.ai_summary:
+    if scan.ai_summary and not regenerate:
         return {
             "summary": scan.ai_summary,
             "cached": True,
@@ -189,7 +198,9 @@ def summarize_scan(scan, findings, security_score: int) -> dict:
         "platform": scan.platform,
         "security_score": security_score,
         "security_score_note": "0-100, higher is better (100 = no findings above info); "
-        "driven by the worst finding's CVSS 4.0 base score",
+        "driven by the worst finding's CVSS 4.0 base score plus a breadth "
+        "bonus within its severity band, capped at the band's CVSS 4.0 "
+        "ceiling (high 89, medium 69, low 39)",
         "total_findings": len(findings),
         "severity_counts": counts,
         "top_findings": top_lines,

@@ -149,6 +149,131 @@ def test_alembic_0005_rewrites_critical_to_high_and_recomputes_risk(
     engine.dispose()
 
 
+def test_alembic_0006_worst_plus_count_recompute(tmp_path, monkeypatch):
+    """Migration 0006 data pass: done scans are re-scored under the
+    worst+count model (11 active highs -> 89; mediums stay 55; lows stay
+    20; suppressed highs never contribute)."""
+    db_url = f"sqlite:///{tmp_path / 'worst-count.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    from sqlalchemy import text
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "0005")  # pre-recompute schema (0005 rewrites critical)
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO scans (id, filename, platform, status, risk_score, "
+                "created_at) VALUES (1, 'a.apk', 'android', 'done', 80, "
+                "'2026-08-08T00:00:00')"
+            )
+        )
+        # Stale pre-0006 score (80) — proves 0006 also corrects no-high scans.
+        conn.execute(
+            text(
+                "INSERT INTO scans (id, filename, platform, status, risk_score, "
+                "created_at) VALUES (2, 'b.ipa', 'ios', 'done', 80, "
+                "'2026-08-08T00:00:00')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO scans (id, filename, platform, status, risk_score, "
+                "created_at) VALUES (3, 'c.apk', 'android', 'done', 80, "
+                "'2026-08-08T00:00:00')"
+            )
+        )
+        for i in range(11):
+            conn.execute(
+                text(
+                    "INSERT INTO findings (id, scan_id, title, severity, tool, "
+                    "static_only, created_at) VALUES (:id, 1, 'h', 'high', "
+                    "'semgrep', 1, '2026-08-08T00:00:00')"
+                ),
+                {"id": i + 1},
+            )
+        for i in range(3):
+            conn.execute(
+                text(
+                    "INSERT INTO findings (id, scan_id, title, severity, tool, "
+                    "static_only, created_at) VALUES (:id, 2, 'm', 'medium', "
+                    "'semgrep', 1, '2026-08-08T00:00:00')"
+                ),
+                {"id": 100 + i},
+            )
+        conn.execute(
+            text(
+                "INSERT INTO findings (id, scan_id, title, severity, tool, "
+                "static_only, created_at) VALUES (200, 3, 'l', 'low', "
+                "'semgrep', 1, '2026-08-08T00:00:00')"
+            )
+        )
+        # A suppressed high must NOT count toward the breadth bonus.
+        conn.execute(
+            text(
+                "INSERT INTO findings (id, scan_id, title, severity, tool, "
+                "static_only, suppressed, created_at) VALUES (300, 1, 's', "
+                "'high', 'semgrep', 1, 1, '2026-08-08T00:00:00')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "0006")  # 0006 runs the worst+count recompute
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        risks = dict(conn.execute(text("SELECT id, risk_score FROM scans")).fetchall())
+    # 11 active highs -> 80 + 9 (capped) = 89; the suppressed 12th is ignored
+    assert risks[1] == 89
+    assert risks[2] == 55  # 3 mediums keep 55 under 0006 (high-only bonus)
+    assert risks[3] == 20  # low unchanged
+    engine.dispose()
+
+
+def test_alembic_0007_band_symmetric_recompute(tmp_path, monkeypatch):
+    """Migration 0007 data pass: the breadth bonus extends to every band —
+    3 mediums -> 57 (was 55 under 0006), 100 lows -> 39 (was 20), highs
+    unchanged at 89."""
+    db_url = f"sqlite:///{tmp_path / 'band-symmetric.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    from sqlalchemy import text
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "0006")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        seed = [(1, "medium", 3), (2, "low", 100), (3, "high", 11)]
+        for scan_id, sev, count in seed:
+            conn.execute(
+                text(
+                    "INSERT INTO scans (id, filename, platform, status, "
+                    "risk_score, created_at) VALUES (:id, 'x.apk', 'android', "
+                    "'done', 0, '2026-08-08T00:00:00')"
+                ),
+                {"id": scan_id},
+            )
+            for i in range(count):
+                conn.execute(
+                    text(
+                        "INSERT INTO findings (id, scan_id, title, severity, "
+                        "tool, static_only, created_at) VALUES (:id, :sid, 'f', "
+                        ":sev, 'semgrep', 1, '2026-08-08T00:00:00')"
+                    ),
+                    {"id": scan_id * 1000 + i, "sid": scan_id, "sev": sev},
+                )
+    engine.dispose()
+
+    command.upgrade(cfg, "head")  # 0007 runs the band-symmetric recompute
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        risks = dict(conn.execute(text("SELECT id, risk_score FROM scans")).fetchall())
+    assert risks[1] == 57  # 3 mediums -> 55 + 2
+    assert risks[2] == 39  # 100 lows -> 20 + 19 (ceiling)
+    assert risks[3] == 89  # 11 highs unchanged
+    engine.dispose()
+
+
 def test_alembic_0005_downgrade_removes_suppression_columns(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'suppress-down.db'}"
     monkeypatch.setenv("MASA_DATABASE_URL", db_url)

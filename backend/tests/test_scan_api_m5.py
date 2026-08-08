@@ -237,7 +237,7 @@ def test_explain_success(client, db_session_factory, monkeypatch):
     finding_id = _finding_id(client, scan_id)
     from app.api.routes import scans as routes
 
-    def fake_explain(scan_id_, finding):
+    def fake_explain(scan_id_, finding, regenerate=False):
         return {
             "explanation": "Stored with MODE_PRIVATE — readable on rooted devices.",
             "cached": False,
@@ -273,7 +273,7 @@ def test_explain_no_model_400(client, db_session_factory, monkeypatch):
     from app.api.routes import scans as routes
     from app.model.selection import NoModelConfigured
 
-    def no_model(scan_id_, finding):
+    def no_model(scan_id_, finding, regenerate=False):
         raise NoModelConfigured("no chat model configured — pick a backend + model in Settings")
 
     monkeypatch.setattr(routes.insights, "explain_finding", no_model)
@@ -287,7 +287,7 @@ def test_explain_upstream_failure_502(client, db_session_factory, monkeypatch):
     finding_id = _finding_id(client, scan_id)
     from app.api.routes import scans as routes
 
-    def upstream_down(scan_id_, finding):
+    def upstream_down(scan_id_, finding, regenerate=False):
         raise InsightError("LLM call failed: connection refused")
 
     monkeypatch.setattr(routes.insights, "explain_finding", upstream_down)
@@ -303,6 +303,44 @@ def test_explain_not_analyzed_409(client, db_session_factory):
     finding_id = _finding_id(client, scan_id)
     r = client.post(f"/api/v1/scans/{scan_id}/findings/{finding_id}/explain")
     assert r.status_code == 409
+
+
+def test_explain_regenerate_bypasses_cache(client, db_session_factory, monkeypatch):
+    """regenerate=true reaches the LLM even when the finding already has a
+    cached explanation — the Regenerate button is an explicit opt-in that
+    spends cost; the default call stays cache-first."""
+    scan_id = _scan_with_findings(db_session_factory)
+    finding_id = _finding_id(client, scan_id)
+    with db_session_factory() as session:
+        session.get(Finding, finding_id).explanation = "already explained"
+        session.commit()
+    from app.api.routes import scans as routes
+
+    captured = {}
+
+    def fake_explain(scan_id_, finding, regenerate=False):
+        captured["regenerate"] = regenerate
+        return {
+            "explanation": "fresh explanation",
+            "cached": False,
+            "model": None,
+            "generated_at": "2026-08-06T00:00:00Z",
+        }
+
+    monkeypatch.setattr(routes.insights, "explain_finding", fake_explain)
+    # default call: cache-first (no regenerate flag sent)
+    r0 = client.post(f"/api/v1/scans/{scan_id}/findings/{finding_id}/explain")
+    assert r0.status_code == 200
+    assert captured["regenerate"] is False
+    # explicit regenerate=true bypasses the cache
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/{finding_id}/explain",
+        params={"regenerate": "true"},
+    )
+    assert r.status_code == 200
+    assert captured["regenerate"] is True
+    assert r.json()["cached"] is False
+    assert r.json()["explanation"] == "fresh explanation"
 
 
 def test_explain_finding_of_another_scan_404(client, db_session_factory):
@@ -324,7 +362,7 @@ def test_summary_success(client, db_session_factory, monkeypatch):
     scan_id = _scan_with_findings(db_session_factory)
     from app.api.routes import scans as routes
 
-    def fake_summarize(scan, findings, security_score):
+    def fake_summarize(scan, findings, security_score, regenerate=False):
         return {
             "summary": "Storage and network findings dominate.",
             "cached": False,
@@ -348,6 +386,37 @@ def test_summary_cached_skips_llm(client, db_session_factory):
     assert r.status_code == 200
     assert r.json()["cached"] is True
     assert r.json()["summary"] == "cached overview"
+
+
+def test_summary_regenerate_bypasses_cache(client, db_session_factory, monkeypatch):
+    """regenerate=true reaches the LLM even when the scan already has a
+    cached summary — same explicit-opt-in contract as explanations."""
+    scan_id = _scan_with_findings(db_session_factory)
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).ai_summary = "cached overview"
+        session.commit()
+    from app.api.routes import scans as routes
+
+    captured = {}
+
+    def fake_summarize(scan, findings, security_score, regenerate=False):
+        captured["regenerate"] = regenerate
+        return {
+            "summary": "fresh overview",
+            "cached": False,
+            "model": None,
+            "generated_at": "2026-08-06T00:00:00Z",
+        }
+
+    monkeypatch.setattr(routes.insights, "summarize_scan", fake_summarize)
+    r0 = client.post(f"/api/v1/scans/{scan_id}/summary")
+    assert r0.status_code == 200
+    assert captured["regenerate"] is False
+    r = client.post(f"/api/v1/scans/{scan_id}/summary", params={"regenerate": "true"})
+    assert r.status_code == 200
+    assert captured["regenerate"] is True
+    assert r.json()["cached"] is False
+    assert r.json()["summary"] == "fresh overview"
 
 
 def test_summary_not_analyzed_409(client, db_session_factory):
@@ -803,7 +872,7 @@ def test_summary_excludes_suppressed_findings(client, db_session_factory, monkey
 
     captured = {}
 
-    def fake_summarize(scan, findings, security_score):
+    def fake_summarize(scan, findings, security_score, regenerate=False):
         # Read scalar attributes while the session is still open.
         captured["severities"] = sorted(f.severity for f in findings)
         return {

@@ -1,10 +1,14 @@
-"""M5 risk/security score unit tests — CVSS 4.0 mapping, max aggregation, edges.
+"""M5 risk/security score unit tests — CVSS 4.0 mapping, worst+count, edges.
 
 Formula (docs/progress/M5.md): each severity band maps to a representative
 CVSS 4.0 base score (high 8.0, medium 5.5, low 2.0, info 0 — the critical
-band was removed Aug 8); risk = round(10 * max(cvss)) over scored findings
-(worst finding drives the overall score — owner decision Aug 7); security =
-100 - risk (higher is better). Suppressed findings are skipped entirely.
+band was removed Aug 8); risk = round(10 * max(cvss)) driven by the worst
+finding, plus ~1 point per extra finding at the worst severity band, capped
+at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 — the band
+ tops 8.9/6.9/3.9 × 10). Owner decisions: max-not-mean Aug 7; "worst +
+count" then band-symmetric Aug 8. security = 100 - risk (higher is
+better). Suppressed findings are skipped entirely; bands never overlap
+(any high ≥ 80 > any no-high ≤ 69 > any low-only ≤ 39).
 """
 import types
 
@@ -69,8 +73,43 @@ def test_worst_finding_drives_the_score():
     assert compute_risk_score(findings) == 80
 
 
-def test_score_caps_at_100():
-    assert compute_risk_score([_f("high"), _f("high")]) == 80
+def test_high_count_adds_breadth_bonus():
+    # Worst + count (owner decision, Aug 8): each extra high adds ~1 point,
+    # capped at +9 so risk never crosses 89 (CVSS 4.0 8.9 = High band top).
+    # Note: the 0.9 slope's rounding makes 6 and 7 highs both read 85 — the
+    # flat step is expected (int(0.9*5+0.5) == int(0.9*6+0.5) == 5), not a bug.
+    assert compute_risk_score([_f("high")]) == 80
+    assert compute_risk_score([_f("high"), _f("high")]) == 81
+    assert compute_risk_score([_f("high")] * 5) == 84
+    assert compute_risk_score([_f("high")] * 9) == 87
+    assert compute_risk_score([_f("high")] * 11) == 89
+    assert compute_risk_score([_f("high")] * 12) == 89  # capped at +9
+
+
+def test_medium_band_breadth_bonus():
+    # Band-symmetric (owner decision, Aug 8): mediums get the same breadth
+    # bonus as highs, capped at the Medium band ceiling 69 (CVSS 6.9).
+    assert compute_risk_score([_f("medium")]) == 55
+    assert compute_risk_score([_f("medium")] * 2) == 56
+    assert compute_risk_score([_f("medium")] * 5) == 59
+    assert compute_risk_score([_f("medium")] * 10) == 63
+    assert compute_risk_score([_f("medium")] * 16) == 69  # ceiling
+    assert compute_risk_score([_f("medium")] * 446) == 69  # saturated
+
+
+def test_low_band_breadth_bonus():
+    assert compute_risk_score([_f("low")]) == 20
+    assert compute_risk_score([_f("low")] * 2) == 21
+    assert compute_risk_score([_f("low")] * 22) == 39  # ceiling (CVSS 3.9)
+    assert compute_risk_score([_f("low")] * 100) == 39
+
+
+def test_bands_never_overlap():
+    # Worst-first ordering is preserved with no band overlap: any high ≥ 80
+    # > any no-high ≤ 69 > any low-only ≤ 39.
+    assert compute_risk_score([_f("high")]) == 80
+    assert compute_risk_score([_f("medium")] * 446) == 69
+    assert compute_risk_score([_f("low")] * 100) == 39
 
 
 def test_unknown_severity_is_ignored_not_crashed():
@@ -123,14 +162,14 @@ def test_security_score_is_inverse_of_risk():
     assert compute_security_score([_f("info")]) == 100
     assert compute_security_score([_f("high")]) == 20
     assert compute_security_score([_f("low")]) == 80
-    # Any high -> risk 80 -> security 20 (the documented worst-finding case)
+    # 2 highs -> worst+count risk 81 -> security 19
     findings = (
         [_f("high")] * 2
         + [_f("medium")] * 5
         + [_f("low")]
     )
-    assert compute_risk_score(findings) == 80
-    assert compute_security_score(findings) == 20
+    assert compute_risk_score(findings) == 81
+    assert compute_security_score(findings) == 19
 
 
 def test_security_from_risk_passthrough():

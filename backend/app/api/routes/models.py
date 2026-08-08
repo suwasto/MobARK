@@ -54,6 +54,7 @@ def _to_read(backend, health: BackendHealth | None) -> ModelBackendRead:
         enabled=backend.enabled,
         local=backend.local,
         has_api_key=backend.has_api_key(),
+        suggested_models=list(backend.provider.suggested_models),
         health=_to_health(health) if health else None,
     )
 
@@ -80,9 +81,10 @@ def list_backends() -> list[ModelBackendRead]:
 def create_backend(payload: ModelBackendCreate) -> ModelBackendRead:
     """Create/activate a BYOK or custom backend (Settings -> BYOK tab).
 
-    - Seeded BYOK (openai/anthropic/deepseek/openrouter): requires an API
-      key; upserts the existing entry if present (re-activates a deleted or
-      disabled one), otherwise creates it.
+    - BYOK (openai/anthropic/deepseek/openrouter/gemini): requires an API
+      key (BYOK backends are no longer seeded keyless — owner decision, Aug
+      8 2026 — so this is the only way in); upserts the existing entry if
+      present (re-activates a deleted or disabled one), otherwise creates it.
     - ``custom``: requires a base URL; id ``custom`` (one custom endpoint).
     - Local backends are pre-configured — edit them via PUT, not here.
 

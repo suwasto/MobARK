@@ -12,6 +12,9 @@ import type {
   FileContentResponse,
   FileTreeResponse,
   FindingRead,
+  GraphHubsResponse,
+  GraphNodeDetail,
+  GraphSearchResponse,
   HealthResponse,
   ModelBackendCreate,
   ModelBackendModels,
@@ -42,6 +45,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     headers.set('Content-Type', 'application/json')
   }
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers }).catch((err: unknown) => {
+    // User-initiated aborts (the agent Stop button) reach the caller
+    // untouched so it can tell "stopped" apart from a real network failure.
+    // Check by name, not instanceof — some fetch polyfills reject with a
+    // plain Error named 'AbortError' rather than a DOMException.
+    if ((err as { name?: string } | null)?.name === 'AbortError') throw err
     // Network-level failures (backend down, proxy unreachable) become
     // ApiError(0) so callers get one consistent error type to render.
     const msg = err instanceof Error ? err.message : String(err)
@@ -106,12 +114,20 @@ export const api = {
     request<FindingRead>(`/scans/${scanId}/findings/${findingId}/unsuppress`, {
       method: 'POST',
     }),
-  scanSummary: (scanId: number) =>
-    request<SummaryResponse>(`/scans/${scanId}/summary`, { method: 'POST' }),
-  explainFinding: (scanId: number, findingId: number) =>
-    request<ExplainResponse>(`/scans/${scanId}/findings/${findingId}/explain`, {
-      method: 'POST',
-    }),
+  /** Cached server-side (scans.ai_summary) — repeat calls return it with no
+   * LLM spend. `regenerate` explicitly bypasses the cache (Regenerate button). */
+  scanSummary: (scanId: number, regenerate = false) =>
+    request<SummaryResponse>(
+      `/scans/${scanId}/summary${regenerate ? '?regenerate=true' : ''}`,
+      { method: 'POST' },
+    ),
+  /** Cached server-side (findings.explanation) — repeat calls are free.
+   * `regenerate` explicitly bypasses the cache (Regenerate button). */
+  explainFinding: (scanId: number, findingId: number, regenerate = false) =>
+    request<ExplainResponse>(
+      `/scans/${scanId}/findings/${findingId}/explain${regenerate ? '?regenerate=true' : ''}`,
+      { method: 'POST' },
+    ),
   getFiles: (scanId: number) => request<FileTreeResponse>(`/scans/${scanId}/files`),
   getFileContent: (scanId: number, path: string) =>
     request<FileContentResponse>(
@@ -119,15 +135,43 @@ export const api = {
     ),
 
   // ---- M4 agent layer ----
-  chat: (scanId: number, question: string, timeoutSeconds?: number) => {
+  chat: (
+    scanId: number,
+    question: string,
+    timeoutSeconds?: number,
+    /** AbortSignal from the Stop button — aborting makes the fetch reject
+     * with AbortError (re-thrown untouched by `request`). */
+    signal?: AbortSignal,
+  ) => {
     const body: ChatRequest = { question }
     if (timeoutSeconds != null) body.timeout_seconds = timeoutSeconds
     return request<ChatResponse>(`/scans/${scanId}/chat`, {
       method: 'POST',
       body: JSON.stringify(body),
+      signal,
     })
   },
+  /** Stop an in-flight agent chat (the Stop button) — fire-and-forget; the
+   * server polls this flag between agent rounds and halts the LLM loop so it
+   * stops burning tokens instead of running to the end of the budget. */
+  cancelChat: (scanId: number) =>
+    request<{ cancelled: boolean }>(`/scans/${scanId}/chat/cancel`, {
+      method: 'POST',
+    }),
   getGraph: (scanId: number) => request<ScanGraphState>(`/scans/${scanId}/graph`),
+  /** Code maps (Android only): substring search over graph node labels/ids. */
+  graphSearch: (scanId: number, q: string, limit = 25) =>
+    request<GraphSearchResponse>(
+      `/scans/${scanId}/graph/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
+  /** Code maps: most-connected nodes (initial view before any search). */
+  graphHubs: (scanId: number, limit = 25) =>
+    request<GraphHubsResponse>(`/scans/${scanId}/graph/hubs?limit=${limit}`),
+  /** Code maps: one node + its in/out neighbors (relation-tagged). */
+  graphNode: (scanId: number, nodeId: string) =>
+    request<GraphNodeDetail>(
+      `/scans/${scanId}/graph/node/${encodeURIComponent(nodeId)}`,
+    ),
 
   // ---- M3/M5 model backends ----
   listBackends: () => request<ModelBackendRead[]>('/model/backends'),

@@ -52,9 +52,11 @@ function RailNote({
           AI explanation ▸
         </button>
       ) : (
+        // Regenerate bypasses the server cache (explicit cost spend); the
+        // initial "AI explanation ▸" click stays cache-first.
         <ExplainBox
           state={state}
-          onRetry={() => void fetchExplain()}
+          onRetry={() => void fetchExplain(true)}
           className="mt-2 mb-0"
         />
       )}

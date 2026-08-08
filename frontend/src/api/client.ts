@@ -71,6 +71,9 @@ export interface FindingsQuery {
   severity?: Severity
   limit?: number
   offset?: number
+  /** M5 (Aug 8): show suppressed (false-positive) findings too — the review
+   * toggle. Defaults to false (suppressed findings are hidden). */
+  includeSuppressed?: boolean
 }
 
 export const api = {
@@ -88,9 +91,21 @@ export const api = {
     if (q.severity) params.set('severity', q.severity)
     if (q.limit != null) params.set('limit', String(q.limit))
     if (q.offset != null) params.set('offset', String(q.offset))
+    if (q.includeSuppressed) params.set('include_suppressed', 'true')
     const qs = params.toString()
     return request<FindingRead[]>(`/scans/${scanId}/findings${qs ? `?${qs}` : ''}`)
   },
+  /** M5 (Aug 8): mark a finding as a suppressed false positive (risk
+   * recomputed server-side). */
+  suppressFinding: (scanId: number, findingId: number) =>
+    request<FindingRead>(`/scans/${scanId}/findings/${findingId}/suppress`, {
+      method: 'POST',
+    }),
+  /** M5 (Aug 8): restore a suppressed finding (review toggle). */
+  unsuppressFinding: (scanId: number, findingId: number) =>
+    request<FindingRead>(`/scans/${scanId}/findings/${findingId}/unsuppress`, {
+      method: 'POST',
+    }),
   scanSummary: (scanId: number) =>
     request<SummaryResponse>(`/scans/${scanId}/summary`, { method: 'POST' }),
   explainFinding: (scanId: number, findingId: number) =>

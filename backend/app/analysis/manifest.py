@@ -138,6 +138,10 @@ def _application_checks(app_el) -> StageResult:
         )
     debuggable = _attr(app_el, "debuggable")
     if debuggable == "true":
+        # Owner review (Aug 7): a production app shipping debuggable=true is a
+        # direct tampering/debugging exposure (runtime attach, memory dumps,
+        # run-as data access). Aug 8: the critical band was removed from the
+        # vocabulary — high is the top severity.
         result.findings.append(
             FindingOut(
                 tool="androguard",

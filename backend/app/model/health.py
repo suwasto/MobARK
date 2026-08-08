@@ -103,7 +103,10 @@ def check_backend(backend: ModelBackend, *, probe: bool = True) -> BackendHealth
         # The listing call itself failed — connection-level trouble; probing
         # would just burn time against a server that isn't answering.
         reachable, status = False, "unreachable"
-        error = list_error or "model listing failed (is the server running?)"
+        # Neutral phrasing on purpose: for cloud BYOK backends there is no
+        # local server to run — "is the server running?" only fits local ones
+        # (owner review, Aug 7).
+        error = list_error or "model listing failed"
     else:  # "suggested": provider has no live endpoint (Anthropic, custom)
         if probe_model is None:
             reachable, status = False, "unknown"

@@ -33,7 +33,7 @@ def test_gitleaks_normalizer_maps_fields(tmp_path):
     assert len(findings) == 1
     f = findings[0]
     assert f.tool == "gitleaks"
-    assert f.severity == "critical"  # override table
+    assert f.severity == "high"  # override table (critical band removed Aug 8)
     assert f.file_path == "sources/com/example/Config.java"  # root-stripped
     assert f.line_number == 12
     assert f.detail["rule_id"] == "aws-access-token"
@@ -83,7 +83,9 @@ def test_semgrep_normalizer_maps_fields_and_category(tmp_path):
     assert f.line_number == 42
     assert f.detail["check_id"] == "masa-android-webview-javascript-enabled"
 
-    assert findings[1].severity == "high"  # ERROR
+    # ERROR -> high by default; the curated override also lands on high (the
+    # top severity since the critical band was removed, Aug 8).
+    assert findings[1].severity == "high"
     assert findings[1].category == "MASVS-NETWORK-3"
 
 

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { BrandMark } from './components/BrandMark'
+import { SettingsModal } from './components/settings/SettingsModal'
 import { TopBar } from './components/TopBar'
 import { DashboardView } from './components/views/DashboardView'
 import { EmptyState } from './components/views/EmptyState'
@@ -20,6 +21,7 @@ function Shell() {
   const { booting, view, actions } = useApp()
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // M5 progress contract: poll every 2.5s while a scan is queued/running.
@@ -45,7 +47,11 @@ function Shell() {
 
   return (
     <div className="grid h-screen grid-rows-[52px_1fr]">
-      <TopBar onPickFile={() => fileInputRef.current?.click()} uploading={uploading} />
+      <TopBar
+        onPickFile={() => fileInputRef.current?.click()}
+        uploading={uploading}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
       <main className="min-h-0 overflow-hidden">
         {view === 'empty' && <EmptyState onFile={(f) => void handleFile(f)} error={uploadError} />}
@@ -76,6 +82,8 @@ function Shell() {
           if (file) void handleFile(file)
         }}
       />
+
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

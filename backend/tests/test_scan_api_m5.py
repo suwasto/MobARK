@@ -34,7 +34,7 @@ def _scan(db_session_factory, *, status="done", platform="android"):
 
 
 def _scan_with_findings(
-    db_session_factory, severities=("critical", "high", "info"), platform="android"
+    db_session_factory, severities=("high", "medium", "info"), platform="android"
 ):
     with db_session_factory() as session:
         scan = Scan(filename="app.apk", platform=platform, status="done")
@@ -191,20 +191,20 @@ def test_upload_enqueue_failure_marks_scan_failed(
 # ---- findings ---------------------------------------------------------------
 
 
-def test_findings_ordered_critical_first(client, db_session_factory):
+def test_findings_ordered_high_first(client, db_session_factory):
     scan_id = _scan_with_findings(
-        db_session_factory, severities=("info", "critical", "high")
+        db_session_factory, severities=("info", "high", "medium")
     )
     r = client.get(f"/api/v1/scans/{scan_id}/findings")
     assert r.status_code == 200
     body = r.json()
-    assert [f["severity"] for f in body] == ["critical", "high", "info"]
+    assert [f["severity"] for f in body] == ["high", "medium", "info"]
     assert body[0]["mastg_test_id"] == "MASTG-TEST-0073"
 
 
 def test_findings_severity_filter(client, db_session_factory):
     scan_id = _scan_with_findings(
-        db_session_factory, severities=("critical", "high", "info")
+        db_session_factory, severities=("high", "medium", "info")
     )
     r = client.get(f"/api/v1/scans/{scan_id}/findings", params={"severity": "high"})
     assert [f["severity"] for f in r.json()] == ["high"]
@@ -324,7 +324,7 @@ def test_summary_success(client, db_session_factory, monkeypatch):
     scan_id = _scan_with_findings(db_session_factory)
     from app.api.routes import scans as routes
 
-    def fake_summarize(scan, findings, risk_score):
+    def fake_summarize(scan, findings, security_score):
         return {
             "summary": "Storage and network findings dominate.",
             "cached": False,
@@ -684,8 +684,140 @@ def test_files_tree_caps_set_truncated(db_session_factory, monkeypatch, tmp_path
 
 
 def test_get_scan_backfills_risk_score_for_legacy(client, db_session_factory):
-    scan_id = _scan_with_findings(db_session_factory, severities=("critical", "high"))
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "medium"))
     r = client.get(f"/api/v1/scans/{scan_id}")
     assert r.status_code == 200
-    # critical + high -> raw 17, n 2 -> round(100*17/20) = 85
-    assert r.json()["risk_score"] == 85
+    # CVSS 4.0 max aggregation (owner decision, Aug 7): worst finding is
+    # high -> CVSS 8.0 -> risk round(10*8.0) = 80 (no critical band, Aug 8)
+    assert r.json()["risk_score"] == 80
+    # public-facing complement: higher is better (owner decision, Aug 7)
+    assert r.json()["security_score"] == 20
+
+
+def test_list_scans_exposes_security_score(client, db_session_factory):
+    scan_id = _scan_with_findings(db_session_factory, severities=("high",))
+    # Backfill (like the detail endpoint does for legacy scans), then verify
+    # the list read path derives security_score from the stored risk via the
+    # Scan.security_score property.
+    assert client.get(f"/api/v1/scans/{scan_id}").status_code == 200
+    r = client.get("/api/v1/scans")
+    assert r.status_code == 200
+    scan = next(s for s in r.json() if s["id"] == scan_id)
+    # high only -> risk 80 -> security 20 (CVSS 4.0, worst finding)
+    assert scan["risk_score"] == 80
+    assert scan["security_score"] == 20
+
+
+# ---- suppression (M5 Aug 8: per-finding false-positive suppression) ---------
+
+
+def test_suppress_hides_finding_and_recomputes_risk(client, db_session_factory):
+    # high + low -> risk 80; suppressing the high leaves only low -> risk 20.
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    assert [f["severity"] for f in findings] == ["high", "low"]
+    high_id = findings[0]["id"]
+
+    r = client.post(f"/api/v1/scans/{scan_id}/findings/{high_id}/suppress")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["suppressed"] is True
+    assert body["suppressed_at"] is not None
+
+    # hidden from the default list, visible with the review toggle
+    assert [f["id"] for f in client.get(f"/api/v1/scans/{scan_id}/findings").json()] == [
+        findings[1]["id"]
+    ]
+    visible = client.get(
+        f"/api/v1/scans/{scan_id}/findings", params={"include_suppressed": "true"}
+    ).json()
+    assert {f["id"] for f in visible} == {findings[0]["id"], findings[1]["id"]}
+
+    # risk recomputed on the scan (suppressed findings don't drive posture)
+    scan = client.get(f"/api/v1/scans/{scan_id}").json()
+    assert scan["risk_score"] == 20
+    assert scan["security_score"] == 80
+
+
+def test_unsuppress_restores_finding_and_risk(client, db_session_factory):
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    high_id = findings[0]["id"]
+    client.post(f"/api/v1/scans/{scan_id}/findings/{high_id}/suppress")
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+
+    r = client.post(f"/api/v1/scans/{scan_id}/findings/{high_id}/unsuppress")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["suppressed"] is False
+    assert body["suppressed_at"] is None
+
+    assert [f["severity"] for f in client.get(f"/api/v1/scans/{scan_id}/findings").json()] == [
+        "high",
+        "low",
+    ]
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 80
+
+
+def test_suppression_invalidates_cached_ai_summary(client, db_session_factory):
+    """A cached overview summary must not survive a suppress/restore toggle —
+    it may cite the finding being reviewed (Aug 8 follow-up)."""
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).ai_summary = "cached overview"
+        session.commit()
+    findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    client.post(f"/api/v1/scans/{scan_id}/findings/{findings[0]['id']}/suppress")
+    with db_session_factory() as session:
+        assert session.get(Scan, scan_id).ai_summary is None
+
+
+def test_suppress_is_idempotent(client, db_session_factory):
+    scan_id = _scan_with_findings(db_session_factory, severities=("high",))
+    finding_id = _finding_id(client, scan_id)
+    r1 = client.post(f"/api/v1/scans/{scan_id}/findings/{finding_id}/suppress")
+    r2 = client.post(f"/api/v1/scans/{scan_id}/findings/{finding_id}/suppress")
+    assert r1.json()["suppressed_at"] == r2.json()["suppressed_at"]
+
+
+def test_suppress_unknown_finding_404(client, db_session_factory):
+    scan_id = _scan_with_findings(db_session_factory)
+    assert client.post(f"/api/v1/scans/{scan_id}/findings/999999/suppress").status_code == 404
+
+
+def test_suppress_requires_analyzed_409(client, db_session_factory):
+    scan_id = _scan_with_findings(db_session_factory)
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).status = "running"
+        session.commit()
+    finding_id = _finding_id(client, scan_id)
+    assert (
+        client.post(f"/api/v1/scans/{scan_id}/findings/{finding_id}/suppress").status_code
+        == 409
+    )
+
+
+def test_summary_excludes_suppressed_findings(client, db_session_factory, monkeypatch):
+    """The AI summary counts/top list must not include false positives."""
+    from app.api.routes import scans as routes
+
+    captured = {}
+
+    def fake_summarize(scan, findings, security_score):
+        # Read scalar attributes while the session is still open.
+        captured["severities"] = sorted(f.severity for f in findings)
+        return {
+            "summary": "ok",
+            "cached": False,
+            "model": None,
+            "generated_at": "2026-08-06T00:00:00Z",
+        }
+
+    monkeypatch.setattr(routes.insights, "summarize_scan", fake_summarize)
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    client.post(f"/api/v1/scans/{scan_id}/findings/{findings[0]['id']}/suppress")
+
+    r = client.post(f"/api/v1/scans/{scan_id}/summary")
+    assert r.status_code == 200
+    assert captured["severities"] == ["low"]

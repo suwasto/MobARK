@@ -19,7 +19,7 @@ import json
 from datetime import UTC, datetime
 
 from app.agent.tools import read_file
-from app.analysis.risk import SEVERITY_WEIGHTS
+from app.analysis.risk import SEVERITY_CVSS
 from app.model.client import chat as client_chat
 from app.model.selection import pick_chat_backend
 
@@ -155,12 +155,13 @@ def explain_finding(scan_id: int, finding) -> dict:
     }
 
 
-def summarize_scan(scan, findings, risk_score: int) -> dict:
+def summarize_scan(scan, findings, security_score: int) -> dict:
     """Executive summary of a whole scan (cached on ``scan.ai_summary``).
 
-    Grounded in severity counts, total, risk score, and the top findings by
-    severity weight. Returns ``{summary, cached, model, generated_at}`` and
-    mutates ``scan.ai_summary``; the route commits.
+    Grounded in severity counts, total, security score (higher = better,
+    CVSS 4.0-driven — worst finding), and the top findings by severity.
+    Returns ``{summary, cached, model, generated_at}`` and mutates
+    ``scan.ai_summary``; the route commits.
     """
     if scan.ai_summary:
         return {
@@ -171,12 +172,12 @@ def summarize_scan(scan, findings, risk_score: int) -> dict:
         }
     backend = pick_chat_backend()
 
-    counts = {sev: 0 for sev in SEVERITY_WEIGHTS}
+    counts = {sev: 0 for sev in SEVERITY_CVSS}
     for f in findings:
         counts[f.severity] = counts.get(f.severity, 0) + 1
     top = sorted(
         findings,
-        key=lambda f: SEVERITY_WEIGHTS.get(f.severity, 0),
+        key=lambda f: SEVERITY_CVSS.get(f.severity, 0.0),
         reverse=True,
     )[ : SUMMARY_TOP_FINDINGS]
     top_lines = [
@@ -186,7 +187,9 @@ def summarize_scan(scan, findings, risk_score: int) -> dict:
     data = {
         "app": scan.filename,
         "platform": scan.platform,
-        "risk_score": risk_score,
+        "security_score": security_score,
+        "security_score_note": "0-100, higher is better (100 = no findings above info); "
+        "driven by the worst finding's CVSS 4.0 base score",
         "total_findings": len(findings),
         "severity_counts": counts,
         "top_findings": top_lines,

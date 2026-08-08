@@ -12,14 +12,18 @@ export interface HealthResponse {
 
 export type ScanStatus = 'queued' | 'running' | 'done' | 'failed'
 export type Platform = 'android' | 'ios'
-export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info'
+// No critical band (owner decision, Aug 8 2026) — high is the top severity.
+export type Severity = 'high' | 'medium' | 'low' | 'info'
 
 export interface ScanRead {
   id: number
   filename: string
   platform: Platform | null
   status: ScanStatus
+  /** Internal severity-weighted risk (higher = worse); the UI reads security_score. */
   risk_score: number | null
+  /** Public-facing 0-100 score — higher is better (100 - risk). */
+  security_score: number | null
   error: string | null
   stage: string | null
   created_at: string
@@ -37,6 +41,10 @@ export interface FindingRead {
   tool: string
   detail: Record<string, unknown> | null
   static_only: boolean
+  /** M5 (Aug 8): false-positive suppression — hidden by default, excluded
+   * from risk/summary/agent context; restorable via the review toggle. */
+  suppressed: boolean
+  suppressed_at: string | null
   created_at: string
 }
 

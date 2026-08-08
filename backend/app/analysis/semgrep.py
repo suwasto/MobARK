@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 from app.analysis.base import FindingOut, StageResult
-from app.analysis.severity import SEMGREP_SEVERITY
+from app.analysis.severity import semgrep_severity
 from app.analysis.subprocess import resolve_binary, run_tool, tail
 from app.config import settings
 
@@ -146,7 +146,7 @@ def normalize_report(
             FindingOut(
                 tool="semgrep",
                 title=title,
-                severity=SEMGREP_SEVERITY.get(native_severity, "info"),
+                severity=semgrep_severity(check_id, native_severity),
                 file_path=rel_path or None,
                 line_number=start.get("line"),
                 category=category,

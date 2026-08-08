@@ -23,7 +23,11 @@ app.include_router(models.router, prefix="/api/v1")
 
 
 @app.get("/")
-def root() -> dict:
+def root():
+    """Serve the SPA shell at the root when the frontend is bundled (the
+    container), otherwise the bare API banner (backend-only dev)."""
+    if (_frontend_dist / "index.html").is_file():
+        return FileResponse(_frontend_dist / "index.html")
     return {"app": settings.app_name, "version": settings.version, "docs": "/docs"}
 
 

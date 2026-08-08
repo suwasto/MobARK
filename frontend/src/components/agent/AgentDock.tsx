@@ -4,8 +4,8 @@ import { useChat, type ChatMessage } from '../../hooks/useChat'
 
 interface AgentDockProps {
   scan: ScanRead
-  /** Static greeting numbers (total findings + critical count). */
-  greeting: { total: number; critical: number }
+  /** Static greeting numbers (total findings + high-severity count). */
+  greeting: { total: number; high: number }
   collapsed: boolean
   onToggleCollapsed: () => void
   /** A citation was clicked — jump the Decompiler tab to that file. */
@@ -93,8 +93,8 @@ export function AgentDock({
     id: -1,
     role: 'agent',
     content: `Scan complete for ${scan.filename}. ${greeting.total} findings, ${
-      greeting.critical
-    } critical. Ask me anything about the decompiled code — try "where is certificate pinning handled?"`,
+      greeting.high
+    } high-severity. Ask me anything about the decompiled code — try "where is certificate pinning handled?"`,
   }
 
   // Keep the newest message in view.

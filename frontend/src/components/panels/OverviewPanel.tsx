@@ -4,12 +4,15 @@ import type { SeverityCounts } from '../../hooks/useFindings'
 import { findingLocation } from '../../lib/findings'
 import { formatRelative } from '../../lib/format'
 import type { FindingRead, ScanRead, SummaryResponse } from '../../types'
-import { RiskGauge } from '../RiskGauge'
+import { SecurityGauge } from '../SecurityGauge'
 
 interface OverviewPanelProps {
   scan: ScanRead
   findings: FindingRead[]
   counts: SeverityCounts
+  /** Suppressed (false-positive) count — visible at a glance without opening
+   * the Findings tab (Aug 8 suppression follow-up). */
+  suppressedCount: number
   findingsLoading: boolean
   findingsError: string | null
   onOpenFindings: () => void
@@ -40,6 +43,7 @@ export function OverviewPanel({
   scan,
   findings,
   counts,
+  suppressedCount,
   findingsLoading,
   findingsError,
   onOpenFindings,
@@ -81,16 +85,29 @@ export function OverviewPanel({
 
   return (
     <div>
-      {/* Risk gauge + severity stat boxes */}
+      {/* Security gauge (higher = better) + severity stat boxes */}
       <div className="mb-7 grid grid-cols-[220px_1fr] gap-6">
         <div className="flex flex-col items-center rounded-[5px] border border-line bg-panel p-5">
-          <RiskGauge score={scan.risk_score} />
+          <SecurityGauge score={scan.security_score} />
         </div>
-        <div className="grid grid-cols-4 gap-3.5">
-          <StatBox n={counts.critical} label="Critical" cls="text-crimson" />
-          <StatBox n={counts.high} label="High" cls="text-amber" />
-          <StatBox n={counts.medium} label="Medium" cls="text-steel" />
-          <StatBox n={counts.low} label="Low" cls="text-moss" />
+        <div>
+          <div className="grid grid-cols-4 gap-3.5">
+            <StatBox n={counts.high} label="High" cls="text-amber" />
+            <StatBox n={counts.medium} label="Medium" cls="text-steel" />
+            <StatBox n={counts.low} label="Low" cls="text-moss" />
+            <StatBox n={counts.info} label="Info" cls="text-bone-faint" />
+          </div>
+          {suppressedCount > 0 && (
+            <button
+              type="button"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 font-mono text-[11px] text-bone-faint transition-colors hover:border-steel-dim hover:text-bone-dim"
+              onClick={onOpenFindings}
+              title="These findings were reviewed out as false positives — open the Findings tab to restore any"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-bone-faint" />
+              Suppressed ({suppressedCount})
+            </button>
+          )}
         </div>
       </div>
 

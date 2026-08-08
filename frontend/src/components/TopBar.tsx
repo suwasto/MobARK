@@ -1,22 +1,14 @@
-import { useMemo } from 'react'
 import wordmarkUrl from '../assets/masa-wordmark.svg'
-import { useApp } from '../state/AppContext'
+import { ModelPicker } from './ModelPicker'
 
 interface TopBarProps {
   onPickFile: () => void
   uploading: boolean
+  onOpenSettings: () => void
 }
 
-/** App shell top bar: brand, local-only indicator, model pill, actions. */
-export function TopBar({ onPickFile, uploading }: TopBarProps) {
-  const { backends, localOnly } = useApp()
-
-  const modelLabel = useMemo(() => {
-    const configured = backends.find((b) => b.enabled && b.model)
-    if (!configured) return 'No model connected'
-    return `${configured.model} · ${configured.name}`
-  }, [backends])
-
+/** App shell top bar: brand, provider+model pickers, actions. */
+export function TopBar({ onPickFile, uploading, onOpenSettings }: TopBarProps) {
   return (
     <header className="flex items-center justify-between gap-4 border-b border-line bg-panel px-5">
       {/* Brand */}
@@ -27,30 +19,15 @@ export function TopBar({ onPickFile, uploading }: TopBarProps) {
 
       {/* Actions */}
       <div className="flex shrink-0 items-center gap-3">
-        <div
-          className="local-badge"
-          title={
-            localOnly
-              ? 'No scan data or chat content leaves this machine'
-              : 'A cloud backend is enabled — prompts leave this machine'
-          }
-        >
-          <span className={`dot ${localOnly ? 'online' : 'cloud'}`} />
-          <span className="hidden sm:inline">{localOnly ? 'Local-only' : 'Cloud enabled'}</span>
-        </div>
+        <ModelPicker />
 
-        <div className="model-pill" title="Choose a model in Settings">
-          <span className={`dot ${modelLabel === 'No model connected' ? 'off' : 'online'}`} />
-          <span>{modelLabel}</span>
-        </div>
-
-        <button className="btn" disabled title="Export report — coming soon">
+        <button className="btn" disabled title="Export report — ships in M9">
           Export report
         </button>
         <button className="btn btn-primary" onClick={onPickFile} disabled={uploading}>
           {uploading ? 'Uploading…' : '+ New scan'}
         </button>
-        <button className="icon-btn" disabled title="Settings — coming soon">
+        <button className="icon-btn" onClick={onOpenSettings} title="Settings" aria-label="Settings">
           ⚙
         </button>
       </div>

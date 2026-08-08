@@ -29,8 +29,9 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
     file: string
     nonce: number
   } | null>(null)
-  // Legacy scans have risk_score backfilled on GET /scans/{id} — fetch the
-  // single scan so the gauge data is real even for pre-Phase-A rows.
+  // Legacy scans get risk_score backfilled on GET /scans/{id} (security_score
+  // derives from it) — fetch the single scan so the gauge is real even for
+  // pre-Phase-A rows.
   const [scan, setScan] = useState<ScanRead | null>(null)
 
   const openInDecompiler = useCallback((file: string) => {
@@ -52,9 +53,30 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
   }, [activeScan])
 
   const current = scan ?? activeScan
-  const { findings, counts, total, loading, error } = useFindings(
-    current?.id ?? null,
-  )
+  const {
+    findings,
+    suppressed,
+    counts,
+    total,
+    suppressedCount,
+    loading,
+    error,
+    refetch: refetchFindings,
+  } = useFindings(current?.id ?? null)
+
+  // After a suppress/restore the backend recomputes the risk score — refresh
+  // both the findings list and the scan row so the gauge stays honest.
+  const onFindingsChanged = useCallback(() => {
+    refetchFindings()
+    if (activeScan) {
+      void api
+        .getScan(activeScan.id)
+        .then(setScan)
+        .catch(() => {
+          // Gauge refresh is best-effort; the list refetch already happened.
+        })
+    }
+  }, [refetchFindings, activeScan])
 
   if (!current) return null
   const failed = current.status === 'failed'
@@ -77,7 +99,7 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
         }`}
       >
         <main className="min-w-0 overflow-y-auto">
-          {/* Header + tabs */}
+          {/* Header (scrolls away with the content) */}
           <div className="px-7 pt-5">
             <div className="flex items-baseline gap-2.5">
               <h1 className="font-mono text-[17px] font-semibold">
@@ -89,7 +111,11 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
               {current.platform ? `${platformLabel(current.platform)} · ` : ''}
               scanned {formatRelative(current.created_at)} · {total} findings
             </p>
-            <div className="tabs mt-4">
+          </div>
+
+          {/* Sticky tab bar — stays put while the panel content scrolls. */}
+          <div className="sticky top-0 z-20 bg-graphite px-7 pt-4">
+            <div className="tabs">
               {tabs.map((t) => (
                 <button
                   key={t.key}
@@ -116,6 +142,7 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
                 scan={current}
                 findings={findings}
                 counts={counts}
+                suppressedCount={suppressedCount}
                 findingsLoading={loading}
                 findingsError={error}
                 onOpenFindings={() => setTab('findings')}
@@ -125,10 +152,13 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
               <FindingsPanel
                 scanId={current.id}
                 findings={findings}
+                suppressed={suppressed}
                 counts={counts}
                 total={total}
+                suppressedCount={suppressedCount}
                 loading={loading}
                 error={error}
+                onChanged={onFindingsChanged}
               />
             )}
             {tab === 'dependencies' && (
@@ -158,7 +188,7 @@ export function DashboardView({ onPickFile, uploading }: DashboardViewProps) {
         <AgentDock
           key={current.id}
           scan={current}
-          greeting={{ total, critical: counts.critical }}
+          greeting={{ total, high: counts.high }}
           collapsed={dockCollapsed}
           onToggleCollapsed={() => setDockCollapsed((c) => !c)}
           onOpenFile={openInDecompiler}

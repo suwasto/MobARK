@@ -7,6 +7,13 @@
 # posture.
 FROM eclipse-temurin:17-jre-jammy AS jre
 
+# --- frontend build (M5 Phase I: bundle the SPA into the image so the app
+# serves the dashboard from the same origin in production) ---
+FROM node:22-alpine AS frontend
+WORKDIR /build
+COPY frontend/ ./
+RUN npm install --no-audit --no-fund && npm run build
+
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -65,6 +72,10 @@ RUN python -m venv /opt/semgrep-venv \
     && semgrep --version
 
 COPY backend/ /app/
+
+# The built SPA lands at /frontend/dist — config default `../frontend/dist`
+# relative to WORKDIR /app — so main.py's conditional mount serves it.
+COPY --from=frontend /build/dist /frontend/dist
 
 ENV MASA_TOOLS_DIR=/opt/masa-tools
 

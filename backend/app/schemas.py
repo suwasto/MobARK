@@ -1,7 +1,19 @@
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+
+
+def _utc_aware(value: datetime) -> datetime:
+    """Attach UTC to a naive datetime before JSON serialization.
+
+    SQLite drops tzinfo on round-trip, so persisted timestamps (scans /
+    findings created_at) arrive naive; without this the API would serialize
+    them with no offset and browsers would parse them as local time — the
+    scan date then reads hours off on non-UTC machines (owner report, Aug
+    7). Already-aware values pass through untouched.
+    """
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
 class HealthResponse(BaseModel):
@@ -18,10 +30,19 @@ class ScanRead(BaseModel):
     filename: str
     platform: str | None
     status: str
+    # Internal severity-weighted risk (higher = worse); kept for the scan
+    # job and tests. The Overview reads ``security_score``.
     risk_score: int | None
-    error: str | None
+    # Public-facing score, higher = better (100 - risk). Derived on the ORM
+    # via Scan.security_score; None until the scan is analyzed.
+    security_score: int | None = None
+    error: str | None = None
     stage: str | None = None
     created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
 
 
 class FindingRead(BaseModel):
@@ -38,7 +59,20 @@ class FindingRead(BaseModel):
     tool: str
     detail: dict | None = None
     static_only: bool = True
+    # M5 (Aug 8): per-finding false-positive suppression + review toggle.
+    # Suppressed findings are hidden from the default list and excluded from
+    # risk/summary/agent context; the review toggle lists them for restore.
+    suppressed: bool = False
+    suppressed_at: datetime | None = None
     created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+    @field_serializer("suppressed_at")
+    def _ser_suppressed_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None
 
     @field_validator("detail", mode="before")
     @classmethod
@@ -65,6 +99,10 @@ class ModelBackendHealth(BaseModel):
     probe_ok: bool | None = None
     error: str | None = None
     checked_at: datetime | None = None
+
+    @field_serializer("checked_at")
+    def _ser_checked_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None
 
 
 class ModelBackendRead(BaseModel):
@@ -140,6 +178,10 @@ class ExplainResponse(BaseModel):
     model: str | None = None
     generated_at: datetime | None = None
 
+    @field_serializer("generated_at")
+    def _ser_generated_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None
+
 
 class SummaryResponse(BaseModel):
     """AI overview summary, cached on the scan row."""
@@ -148,6 +190,10 @@ class SummaryResponse(BaseModel):
     cached: bool
     model: str | None = None
     generated_at: datetime | None = None
+
+    @field_serializer("generated_at")
+    def _ser_generated_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None
 
 
 class FileNode(BaseModel):

@@ -25,12 +25,12 @@ from sqlalchemy.orm import Session
 from app.agent import insights
 from app.agent.chat import AgentTimeout, ChatNotConfigured, answer_question
 from app.analysis import tree
-from app.analysis.risk import SEVERITY_ORDER, compute_risk_score
+from app.analysis.risk import SEVERITY_ORDER, compute_risk_score, security_from_risk
 from app.config import settings
 from app.db import get_db
 from app.graph import graphify
 from app.model.selection import NoModelConfigured
-from app.models import Finding, Scan
+from app.models import Finding, Scan, utcnow
 from app.schemas import (
     ChatRequest,
     ChatResponse,
@@ -75,6 +75,23 @@ def _require_analyzed(scan: Scan) -> None:
             status_code=409,
             detail=f"scan {scan.id} is not analyzed yet (status={scan.status})",
         )
+
+
+def _recompute_risk(db: Session, scan: Scan) -> None:
+    """Recompute + persist the scan's risk score from its current findings.
+
+    Called after a suppress/unsuppress toggle so the posture reflects the
+    non-suppressed set immediately (``compute_risk_score`` skips rows with
+    ``suppressed=True``). The cached AI summary is invalidated too — it may
+    cite a finding that was just suppressed/restored, and stale cache would
+    mislead the Overview.
+    """
+    findings = list(
+        db.scalars(select(Finding).where(Finding.scan_id == scan.id)).all()
+    )
+    scan.risk_score = compute_risk_score(findings)
+    scan.ai_summary = None
+    db.commit()
 
 
 @router.get("", response_model=list[ScanRead])
@@ -174,8 +191,13 @@ def list_findings(
     severity: str | None = Query(default=None),
     limit: int = Query(default=_FINDINGS_DEFAULT_LIMIT, ge=1, le=_FINDINGS_MAX_LIMIT),
     offset: int = Query(default=0, ge=0),
+    include_suppressed: bool = Query(default=False),
 ) -> list[Finding]:
-    """All findings for a scan: severity-desc (critical first) then id."""
+    """All findings for a scan: severity-desc (high first) then id.
+
+    Suppressed (false-positive) findings are hidden by default; pass
+    ``include_suppressed=true`` to see them (the review toggle).
+    """
     _get_scan_or_404(db, scan_id)
     if severity is not None and severity not in _SEVERITY_RANK:
         raise HTTPException(
@@ -184,12 +206,47 @@ def list_findings(
             f"(expected one of {', '.join(SEVERITY_ORDER)})",
         )
     stmt = select(Finding).where(Finding.scan_id == scan_id)
+    if not include_suppressed:
+        stmt = stmt.where(Finding.suppressed == False)  # noqa: E712 - SQLAlchemy boolean
     if severity is not None:
         stmt = stmt.where(Finding.severity == severity)
     stmt = stmt.order_by(
         case(_SEVERITY_RANK, value=Finding.severity), Finding.id
     ).limit(limit).offset(offset)
     return list(db.scalars(stmt).all())
+
+
+@router.post("/{scan_id}/findings/{finding_id}/suppress", response_model=FindingRead)
+def suppress_finding(scan_id: int, finding_id: int, db: DbSession) -> Finding:
+    """Mark a finding as a suppressed false positive (excluded from risk /
+    summary / agent context). The scan's risk score is recomputed."""
+    scan = _get_scan_or_404(db, scan_id)
+    finding = db.get(Finding, finding_id)
+    if finding is None or finding.scan_id != scan_id:
+        raise HTTPException(status_code=404, detail="finding not found")
+    _require_analyzed(scan)
+    if not finding.suppressed:
+        finding.suppressed = True
+        finding.suppressed_at = utcnow()
+        db.commit()
+        _recompute_risk(db, scan)
+    return finding
+
+
+@router.post("/{scan_id}/findings/{finding_id}/unsuppress", response_model=FindingRead)
+def unsuppress_finding(scan_id: int, finding_id: int, db: DbSession) -> Finding:
+    """Restore a suppressed finding (review toggle). Risk recomputed."""
+    scan = _get_scan_or_404(db, scan_id)
+    finding = db.get(Finding, finding_id)
+    if finding is None or finding.scan_id != scan_id:
+        raise HTTPException(status_code=404, detail="finding not found")
+    _require_analyzed(scan)
+    if finding.suppressed:
+        finding.suppressed = False
+        finding.suppressed_at = None
+        db.commit()
+        _recompute_risk(db, scan)
+    return finding
 
 
 @router.post("/{scan_id}/summary", response_model=SummaryResponse)
@@ -200,8 +257,12 @@ def scan_summary(scan_id: int, db: DbSession) -> SummaryResponse:
     """
     scan = _get_scan_or_404(db, scan_id)
     _require_analyzed(scan)
+    # Suppressed false positives stay out of the AI summary's counts/top list.
     findings = list(
-        db.scalars(select(Finding).where(Finding.scan_id == scan_id)).all()
+        db.scalars(
+            select(Finding)
+            .where(Finding.scan_id == scan_id, Finding.suppressed == False)  # noqa: E712
+        ).all()
     )
     risk = (
         scan.risk_score
@@ -209,7 +270,8 @@ def scan_summary(scan_id: int, db: DbSession) -> SummaryResponse:
         else compute_risk_score(findings)
     )
     try:
-        result = insights.summarize_scan(scan, findings, risk)
+        # The summary prompt speaks the public score: higher is better.
+        result = insights.summarize_scan(scan, findings, security_from_risk(risk))
     except NoModelConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except insights.InsightError as exc:

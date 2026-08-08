@@ -152,7 +152,9 @@ def _analyze_usage_strings(plist: dict, result: StageResult) -> None:
             FindingOut(
                 tool=TOOL_PLIST,
                 title="Empty usage-description strings for sensitive APIs",
-                severity="medium",
+                # Owner calibration (Aug 7): a privacy/transparency issue, not
+                # a direct security control — low, not medium.
+                severity="low",
                 category="MASVS-PLATFORM-2",
                 detail={
                     "keys": {

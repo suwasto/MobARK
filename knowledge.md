@@ -100,7 +100,107 @@ Remaining M4: manual QA with a real model (owner), stress (obfuscated +
 large APK), go/no-go record, Docker image rebuild with new dep set (size
 gate), M5 UI wiring after go/no-go.
 
-M5 — **Phases A–G COMPLETE (Aug 6, 2026); Phase H not started.**
+M5 — **Phases A–H COMPLETE (Aug 7, 2026); Phase I in progress — NOT marked
+complete (owner).** Phase I so far: containerized e2e PASSED — the app image
+now bundles the SPA (`Dockerfile.app` frontend build stage → `/frontend/dist`)
+and `main.py` serves index.html at `/` when dist exists (both were blockers;
+`test_root` updated, 240 tests green, ruff clean); CLI-enqueued scan → worker
+→ done (risk 40) with SPA + assets + health served from FastAPI on :8000.
+Remaining Phase I: owner manual model QA (Ollama) and the docs COMPLETE
+flip (deferred by owner — M5 stays open for adjustments). Loaded-state
+browser check passed (top bar, target bar, risk gauge, Settings modal);
+deep click-throughs blocked by the recurring chrome-devtools outage.
+
+**Owner review follow-ups (Aug 7):** (1) **debuggable finding → critical**
+(was high) — `analysis/manifest.py`. (2) **Overview score is now a SECURITY
+score** (higher = better; low = red, high = green): security = 100 − risk;
+`Scan.security_score` derived property (never stored), `ScanRead` exposes it,
+summary prompt relabeled, `RiskGauge` → `SecurityGauge` with inverted ramp
++ labels. Verified in compose: InsecureBankv2 risk 40 → security 60,
+debugable now critical (1C/4H/473M/2L/43I). (3) **Severity re-calibration (owner picks A+C, Aug 7; B declined)** —
+Android curated: hostname-verifier + empty trust manager → **critical** via
+`severity.py::SEMGREP_OVERRIDES`; WebView JS/file-access, hardcoded-key,
+weak-cipher bumped to ERROR (→high). iOS: `setAllowsAnyHTTPSCertificate` →
+critical, get-task-allow → medium (per-entitlement severities), empty
+usage strings → low. MASTG vendored rules unchanged (B declined). Live
+verified: debuggable critical, WebView-JS/hardcoded-key high, 1C/10H/467M/
+2L/43I, risk 41 → security 59. 244 tests green. (4) **Scoring is now CVSS
+4.0** (owner decision, same session): severity → representative CVSS 4.0
+base score (critical 9.5 / high 8.0 / medium 5.5 / low 2.0 / info 0 — band
+midpoints per the spec); overall **risk = round(10 × max(cvss))** — the
+worst finding drives the score (owner chose max over mean). Securitygauge labels follow the CVSS 4.0 qualitative bands of the underlying risk (60
+security → risk 40 → Medium, NOT High — owner complaint fixed) + a
+`CVSS 4.0 · risk n/100 · band` caption; the arc color snaps to the band
+(crimson ≤10 / amber 11–30 / olive 31–60 / moss 61–99 / emerald 100)
+instead of a continuous ramp (owner follow-up, Aug 7). InsecureBankv2 (1 critical) now
+scores risk 95 → **security 5**. (5) **Dashboard tab bar is sticky** —
+Overview/Findings/Dependencies/Decompiler/Report stay visible while panel
+content scrolls (`DashboardView`). (6) **Model pill dropdown gained a model
+search box** (filters local + cloud groups, Escape clears first); the
+"No models listed (is the server running?)" copy is now **local-only** —
+cloud-opt backends say "No models listed — check the provider key in
+Settings." (7) **Scan date accuracy fix**: SQLite drops tzinfo on
+round-trip, so persisted timestamps serialized naive and browsers parsed
+them as local time (hours off on non-UTC machines). `schemas.py` now
+attaches UTC on serialization (`_utc_aware` on scan/finding `created_at`,
+`checked_at`, `generated_at`) + `formatRelative` parses no-offset strings
+as UTC as a belt-and-braces.
+**Owner review follow-ups (Aug 8, 2026):** (1) **Critical band REMOVED** —
+findings vocabulary is now `high | medium | low | info` (`base.py::SEVERITIES`;
+`risk.py::SEVERITY_CVSS` high 8.0 / medium 5.5 / low 2.0 / info 0 — max risk
+is now 80, was 95). Producers of critical now emit high: debuggable manifest
+finding, iOS `setAllowsAnyHTTPSCertificate` symbol rule, semgrep TLS-bypass
+overrides, gitleaks direct-compromise rules. Migration **0005** rewrites
+persisted `critical` → `high` AND recomputes every `done` scan's `risk_score`
+under the new mapping (self-contained SQL; head is now 0005). Frontend: no
+critical anywhere — stat boxes are High/Medium/Low/**Info**, `SecurityGauge`
+bands re-mapped (risk 70–80 crimson worst → emerald 0; `Critical` band type
+removed), tree dots/annotation labels/filter chips/agent greeting updated.
+(2) **Top bar: single model pill → TWO searchable dropdowns** —
+`components/ModelPicker.tsx` (replaces `ModelPill.tsx`): **Provider**
+dropdown (every backend + `None (no AI)`), **Model** dropdown (served models
+of the selected provider + `None`), both with search (Escape clears first).
+**None linkage**: provider None → auto-clear all active models (model shows
+None); model None → auto-clear the active provider. Picking a model PUTs
+`{model, enabled:true}` + clears other enabled-with-model backends so
+`pick_chat_backend` deterministically returns it. The **"Local-only" badge
+is gone** (`TopBar` + `AppContext.localOnly` removed). (3) **Finding
+suppression (per-finding + review toggle)**: `findings.suppressed` +
+`suppressed_at` (migration 0005); `GET /scans/{id}/findings?include_suppressed=`
+(default hides); `POST .../findings/{id}/suppress|unsuppress` (each recomputes
+`Scan.risk_score`); suppressed findings excluded from risk score
+(`compute_risk_score` skips `suppressed=True` via getattr — works for both
+`FindingOut` and persisted `Finding`), AI summary, and agent Layer-1 context
+(`agent/context.py`). Findings tab: per-row **Suppress/Restore** + **"Review
+suppressed (n)"** toggle (dimmed rows); `useFindings` fetches with
+`include_suppressed=true` once and splits active/suppressed client-side;
+DashboardView re-fetches the scan after a toggle so the gauge updates.
+(4) **"Suppressed (n)" Overview badge** — a clickable pill next to the stat
+boxes showing the active scan's suppressed (false-positive) count; jumps to
+the Findings review toggle; renders only when n > 0. (5) **UI polish (owner
+review, Aug 8)**: gauge score moved INSIDE the SVG as a centered `<text>` +
+`/100` tspan (no more arc overlap — was pulled up over the curve);
+`.explain-btn` lost its stray `margin-top: 8px` so "AI explanation" and
+"Suppress/Restore" sit inline on the same row. Gates: **256 backend tests
+green + ruff clean; `tsc -b` + `vite build` green.**
+**Containerized e2e re-verified after the Aug 8 changes — both platforms
+(Aug 8):** both images rebuilt; migration 0005 applied to the persisted
+volume (old scan rewritten: 1 critical → 11H/467M/2L/43I, risk 95 → 80 /
+security 20). Fresh Android scan 16 (InsecureBankv2): **11H/467M/2L/43I,
+zero critical**, risk 80 / security 20. Fresh iOS scan 17 (iBugBazaar):
+**3M/1L/5I, zero critical** (get-task-allow medium), risk 55 / security 45.
+Suppression lifecycle live on both: suppress-all-highs 80→55 → restore → 80;
+iOS suppress-all-mediums 55→20 → restore one → 55; hidden by default /
+visible via `include_suppressed`; `suppressed_at` stamped/cleared; agent
+Layer-1 context excludes suppressed (scan 17 renders 7 findings, zero
+leakage). Browser-verified (loadable chrome): gauge 45 inside the arc,
+**"Suppressed (10)" badge** on scan 16 Overview, Findings tab "Findings
+(513)" + "Review suppressed (10)", zero console errors. (Dev note: the
+chrome-devtools agent outage recurred during the UI-polish click-through —
+the polish fixes were verified via headless-Chrome DOM + code review.)
+Note: `docker compose build app` does NOT rebuild the worker's image
+(`masa-worker` is a separate tag) — always `docker compose build` or build
+both services, then recreate, when analysis code changes.
 Dashboard integration against the three mockups
 (docs/masa-dashboard-{loaded,empty,progress}.html). Plan + architecture:
 `docs/progress/M5.md`; granular checklist in docs/masa-tasks.md. Owner
@@ -110,7 +210,8 @@ mockup CSS.
 
 Phase A built + tested (238 tests, ruff clean): migration 0004
 (`findings.explanation`, `scans.ai_summary`, `scans.stage`);
-`analysis/risk.py::compute_risk_score` (severity-weighted, computed in
+`analysis/risk.py::compute_risk_score` (originally severity-weighted mean,
+**now CVSS 4.0 max aggregation** — see follow-up (4) above; computed in
 `run_scan`, backfilled on GET); `model/selection.py::pick_chat_backend`
 (shared by chat/explain/summary — `chat.py` delegates); `analysis/tree.py`
 bounded file tree + guarded content reads (Android sources+resources, iOS
@@ -209,4 +310,16 @@ columns via `--tree-w`/`--rail-w` CSS vars (≤900px still collapses to
 tree+code). Gates: 240 backend tests + ruff clean, tsc+build green, iOS
 tree/analysis docs verified live (iBugBazaar: 4 docs, 7 binaries hidden).
 
-M6-M10 — not started.
+M6-M10 — not started, except the M7 plan docs (updated Aug 7, 2026).
+M7 — **Deep research + interactive browser automation planned; docs updated
+(Aug 7, 2026)**: `docs/masa-{techstack,prd,tasks}.md` now include
+**agent-browser** (vercel-labs, Apache-2.0 — native Rust CLI + CDP daemon
+over Chrome/Chromium, no Playwright/Puppeteer/Node) as the agent's browser
+capability: token-efficient accessibility-tree snapshots with element refs
+(`@e12`, ~90%+ context savings vs raw HTML), `read` (markdown/llms.txt-
+aware) replaces the hand-rolled `web_fetch`, `batch` for multi-step flows;
+SearXNG still the search provider. Same per-scan opt-in + "leaves the
+machine" boundary as web research; every browsing turn bounded (`--max-
+output`, `--allowed-domains`, session teardown). Open deployment question:
+Chrome for Testing (~150MB+) host-side like Ollama vs in-image. M6
+(tool-calling surface), M8–M10 unchanged.

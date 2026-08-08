@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Allowed severity values — kept in sync with the findings table.
-SEVERITIES = ("critical", "high", "medium", "low", "info")
+# Owner decision (Aug 8, 2026): no critical band — high is the top severity.
+SEVERITIES = ("high", "medium", "low", "info")
 
 # Tools that produce findings in M1.
 TOOL_ANDROGUARD = "androguard"

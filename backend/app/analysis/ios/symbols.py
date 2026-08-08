@@ -94,6 +94,9 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "setAllowsAnyHTTPSCertificate",
         "NSURLConnection certificate bypass (setAllowsAnyHTTPSCertificate)",
+        # Owner calibration (Aug 7): complete TLS verification bypass —
+        # direct MITM compromise, same class as the Android hostname verifier.
+        # Aug 8: the critical band was removed — high is the top severity.
         "high",
         "MASVS-NETWORK-2",
         "Server identity verification disabled for this connection — binary-level "

@@ -161,9 +161,12 @@ def build_findings_context(
     ``max_findings`` is an explicit escape hatch for pathological findings
     counts — the default (None) is the full set, never a silent subset.
     """
+    # Suppressed false positives are excluded from the agent context — they
+    # were reviewed and dismissed, so grounding answers on them would be
+    # misleading (owner decision, Aug 8).
     rows = db.scalars(
         select(Finding)
-        .where(Finding.scan_id == scan.id)
+        .where(Finding.scan_id == scan.id, Finding.suppressed == False)  # noqa: E712
         .order_by(Finding.id)
     ).all()
     allowed = platform_tools(scan.platform)

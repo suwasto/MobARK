@@ -44,10 +44,16 @@ CSSLOT_CMS_SIGNATURE = 0x00010000
 ENTITLEMENTS_OID = bytes([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x63, 0x64, 0x09, 0x01])
 
 # Entitlements whose presence is worth a finding (shipping-app hygiene).
+# Value is ``(label, severity)`` — per-entitlement calibration (owner
+# review, Aug 7): get-task-allow is a debugger-attach exposure on a
+# shipping app (medium); aps-environment is routine, stays low.
 NOTABLE_ENTITLEMENTS = {
-    "get-task-allow": "debugger attachment allowed (get-task-allow)",
-    "com.apple.security.get-task-allow": "debugger attachment allowed (get-task-allow)",
-    "aps-environment": "push notifications environment",
+    "get-task-allow": ("debugger attachment allowed (get-task-allow)", "medium"),
+    "com.apple.security.get-task-allow": (
+        "debugger attachment allowed (get-task-allow)",
+        "medium",
+    ),
+    "aps-environment": ("push notifications environment", "low"),
 }
 
 
@@ -109,11 +115,12 @@ def analyze_app_binary(app_root: Path) -> StageResult:
 
     for ent in sorted(merged):
         if ent in NOTABLE_ENTITLEMENTS:
+            label, severity = NOTABLE_ENTITLEMENTS[ent]
             result.findings.append(
                 FindingOut(
                     tool=TOOL_LIEF,
-                    title=f"Notable entitlement granted: {NOTABLE_ENTITLEMENTS[ent]}",
-                    severity="low",
+                    title=f"Notable entitlement granted: {label}",
+                    severity=severity,
                     category="MASVS-PLATFORM-1",
                     detail={"entitlement": ent},
                 )

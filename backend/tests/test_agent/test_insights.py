@@ -33,7 +33,7 @@ class _Resp:
 def _finding(**over):
     base = dict(
         title="Session token stored in plaintext SharedPreferences",
-        severity="critical",
+        severity="high",
         file_path="com/foo/AuthManager.java",
         line_number=117,
         category="MASVS-STORAGE-1",
@@ -94,7 +94,7 @@ def test_explain_generates_and_persists(monkeypatch):
     # grounded: finding data + source context in the user message
     user = captured["messages"][1]["content"]
     assert "AuthManager.java" in user
-    assert "critical" in user
+    assert "high" in user
     assert "Source context" in user
 
 
@@ -143,8 +143,8 @@ def test_explain_without_location_omits_source_context(monkeypatch):
 
 def _findings():
     return [
-        types.SimpleNamespace(severity="critical", title="Token in prefs", file_path="A.java"),
-        types.SimpleNamespace(severity="high", title="Pinning off", file_path="B.java"),
+        types.SimpleNamespace(severity="high", title="Token in prefs", file_path="A.java"),
+        types.SimpleNamespace(severity="medium", title="Pinning off", file_path="B.java"),
         types.SimpleNamespace(severity="info", title="Debug build", file_path="C.java"),
     ]
 
@@ -165,15 +165,16 @@ def test_summary_generates_grounded_text(monkeypatch):
     monkeypatch.setattr(insights, "client_chat", fake_chat)
     monkeypatch.setattr(insights, "pick_chat_backend", lambda: _backend())
     scan = _scan()
-    result = insights.summarize_scan(scan, _findings(), risk_score=58)
+    result = insights.summarize_scan(scan, _findings(), security_score=42)
 
     assert result["cached"] is False
     assert result["model"] == "qwen2.5:7b"
     # persisted onto the scan row for the route to commit
     assert scan.ai_summary == "High risk: storage and network findings dominate."
     user = captured["messages"][1]["content"]
-    assert '"risk_score": 58' in user
-    assert '"critical": 1' in user
+    assert '"security_score": 42' in user
+    assert "higher is better" in user
+    assert '"high": 1' in user
     assert "Token in prefs" in user  # top finding included
 
 
@@ -183,7 +184,7 @@ def test_summary_cache_hit_skips_llm(monkeypatch):
 
     monkeypatch.setattr(insights, "client_chat", boom)
     scan = _scan(ai_summary="cached summary")
-    result = insights.summarize_scan(scan, _findings(), risk_score=0)
+    result = insights.summarize_scan(scan, _findings(), security_score=100)
     assert result["cached"] is True
     assert result["summary"] == "cached summary"
 
@@ -194,7 +195,7 @@ def test_summary_no_model_propagates(monkeypatch):
 
     monkeypatch.setattr(insights, "pick_chat_backend", no_model)
     with pytest.raises(NoModelConfigured):
-        insights.summarize_scan(_scan(), _findings(), risk_score=0)
+        insights.summarize_scan(_scan(), _findings(), security_score=100)
 
 
 def test_summary_upstream_failure_raises_insight_error(monkeypatch):
@@ -204,4 +205,4 @@ def test_summary_upstream_failure_raises_insight_error(monkeypatch):
     monkeypatch.setattr(insights, "client_chat", boom)
     monkeypatch.setattr(insights, "pick_chat_backend", lambda: _backend())
     with pytest.raises(InsightError):
-        insights.summarize_scan(_scan(), _findings(), risk_score=0)
+        insights.summarize_scan(_scan(), _findings(), security_score=100)

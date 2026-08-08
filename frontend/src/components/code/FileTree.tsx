@@ -4,7 +4,6 @@ import type { FileNode, FileTreeRoot } from '../../types'
 
 /** Severity → dot class. `0` = no findings → transparent dot. */
 const SEV_CLASS: Record<number, string> = {
-  4: 'critical',
   3: 'high',
   2: 'medium',
   1: 'low',

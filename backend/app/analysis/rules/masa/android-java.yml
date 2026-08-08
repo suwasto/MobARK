@@ -4,7 +4,9 @@
 rules:
   - id: masa-android-webview-javascript-enabled
     languages: [java]
-    severity: WARNING
+    # Owner calibration (Aug 7): JS enabled in a WebView that can load
+    # remote/attacker content is a script-injection / potential RCE surface.
+    severity: ERROR
     message: >
       [MASVS-PLATFORM-3] WebView has JavaScript enabled
       (setJavaScriptEnabled(true)). This exposes the app to JavaScript
@@ -14,7 +16,8 @@ rules:
 
   - id: masa-android-webview-file-access
     languages: [java]
-    severity: WARNING
+    # Owner calibration (Aug 7): local file read/disclosure surface.
+    severity: ERROR
     message: >
       [MASVS-PLATFORM-3] WebView allows file/universal file access, which can
       let remote content read local files.
@@ -59,7 +62,8 @@ rules:
 
   - id: masa-android-hardcoded-secret-key
     languages: [java]
-    severity: WARNING
+    # Owner calibration (Aug 7): hardcoded key material (MASVS-CRYPTO-1).
+    severity: ERROR
     message: >
       [MASVS-CRYPTO-1] Hardcoded key material passed to SecretKeySpec —
       keys must come from the Android Keystore, not source code.
@@ -68,7 +72,8 @@ rules:
 
   - id: masa-android-weak-cipher
     languages: [java]
-    severity: WARNING
+    # Owner calibration (Aug 7): broken ciphers (DES/RC4/MD5/RSA-ECB).
+    severity: ERROR
     message: >
       [MASVS-CRYPTO-2] Weak or broken cipher algorithm usage detected.
     pattern-either:

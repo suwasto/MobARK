@@ -8,7 +8,13 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import { api } from '../api/client'
-import type { HealthResponse, ModelBackendRead, ScanRead } from '../types'
+import type {
+  HealthResponse,
+  ModelBackendCreate,
+  ModelBackendRead,
+  ModelBackendUpsert,
+  ScanRead,
+} from '../types'
 
 /**
  * M5 view machine — derives purely from the active scan's status:
@@ -31,8 +37,6 @@ interface AppContextValue {
   activeScan: ScanRead | null
   health: HealthResponse | null
   backends: ModelBackendRead[]
-  /** Green "Local-only" while no *usable* cloud route exists. */
-  localOnly: boolean
   actions: {
     refreshScans: () => Promise<void>
     refreshHealth: () => Promise<void>
@@ -40,6 +44,14 @@ interface AppContextValue {
     refreshAll: () => Promise<void>
     selectScan: (id: number | null) => void
     uploadScan: (file: File) => Promise<ScanRead>
+    /** M5 Phase H — model backend mutations (Settings modal + ModelPicker). */
+    updateBackend: (id: string, payload: ModelBackendUpsert) => Promise<void>
+    /** Batch PUTs with a single refresh — avoids N full backend re-probes. */
+    updateBackends: (entries: { id: string; payload: ModelBackendUpsert }[]) => Promise<void>
+    createBackend: (payload: ModelBackendCreate) => Promise<void>
+    deleteBackend: (id: string) => Promise<void>
+    /** Full health probe; the probed backend is merged into state in place. */
+    testBackend: (id: string) => Promise<ModelBackendRead>
   }
 }
 
@@ -124,6 +136,46 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [refreshScans, selectScan],
   )
 
+  const updateBackend = useCallback(
+    async (id: string, payload: ModelBackendUpsert) => {
+      await api.updateBackend(id, payload)
+      await refreshBackends()
+    },
+    [refreshBackends],
+  )
+
+  const updateBackends = useCallback(
+    async (entries: { id: string; payload: ModelBackendUpsert }[]) => {
+      await Promise.all(entries.map((e) => api.updateBackend(e.id, e.payload)))
+      await refreshBackends()
+    },
+    [refreshBackends],
+  )
+
+  const createBackend = useCallback(
+    async (payload: ModelBackendCreate) => {
+      await api.createBackend(payload)
+      await refreshBackends()
+    },
+    [refreshBackends],
+  )
+
+  const deleteBackend = useCallback(
+    async (id: string) => {
+      await api.deleteBackend(id)
+      await refreshBackends()
+    },
+    [refreshBackends],
+  )
+
+  const testBackend = useCallback(async (id: string) => {
+    const probed = await api.testBackend(id)
+    // Merge the probe result in place — a full refresh would downgrade the
+    // probe to the lightweight reachability check this result already carries.
+    setBackends((prev) => prev.map((b) => (b.id === probed.id ? probed : b)))
+    return probed
+  }, [])
+
   const activeScan = useMemo(() => {
     if (activeScanId != null) {
       const byId = scans.find((s) => s.id === activeScanId)
@@ -140,17 +192,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return 'loaded'
   }, [activeScan])
 
-  // A BYOK provider only counts as a cloud route once it has an API key
-  // (a keyless seeded card cannot send anything); custom endpoints count
-  // the moment they are added. Local backends never count.
-  const localOnly = useMemo(
-    () =>
-      !backends.some(
-        (b) => b.enabled && !b.local && (b.has_api_key || b.kind === 'custom'),
-      ),
-    [backends],
-  )
-
   const value = useMemo<AppContextValue>(
     () => ({
       booting,
@@ -159,7 +200,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeScan,
       health,
       backends,
-      localOnly,
       actions: {
         refreshScans,
         refreshHealth,
@@ -167,6 +207,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         refreshAll,
         selectScan,
         uploadScan,
+        updateBackend,
+        updateBackends,
+        createBackend,
+        deleteBackend,
+        testBackend,
       },
     }),
     [
@@ -176,13 +221,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeScan,
       health,
       backends,
-      localOnly,
       refreshScans,
       refreshHealth,
       refreshBackends,
       refreshAll,
       selectScan,
       uploadScan,
+      updateBackend,
+      updateBackends,
+      createBackend,
+      deleteBackend,
+      testBackend,
     ],
   )
 

@@ -162,7 +162,7 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
       holds up
 
 ## M5 — Dashboard integration
-> **Status: Phases A–H COMPLETE (Aug 7, 2026); Phase I not started.**
+> **Status: COMPLETE (Aug 8, 2026)** — all Phases A–I green (containerized e2e verified on both platforms after the Aug 8 follow-ups); owner manual model QA remains a post-completion checkpoint.
 > Plan + architecture:
 > [docs/progress/M5.md](progress/M5.md). Owner decision (Phase B): the primary
 > accent is the MASA **brand emerald** from `docs/icons/masa_icon_only.svg`
@@ -216,30 +216,47 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [x] **"Suppressed (n)" badge on the Overview tab** — a clickable pill next to the severity stat boxes showing the active scan's suppressed (false-positive) count (jumps to the Findings review toggle; renders only when n > 0)
 - [x] **UI polish (owner review, Aug 8)** — (a) the gauge score text moved INSIDE the SVG as a centered `<text>` + `/100` tspan so it can never overlap the arc curve; (b) `.explain-btn`'s stray `margin-top: 8px` removed so "AI explanation" and "Suppress/Restore" buttons sit inline on the same row
 
-**Validation (Phase I — in progress Aug 8, 2026; M5 NOT complete per owner):**
+**Validation (Phase I — COMPLETE Aug 8, 2026):**
 - [x] `tsc -b && vite build` green; browser verification against a real scan — **loaded state browser-verified live (Aug 7)**: page load, top bar (brand + Local-only), target bar (InsecureBankv2.apk DONE), Overview risk gauge 40, Settings modal opens with its three tabs. (Empty + progress states were browser-checked in Phases C/D.) Deeper click-throughs (Findings-tab count, ModelPill dropdown, BYOK pane) were blocked by the recurring chrome-devtools agent outage — covered by code review + build, same as Phases E/G/H
 - [x] Containerized e2e — **PASSED (Aug 7)**: `docker/Dockerfile.app` gained a **frontend build stage** (SPA dist bundled at `/frontend/dist`) and `main.py`'s root route now serves the SPA when dist exists (both were blockers for serving the dashboard from FastAPI); compose up → `app.cli scan` enqueued → worker ran → `done` (risk 40, 523 findings, severity-desc API verified) → SPA + `/assets` + `/api/v1/health` (redis+db ok) all served from FastAPI on :8000. `test_root` updated for the dual root contract (240 tests green, ruff clean)
 - [x] Containerized e2e re-verified after the Aug 8 changes — **PASSED (Aug 8), both platforms**: both images rebuilt; migration 0005 applied to the persisted volume (old InsecureBankv2 scan rewritten: 1 critical → 11H/467M/2L/43I, risk 95 → **80 / security 20**). Fresh Android scan (InsecureBankv2, id 16): **11H/467M/2L/43I zero critical**, risk 80 / security 20. Fresh iOS scan (iBugBazaar, id 17): **3M/1L/5I zero critical**, risk 55 / security 45. Suppression lifecycle live on both platforms (Android risk 80→55→80 across suppress-all-highs/restore; iOS 55→20→55; `include_suppressed` hide/show; `suppressed_at` stamped/cleared; agent Layer-1 context excludes suppressed — 7 findings rendered, zero leakage). Browser-verified (loadable chrome): gauge 45 inside the arc, **"Suppressed (10)" badge** on scan 16 Overview, Findings "Review suppressed (10)" — zero console errors. Note: the run left suppression state in the volume (scan 16: 10 highs suppressed) — reset available on request. Backend suites green (**256 tests**), ruff clean, tsc/build green
-- [ ] Manual QA with a real model (owner, Ollama off during dev): chat, per-finding explain, overview summary — **owner manual test, not done**
-- [ ] Docs: `docs/progress/M5.md` status flip to COMPLETE, this checklist checked, knowledge.md updated — **deferred per owner (Aug 7): do NOT mark M5 complete yet**
+- [ ] Manual QA with a real model (owner, Ollama off during dev): chat, per-finding explain, overview summary — **owner manual test, not done — post-completion checkpoint, does not block the M5 COMPLETE flip (owner decision Aug 8)**
+- [x] Docs: `docs/progress/M5.md` status flip to COMPLETE (Aug 8), this checklist checked, knowledge.md updated
 
 ## M6 — Agent tool-calling
-- [ ] M4 already ships the Layer 1-3 tools (`search_code`, `read_file`, `graph_query`,
-      `graph_path`, `graph_explain`) and the bounded tool loop. M6's remaining work:
-      the M5-era tools (`read_manifest()`, `get_decompiled_class(name)`,
-      `get_permissions()`, `run_secrets_scan()`) built on top of the analysis engine
-- [ ] Implement the M6 tool surface using **LiteLLM's normalized function-calling
-      interface** (already exercised by M4's chat loop)
-- [ ] **Restrict tool-calling to a documented known-good model list** (Qwen2.5/2.5-coder, Llama 3.1+) — LiteLLM standardizes the API shape, but doesn't fix models that don't reliably follow structured tool-call output; that's still a model capability limit, not a library problem
-- [ ] Graceful fallback: if the selected model doesn't support tool calls, degrade to
-      a context-only answer (M4 Layers 1-3 already do this in `agent/chat.py`)
-- [ ] Guard against runaway tool-call loops (max iterations, timeout) — M4's loop is
-      bounded at ≤3 rounds; extend per tool semantics if needed
-- [ ] Test agent on a multi-step question requiring 2+ tool calls
-- [ ] Test the flagship structural-question case explicitly: "where is certificate
-      pinning located" should resolve via graph traversal (Layer 3), not a
-      findings-context round-trip — confirm this actually happens, don't just assume
-      the agent picks the right tool
+> **Status: planned (Aug 8, 2026) — not started.** Plan + owner decisions:
+> [docs/progress/M6.md](progress/M6.md). Owner decisions at kickoff:
+> `run_secrets_scan` = on-demand gitleaks re-run over a targeted path (Layer 1
+> already carries persisted findings); model gating = **soft offer** (tools to
+> any model; the known-good list is documented, not enforced); iOS scope =
+> both platforms (manifest → Info.plist, permissions → usage strings).
+
+**Phase A — app-oriented tools (extend `agent/tools.py`, platform-aware):**
+- [ ] `read_manifest()` — Android: decompiled `AndroidManifest.xml` (package, SDKs, debuggable, allowBackup, cleartext, exported components) · iOS: `Info.plist` (bundle id, version, ATS, usage strings, background modes) — bounded JSON result
+- [ ] `get_decompiled_class(fqcn)` — Android only: resolve `com.app.Foo` → jadx `sources/` path, bounded source, clean missing-class error; iOS → explicit "no decompiled source" error
+- [ ] `get_permissions()` — Android: uses-permission set (name + `maxSdkVersion` + dangerous flag) · iOS: usage-description keys
+- [ ] `run_secrets_scan(glob)` — wrap the existing `analysis/gitleaks.py::scan_directory` for an on-demand, bounded (per-call timeout + size cap) targeted pass
+- [ ] `search_strings(pattern)` — `search_code` with a `mode="strings"` (targets `strings.xml`/resources)
+- [ ] All new tools: `ToolError` → `{"error":…}` JSON, bounded results, reuse `resolve_tree_root`/plist/gitleaks wrappers (no raw subprocess in the agent layer)
+
+**Phase B — platform-aware schemas + soft-offer gating:**
+- [ ] Filter `TOOL_SCHEMAS` per scan by platform (extend the `context.py` whitelist pattern) so iOS never sees Android-only tools
+- [ ] Known-good tool-calling model list (Qwen2.5/2.5-coder, Llama 3.1+) **documented** in masa-techstack.md as a recommendation; tools offered to ANY model (soft — owner decision); existing fallbacks stay as the safety net
+- [ ] Surface `tool_mode: tools | context-only` (+ existing `tools_used`) in `ChatResponse`
+
+**Phase C — loop hardening:**
+- [ ] Per-call timeout/size guards on the new tools (secrets scan ~30 s cap, bounded walk)
+- [ ] Expose `max_tool_rounds` as a config knob (same pattern as `chat_timeout_seconds`)
+
+**Phase D — tests (mocked, no Ollama):**
+- [ ] Per-tool units: manifest parse (Android + iOS fixtures), class resolution + missing-class, permissions, secrets-scan bounded run (wrapper mocked), platform schema filtering, off-list model still offered tools
+- [ ] Multi-step orchestration: fake model `search_code` → `get_decompiled_class` → answer; ordered tool results + `tools_used`
+- [ ] Flagship case: "where is certificate pinning located" — fake model picks `graph_query` FIRST (Layer 3, not context-only); graph result reaches the answer and is cited
+
+**Phase E — docs + validation:**
+- [ ] `docs/progress/M6.md` status flip, this checklist, known-good list in techstack, knowledge.md
+- [ ] Gates: pytest + ruff; `tsc -b && vite build` (only if a small "tools used" line lands in the dock); containerized e2e wiring re-prove
+- [ ] Real-model QA (owner, Ollama off during dev) — post-completion checkpoint, not a blocker
 
 ## M7 — Deep research / web browsing (+ interactive browser automation)
 - [ ] Add `searxng` as a 3rd Docker Compose service, JSON output format enabled (so results are parseable, not just HTML)

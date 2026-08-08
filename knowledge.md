@@ -100,16 +100,17 @@ Remaining M4: manual QA with a real model (owner), stress (obfuscated +
 large APK), go/no-go record, Docker image rebuild with new dep set (size
 gate), M5 UI wiring after go/no-go.
 
-M5 — **Phases A–H COMPLETE (Aug 7, 2026); Phase I in progress — NOT marked
-complete (owner).** Phase I so far: containerized e2e PASSED — the app image
-now bundles the SPA (`Dockerfile.app` frontend build stage → `/frontend/dist`)
-and `main.py` serves index.html at `/` when dist exists (both were blockers;
-`test_root` updated, 240 tests green, ruff clean); CLI-enqueued scan → worker
-→ done (risk 40) with SPA + assets + health served from FastAPI on :8000.
-Remaining Phase I: owner manual model QA (Ollama) and the docs COMPLETE
-flip (deferred by owner — M5 stays open for adjustments). Loaded-state
-browser check passed (top bar, target bar, risk gauge, Settings modal);
-deep click-throughs blocked by the recurring chrome-devtools outage.
+M5 — **COMPLETE (Aug 8, 2026).** See `docs/progress/M5.md`.
+Phases A–H + Phase I all green: the app image bundles the SPA
+(`Dockerfile.app` frontend build stage → `/frontend/dist`) and `main.py`
+serves index.html at `/` when dist exists; CLI-enqueued scan → worker → done
+with SPA + assets + health served from FastAPI on :8000. Containerized e2e
+re-verified after the Aug 8 follow-ups on BOTH platforms (Android
+InsecureBankv2 + iOS iBugBazaar; see the Aug 8 follow-ups below). Loaded-state
+browser checks passed; deep click-throughs partially blocked by the recurring
+chrome-devtools outage (covered by code review + headless-Chrome DOM). One
+post-completion owner checkpoint remains: manual model QA with a real model
+(Ollama) — chat/explain/summary, not a blocker.
 
 **Owner review follow-ups (Aug 7):** (1) **debuggable finding → critical**
 (was high) — `analysis/manifest.py`. (2) **Overview score is now a SECURITY

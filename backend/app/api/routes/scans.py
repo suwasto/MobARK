@@ -16,21 +16,27 @@ button — ChatInterrupted).
 """
 from __future__ import annotations
 
+import json
+import queue
+import threading
 import zipfile
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.agent import insights
 from app.agent.chat import (
+    AgentEvent,
     AgentTimeout,
     ChatInterrupted,
     ChatNotConfigured,
     ChatUpstreamError,
     answer_question,
+    check_configured,
     request_cancel,
 )
 from app.analysis import tree
@@ -43,7 +49,6 @@ from app.models import Finding, Scan, utcnow
 from app.schemas import (
     ChatRequest,
     ChatResponse,
-    Citation,
     ExplainResponse,
     FileContentResponse,
     FileTreeResponse,
@@ -109,6 +114,38 @@ def _require_graph(scan: Scan) -> Path:
             "analysis for Android scans",
         )
     return graph_path
+
+
+def _sse_frame(event: str, data: dict) -> str:
+    """One Server-Sent Events frame (``event`` + JSON ``data`` line)."""
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+def _chat_payload(result) -> dict:
+    """The canonical ChatResponse-shaped payload for a finished turn."""
+    return {
+        "answer": result.answer,
+        "citations": [
+            {"file": c.file, "line": c.line, "snippet": c.snippet}
+            for c in result.citations
+        ],
+        "sources": result.sources,
+        "tool_mode": result.tool_mode,
+        "tools_used": result.tools_used,
+        "tool_runs": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "args": r.args,
+                "status": r.status,
+                "duration_ms": r.duration_ms,
+                "result_preview": r.result_preview,
+                "error": r.error,
+                "count": r.count,
+            }
+            for r in result.tool_runs
+        ],
+    }
 
 
 def _recompute_risk(db: Session, scan: Scan) -> None:
@@ -476,7 +513,12 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
             "run the scan job first",
         )
     try:
-        result = answer_question(scan_id, payload.question, timeout=payload.timeout_seconds)
+        result = answer_question(
+            scan_id,
+            payload.question,
+            timeout=payload.timeout_seconds,
+            max_tool_rounds=payload.max_tool_rounds,
+        )
     except ChatNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ChatInterrupted as exc:
@@ -487,12 +529,90 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except ChatUpstreamError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return ChatResponse(
-        answer=result.answer,
-        citations=[
-            Citation(file=c.file, line=c.line, snippet=c.snippet) for c in result.citations
-        ],
-        sources=result.sources,
+    # Shared with the SSE stream's final answer frame — one payload shape.
+    return ChatResponse(**_chat_payload(result))
+
+
+@router.post("/{scan_id}/chat/stream")
+def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> StreamingResponse:
+    """M6 follow-up: SSE stream of one agent turn — live tool steps + tokens.
+
+    The buffered ``/chat`` returns only the final answer; this streams the
+    agent loop as it runs: ``token`` frames (answer text as it is generated),
+    ``tool_start``/``tool_end`` pairs (live steps), then a final ``answer``
+    frame carrying the canonical ChatResponse-shaped payload (including the
+    persistent ``tool_runs`` trace). Errors arrive as an ``error`` frame with
+    a kind + detail (the same contract the buffered endpoint encodes as HTTP
+    codes: no-model / upstream / timeout / interrupted) — the client
+    classifies them into the existing error-bubble copy.
+
+    The ``answer_question`` call runs on a worker thread pushing frames
+    through a queue so the generator can yield live; the existing cancel
+    machinery (``POST /chat/cancel`` + client fetch abort) stops the loop at
+    the next boundary. Keepalive ``: ping`` comments flow every 15 s while a
+    tool call is running so the connection never looks dead.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    if scan.status != "done":
+        raise HTTPException(
+            status_code=409,
+            detail=f"scan {scan_id} is not analyzed yet (status={scan.status}) — "
+            "run the scan job first",
+        )
+    # A missing model is a clean pre-stream HTTP 400 (nothing sent yet);
+    # answer_question would otherwise raise mid-stream after the 200 headers.
+    try:
+        check_configured()
+    except ChatNotConfigured as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def gen():
+        frames: queue.Queue[str | None] = queue.Queue()
+
+        def on_event(event: AgentEvent) -> None:
+            frames.put(_sse_frame(event.kind, event.payload))
+
+        def run() -> None:
+            try:
+                result = answer_question(
+                    scan_id,
+                    payload.question,
+                    timeout=payload.timeout_seconds,
+                    max_tool_rounds=payload.max_tool_rounds,
+                    stream=True,
+                    on_event=on_event,
+                )
+                frames.put(_sse_frame("answer", _chat_payload(result)))
+            except ChatNotConfigured as exc:
+                frames.put(_sse_frame("error", {"kind": "no-model", "detail": str(exc)}))
+            except ChatUpstreamError as exc:
+                frames.put(_sse_frame("error", {"kind": "upstream", "detail": str(exc)}))
+            except AgentTimeout as exc:
+                frames.put(_sse_frame("error", {"kind": "timeout", "detail": str(exc)}))
+            except ChatInterrupted as exc:
+                frames.put(_sse_frame("error", {"kind": "interrupted", "detail": str(exc)}))
+            except Exception as exc:  # noqa: BLE001 - stream must terminate cleanly
+                frames.put(_sse_frame("error", {"kind": "error", "detail": str(exc)}))
+            finally:
+                frames.put(None)  # sentinel — end the stream
+
+        threading.Thread(target=run, daemon=True).start()
+        while True:
+            try:
+                frame = frames.get(timeout=15)
+            except queue.Empty:
+                # Long-running tool call (e.g. run_secrets_scan): keep the
+                # connection alive — SSE comments are ignored by clients.
+                yield ": keepalive\n\n"
+                continue
+            if frame is None:
+                break
+            yield frame
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 

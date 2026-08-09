@@ -174,6 +174,24 @@ PROVIDERS: dict[str, Provider] = {
             default_base_url="",
             models_path="/models",
         ),
+        # Dev-only (M6 follow-up): MASA_FAKE_MODEL=1 seeds this backend and
+        # model/client.py short-circuits it to a deterministic script — the
+        # Agent dock's live steps + token streaming are demoable with zero
+        # Ollama. Never contacted; the fake has no base_url and the model
+        # listing falls back to the static "demo" model.
+        Provider(
+            id="fake",
+            name="Fake (dev demo)",
+            kind="local",
+            model_prefix="fake/",
+            key_required=False,
+            key_env_var=None,
+            base_url_required=False,
+            default_base_url="",
+            models_path=None,
+            suggested_models=("demo",),
+            dummy_key="fake",
+        ),
     ]
 }
 

@@ -66,6 +66,22 @@ class ModelBackend:
         return bool(self.api_key)
 
 
+def _fake_backend(cfg: Settings) -> ModelBackend:
+    """The dev-only fake backend (M6 follow-up) — the one construction site
+    shared by seeding and read-time reconciliation so the two can't drift."""
+    from app.model.fake import FAKE_MODEL
+
+    return ModelBackend(
+        id="fake",
+        provider_id="fake",
+        name="Fake (dev demo)",
+        kind="local",
+        base_url="",
+        model=FAKE_MODEL,
+        api_key="fake",
+    )
+
+
 def _seed_backends(cfg: Settings) -> list[ModelBackend]:
     """Build the initial backend list from the provider table + env/`Settings`.
 
@@ -74,11 +90,22 @@ def _seed_backends(cfg: Settings) -> list[ModelBackend]:
     cloud entry is unusable and only confuses the Settings UI (owner
     decision, Aug 8 2026): add cloud providers with a key via the BYOK menu
     (POST /api/v1/model/backends) instead.
+
+    The dev-only ``fake`` backend (M6 follow-up) is seeded ONLY when
+    ``cfg.fake_model_enabled`` (MASA_FAKE_MODEL=1) — it must never appear in
+    a real deployment. It is inserted FIRST so ``pick_chat_backend`` resolves
+    it deterministically: with the knob on, chat/explain/summary all demo
+    against the fake without touching a real model.
     """
     seeded: list[ModelBackend] = []
+    if cfg.fake_model_enabled:
+        seeded.append(_fake_backend(cfg))
     for provider_id, provider in PROVIDERS.items():
         if provider.kind == "custom":
             # Custom backends are user-created via the API, not seeded.
+            continue
+        if provider_id == "fake":
+            # Dev-only: seeded above, gated by the MASA_FAKE_MODEL knob.
             continue
         base_url = getattr(cfg, _BASE_URL_FIELD.get(provider_id, ""), "") or (
             provider.default_base_url
@@ -142,6 +169,7 @@ class BackendStore:
             if backend.provider_id not in PROVIDERS:
                 continue  # drop entries for providers we no longer know
             backends.append(backend)
+        backends = self._reconcile_fake(backends)
         return backends
 
     def get(self, backend_id: str) -> ModelBackend | None:
@@ -212,6 +240,24 @@ class BackendStore:
             os.chmod(self.path, CONFIG_MODE)
         except OSError:
             pass
+
+    def _reconcile_fake(self, backends: list[ModelBackend]) -> list[ModelBackend]:
+        """Keep the dev-only fake backend in lockstep with the config knob.
+
+        The store file is the source of truth after first read, so flipping
+        MASA_FAKE_MODEL later must still take effect: the knob ON adds a
+        missing fake entry, the knob OFF removes a stale one — each case
+        persists the reconciled list (idempotent, so a converged store never
+        rewrites itself).
+        """
+        has_fake = any(b.id == "fake" for b in backends)
+        if self._settings.fake_model_enabled and not has_fake:
+            backends.insert(0, _fake_backend(self._settings))
+            self._write(backends)
+        elif not self._settings.fake_model_enabled and has_fake:
+            backends = [b for b in backends if b.id != "fake"]
+            self._write(backends)
+        return backends
 
 
 def _backend_fields() -> set[str]:

@@ -103,6 +103,8 @@ export interface ModelBackendModels {
 export interface ChatRequest {
   question: string
   timeout_seconds?: number | null
+  /** M6 Phase C: max tool-calling rounds before the context-only fallback. */
+  max_tool_rounds?: number | null
 }
 
 export interface Citation {
@@ -111,10 +113,27 @@ export interface Citation {
   snippet: string
 }
 
+/** One executed tool call — the persistent trace on a chat response. */
+export interface ToolRunRead {
+  id: string
+  name: string
+  args: Record<string, unknown>
+  status: 'ok' | 'error'
+  duration_ms: number
+  result_preview: string
+  error: string | null
+  count: number | null
+}
+
 export interface ChatResponse {
   answer: string
   citations: Citation[]
   sources: string[]
+  /** M6 Phase B: 'tools' when the agent ran tool calls this turn. */
+  tool_mode: 'tools' | 'context-only'
+  tools_used: string[]
+  /** M6 follow-up: the per-tool trace (the live SSE events, finalized). */
+  tool_runs: ToolRunRead[]
 }
 
 export interface ScanGraphState {

@@ -30,11 +30,12 @@ import json
 import re
 import threading
 import time
+from collections.abc import Callable
 
 from app.agent.context import FindingsContext, build_findings_context
-from app.agent.tools import TOOL_SCHEMAS, read_file
+from app.agent.tools import read_file, schemas_for_platform
 from app.model.client import chat as client_chat
-from app.model.client import model_arch_hint
+from app.model.client import chat_stream, model_arch_hint
 
 SYSTEM_PROMPT = (
     "You are MASA, a mobile application security assistant answering "
@@ -48,9 +49,14 @@ SYSTEM_PROMPT = (
     "the evidence exists in the binary/bundle but have NO source location "
     "— never invent one for them.\n"
     "2. Tools: search_code (regex grep over the decompiled/extracted tree), "
-    "read_file (read a file, optionally a line range), and for Android "
-    "scans only, graph_query / graph_path / graph_explain (code "
-    "call/import/inheritance graph).\n\n"
+    "read_file (read a file, optionally a line range), read_manifest "
+    "(manifest/Info.plist summary), get_permissions (requested permissions "
+    "/ usage strings), search_strings (grep over resources only), "
+    "run_secrets_scan (on-demand gitleaks re-run over a targeted path), "
+    "get_decompiled_class (Android only — read one decompiled class by name), "
+    "and for Android scans only, graph_query / graph_path / graph_explain "
+    "(code call/import/inheritance graph). iOS never gets "
+    "get_decompiled_class — there is no decompiled Swift/ObjC source in v1.\n\n"
     "Rules:\n"
     "- Answer ONLY from the findings context and tool results. Never invent "
     "findings, files, lines, entitlements, symbols, or graph nodes.\n"
@@ -105,6 +111,45 @@ class ChatInterrupted(RuntimeError):
     for the scan — the API maps it to HTTP 409 so a cancelled request never
     looks like a real answer. The registry entry is cleared in a ``finally``.
     """
+
+
+TOOL_MODE_TOOLS = "tools"
+TOOL_MODE_CONTEXT = "context-only"
+
+# Cap for the result preview carried on tool_end events + the final trace
+# (the full result is still passed to the model — this is UI-only truncation).
+_TOOL_RESULT_PREVIEW_MAX = 200
+
+
+@dataclasses.dataclass(frozen=True)
+class AgentEvent:
+    """One observable event from the agent loop while a turn runs.
+
+    Kinds: ``token`` (``{"delta"}`` — streamed answer text), ``tool_start``
+    (``{"id", "name", "args"}``), ``tool_end`` (``{"id", "name",
+    "status", "duration_ms", "result_preview", "error", "count"}``). The
+    final answer is the return value (AgentResult), not an event — the
+    stream route emits the ``answer`` frame itself.
+    """
+
+    kind: str
+    payload: dict
+
+
+@dataclasses.dataclass(frozen=True)
+class ToolRun:
+    """One executed tool call — the persistent trace on AgentResult / the
+    chat response, so the dock can render a collapsible per-tool record even
+    after the live events are gone."""
+
+    id: str
+    name: str
+    args: dict
+    status: str  # "ok" | "error"
+    duration_ms: int
+    result_preview: str = ""
+    error: str | None = None
+    count: int | None = None  # list-result length (search hits, secrets rows, ...)
 
 
 # In-flight chat cancellation: scan_id -> threading.Event. Set by
@@ -165,6 +210,12 @@ class AgentResult:
     citations: list[Citation]
     sources: list[str]
     tools_used: list[str]
+    # M6 Phase B: "tools" when the model actually emitted tool calls this
+    # turn, "context-only" when it answered from the findings context alone.
+    tool_mode: str = TOOL_MODE_CONTEXT
+    # M6 follow-up: the persistent per-tool trace (args, status, duration,
+    # capped result preview) — powers the dock's collapsible "Tools (n)".
+    tool_runs: list[ToolRun] = dataclasses.field(default_factory=list)
 
 
 def _deadline_remaining(deadline: float, scan_id: int, timeout: float) -> float:
@@ -198,6 +249,193 @@ def _pick_chat_backend():
         raise ChatNotConfigured(str(exc)) from exc
 
 
+def check_configured() -> None:
+    """Raise :class:`ChatNotConfigured` when no chat backend is configured.
+
+    The stream route calls this BEFORE the SSE response starts, so a missing
+    model is a clean HTTP 400 rather than the first frame of an already-
+    sent 200 stream.
+    """
+    _pick_chat_backend()
+
+
+def _emit(
+    on_event: Callable[[AgentEvent], None] | None,
+    kind: str,
+    payload: dict,
+) -> None:
+    if on_event is not None:
+        on_event(AgentEvent(kind=kind, payload=payload))
+
+
+def _get(obj, key: str, default=None):
+    """Attribute-or-dict access — litellm chunk deltas may be pydantic models
+    OR plain dicts depending on provider/version."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _accumulate_tool_call_deltas(calls: dict, order: list, deltas) -> None:
+    """Merge one chunk's tool_call deltas into ``calls`` (keyed by index),
+    preserving first-seen order.
+
+    litellm normalizes every provider to OpenAI's incremental shape: ``index``
+    identifies the call, ``id``/``function.name`` arrive on the first delta
+    for that index, and ``function.arguments`` is a partial JSON string
+    concatenated across chunks. Local servers occasionally omit the index or
+    split arguments awkwardly — this is defensive against both.
+    """
+    for raw in deltas:
+        if raw is None:
+            continue
+        idx = _get(raw, "index")
+        cid = _get(raw, "id")
+        fn = _get(raw, "function") or {}
+        name = _get(fn, "name")
+        args = _get(fn, "arguments")
+        if idx is None:
+            # Malformed servers omit the index — fall back to the call id,
+            # then to first-seen position.
+            idx = cid if cid else len(order)
+        if idx not in calls:
+            calls[idx] = {"id": None, "name": None, "arguments": ""}
+            order.append(idx)
+        entry = calls[idx]
+        if cid and not entry["id"]:
+            entry["id"] = cid
+        if name and not entry["name"]:
+            entry["name"] = name
+        if args:
+            entry["arguments"] += args
+
+
+def _normalized_tool_calls(calls: dict, order: list) -> list:
+    """Build buffered-shape tool_call objects (``.id``, ``.function.name``,
+    ``.function.arguments``) from the accumulated deltas."""
+    from types import SimpleNamespace
+
+    out = []
+    for n, idx in enumerate(order):
+        entry = calls[idx]
+        out.append(
+            SimpleNamespace(
+                id=entry["id"] or f"call_{n}",
+                type="function",
+                function=SimpleNamespace(
+                    name=entry["name"],
+                    arguments=entry["arguments"] or "{}",
+                ),
+            )
+        )
+    return out
+
+
+def _stream_round(
+    backend,
+    messages: list[dict],
+    *,
+    temperature: float,
+    timeout: float,
+    tools: list[dict] | None,
+    on_token: Callable[[str], None] | None,
+):
+    """One streaming model round: consume litellm chunks, accumulate content
+    + tool-call deltas into the buffered response shape, and forward content
+    tokens live via ``on_token``.
+
+    Returns an object shaped like the buffered ``client_chat`` response
+    (``.choices[0].message`` with ``content`` + ``tool_calls``) so the agent
+    loop treats both paths identically.
+    """
+    from types import SimpleNamespace
+
+    # Omit the tools kwarg entirely when None — some providers reject an
+    # explicit null and the fallback call must look like a plain chat.
+    stream_kwargs = {"temperature": temperature, "timeout": timeout}
+    if tools is not None:
+        stream_kwargs["tools"] = tools
+
+    content_parts: list[str] = []
+    calls: dict = {}
+    order: list = []
+
+    for chunk in chat_stream(backend, messages, **stream_kwargs):
+        if not getattr(chunk, "choices", None):
+            continue
+        delta = getattr(chunk.choices[0], "delta", None)
+        if delta is None:
+            continue
+        content = getattr(delta, "content", None)
+        if content:
+            content_parts.append(content)
+            if on_token is not None:
+                on_token(content)
+        tcs = getattr(delta, "tool_calls", None)
+        if tcs:
+            _accumulate_tool_call_deltas(calls, order, tcs)
+
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="".join(content_parts) or None,
+                    tool_calls=_normalized_tool_calls(calls, order),
+                )
+            )
+        ]
+    )
+
+
+def _model_round(
+    backend,
+    messages: list[dict],
+    *,
+    temperature: float,
+    timeout: float,
+    tools: list[dict] | None,
+    stream: bool,
+    on_token: Callable[[str], None] | None,
+):
+    """One model round: streaming (deltas accumulated + tokens forwarded)
+    or buffered — the loop calls this uniformly so both paths share the
+    same fallback logic."""
+    if stream:
+        return _stream_round(
+            backend,
+            messages,
+            temperature=temperature,
+            timeout=timeout,
+            tools=tools,
+            on_token=on_token,
+        )
+    # Same omission rule as the streaming path: the plain-chat fallback must
+    # not carry a tools kwarg at all (existing callers detect its absence).
+    kwargs: dict = {"temperature": temperature, "timeout": timeout}
+    if tools is not None:
+        kwargs["tools"] = tools
+    return client_chat(backend, messages, **kwargs)
+
+
+def _classify_tool_result(result: str) -> tuple[str, str, str | None, int | None]:
+    """``(status, preview, error, count)`` for one tool result JSON string.
+
+    ``error`` is set when the result carries the ToolError shape; ``count``
+    is the length when the result is a list (search hits, secrets rows, …).
+    The preview is capped — the full result still reaches the model.
+    """
+    try:
+        parsed = json.loads(result)
+    except json.JSONDecodeError:
+        parsed = None
+    preview = result[:_TOOL_RESULT_PREVIEW_MAX]
+    if isinstance(parsed, dict) and "error" in parsed:
+        return "error", preview, str(parsed["error"]), None
+    if isinstance(parsed, list):
+        return "ok", preview, None, len(parsed)
+    return "ok", preview, None, None
+
+
 def _load_context(scan_id: int) -> FindingsContext:
     from app.db import SessionLocal
     from app.models import Scan
@@ -216,20 +454,30 @@ def answer_question(
     scan_id: int,
     question: str,
     *,
-    max_tool_rounds: int = 3,
+    max_tool_rounds: int | None = None,
     temperature: float = 0.2,
     timeout: float | None = None,
+    stream: bool = False,
+    on_event: Callable[[AgentEvent], None] | None = None,
 ) -> AgentResult:
     """Answer a question over Layers 1-3 (findings context + tools).
 
     The Layer 1 context is always present; tools are used only when the model
-    emits tool calls. Returns cited answer + resolved citations.
+    emits tool calls. Returns cited answer + resolved citations + the tool
+    run trace (``tool_runs``).
 
     ``timeout`` is a hard *overall* deadline in seconds for the whole loop
     (default ``settings.chat_timeout_seconds``). Each round passes only the
     remaining budget to the model client, so the no-tools fallback retry
     cannot double the hang. Raises ``AgentTimeout`` when the budget is
     exhausted before an answer arrives.
+
+    ``stream=True`` switches the model calls to ``chat_stream``: content
+    tokens are forwarded live via ``on_event`` (kind ``token``), and every
+    executed tool call emits ``tool_start``/``tool_end`` events around its
+    execution — the same loop, just observable (the dock's live steps).
+    ``on_event`` is also honored when ``stream=False`` for the tool events,
+    so callers can build a trace without token streaming.
 
     Trivial greetings ("hi", "hello") are answered with a canned reply — no
     LLM call, no backend pick. If the loop ends without a text answer (the
@@ -243,8 +491,14 @@ def answer_question(
     # "could not complete within the tool-call limit" message.
     if _GREETING_RE.match(question.strip()):
         return AgentResult(
-            answer=_GREETING_ANSWER, citations=[], sources=[], tools_used=[]
+            answer=_GREETING_ANSWER,
+            citations=[],
+            sources=[],
+            tools_used=[],
+            tool_mode=TOOL_MODE_CONTEXT,
         )
+
+    on_token = (lambda delta: _emit(on_event, "token", {"delta": delta})) if on_event else None
 
     from app.agent.tools import execute_tool
     from app.config import settings
@@ -256,6 +510,12 @@ def answer_question(
         timeout = float(settings.chat_timeout_seconds)
     deadline = time.monotonic() + timeout
 
+    # M6 Phase C: max_tool_rounds is a settings knob (same pattern as
+    # chat_timeout_seconds) — the per-call default comes from settings, an
+    # explicit argument wins.
+    if max_tool_rounds is None:
+        max_tool_rounds = int(settings.max_tool_rounds)
+
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + context.rendered},
         {"role": "user", "content": question},
@@ -264,8 +524,11 @@ def answer_question(
     # final plain-chat call never carries tool-role messages a server may
     # reject without a `tools` parameter.
     prompt = list(messages)
-    tools = TOOL_SCHEMAS
+    # M6 Phase B: offer only the tools that exist for this scan's platform
+    # (iOS never sees get_decompiled_class).
+    tools = schemas_for_platform(context.platform)
     tools_used: list[str] = []
+    tool_runs: list[ToolRun] = []
     final_text = ""
 
     cancel = _register_cancel(scan_id)
@@ -276,12 +539,14 @@ def answer_question(
             _raise_if_cancelled(scan_id, cancel)
             remaining = _deadline_remaining(deadline, scan_id, timeout)
             try:
-                response = client_chat(
+                response = _model_round(
                     backend,
                     messages,
                     temperature=temperature,
                     timeout=remaining,
                     tools=tools,
+                    stream=stream,
+                    on_token=on_token,
                 )
             except Exception:
                 # Some backends reject the tools kwarg — degrade to plain chat,
@@ -290,8 +555,14 @@ def answer_question(
                 # worker block stays bounded by the overall deadline.
                 remaining = _deadline_remaining(deadline, scan_id, timeout)
                 try:
-                    response = client_chat(
-                        backend, messages, temperature=temperature, timeout=remaining
+                    response = _model_round(
+                        backend,
+                        messages,
+                        temperature=temperature,
+                        timeout=remaining,
+                        tools=None,
+                        stream=stream,
+                        on_token=on_token,
                     )
                 except Exception as exc:
                     # If the fallback itself burns the budget (hung upstream),
@@ -341,10 +612,43 @@ def answer_question(
                     args = {}
                 if name:
                     tools_used.append(name)
+                _emit(
+                    on_event,
+                    "tool_start",
+                    {"id": call_id, "name": name, "args": args},
+                )
+                started = time.monotonic()
                 result = (
                     execute_tool(scan_id, name, args)
                     if name
                     else json.dumps({"error": "malformed tool call"})
+                )
+                duration_ms = int((time.monotonic() - started) * 1000)
+                status, preview, error, count = _classify_tool_result(result)
+                tool_runs.append(
+                    ToolRun(
+                        id=call_id,
+                        name=name or "unknown",
+                        args=args,
+                        status=status,
+                        duration_ms=duration_ms,
+                        result_preview=preview,
+                        error=error,
+                        count=count,
+                    )
+                )
+                _emit(
+                    on_event,
+                    "tool_end",
+                    {
+                        "id": call_id,
+                        "name": name,
+                        "status": status,
+                        "duration_ms": duration_ms,
+                        "result_preview": preview,
+                        "error": error,
+                        "count": count,
+                    },
                 )
                 # Also checked after each tool so a slow tool can't hide an
                 # interrupt until the whole round is done.
@@ -365,8 +669,14 @@ def answer_question(
         # it fixes trivial prompts that used to end in "tool-call limit".
         remaining = _deadline_remaining(deadline, scan_id, timeout)
         try:
-            response = client_chat(
-                backend, prompt, temperature=temperature, timeout=remaining
+            response = _model_round(
+                backend,
+                prompt,
+                temperature=temperature,
+                timeout=remaining,
+                tools=None,
+                stream=stream,
+                on_token=on_token,
             )
         except Exception as exc:
             _deadline_remaining(deadline, scan_id, timeout)
@@ -379,7 +689,7 @@ def answer_question(
                 "file or finding."
             )
 
-    return _build_result(scan_id, final_text, tools_used)
+    return _build_result(scan_id, final_text, tools_used, tool_runs)
 
 
 # ---- citation resolution ------------------------------------------------------
@@ -395,7 +705,12 @@ def _extract_citations(answer: str) -> list[tuple[str, int]]:
     return [(m.group(1), int(m.group(2))) for m in _CITE_RE.finditer(answer)]
 
 
-def _build_result(scan_id: int, answer: str, tools_used: list[str]) -> AgentResult:
+def _build_result(
+    scan_id: int,
+    answer: str,
+    tools_used: list[str],
+    tool_runs: list[ToolRun] | None = None,
+) -> AgentResult:
     citations: list[Citation] = []
     seen: set[tuple[str, int]] = set()
     for file, line in _extract_citations(answer):
@@ -417,4 +732,9 @@ def _build_result(scan_id: int, answer: str, tools_used: list[str]) -> AgentResu
         citations=citations,
         sources=sources,
         tools_used=sorted(set(tools_used)),
+        # M6 Phase B: surfaced on ChatResponse so the dock can show whether
+        # tools ran this turn. tools_used is non-empty iff the model emitted
+        # at least one tool call that dispatched.
+        tool_mode=TOOL_MODE_TOOLS if tools_used else TOOL_MODE_CONTEXT,
+        tool_runs=tool_runs or [],
     )

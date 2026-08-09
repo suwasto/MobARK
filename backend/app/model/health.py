@@ -162,8 +162,13 @@ def _probe_completion(
 
     Returns ``(ok, error)`` — on failure the error carries the upstream
     message so the Settings probe shows *why* it failed (model not loadable,
-    bad key, …) instead of a bare false.
+    bad key, …) instead of a bare false. The dev-only fake backend (M6
+    follow-up) always probes ok — it never contacts a server.
     """
+    from app.model.fake import is_fake
+
+    if is_fake(backend):
+        return True, None
     try:
         completion_kwargs: dict = {
             "model": f"{backend.provider.model_prefix}{model}",

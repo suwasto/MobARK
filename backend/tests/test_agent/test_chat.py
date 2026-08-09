@@ -1,10 +1,12 @@
-"""Layers 1-3 chat orchestration — client_chat monkeypatched, no network, no LLM.
+"""Layers 1-3 + M6 chat orchestration — client_chat monkeypatched, no
+network, no LLM.
 
 Ollama is off during development (owner decision): every test here is a
 mocked unit test; live-model acceptance is manual.
 """
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -78,6 +80,7 @@ def test_answer_without_tool_calls_uses_findings_context(env, monkeypatch):
     assert result.citations[0].snippet == "public class W extends WebViewClient {"
     assert result.sources == ["com/app/W.java"]
     assert result.tools_used == []
+    assert result.tool_mode == "context-only"  # M6 Phase B
 
     # Layer 1 context is in the system message, precision-tagged, full set.
     system = captured["messages"][0]["content"]
@@ -309,6 +312,422 @@ def test_citations_deduplicated_and_capped(env, monkeypatch):
     result = answer_question(scan_id, "cite it many times")
     assert len(result.citations) == 1  # deduped
     assert result.citations[0].line == 42
+
+
+# ---- M6 follow-up: streaming turns (token + tool events, on_event) ------------
+
+
+def _chunk(content=None, tool_calls=None):
+    """One litellm streaming chunk (OpenAI delta shape)."""
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=tool_calls))
+        ]
+    )
+
+
+def _tc_delta(index, call_id=None, name=None, arguments=None):
+    """One incremental tool-call delta (``function`` fields optional — arrive
+    on the first chunk for the index, arguments concatenate across chunks)."""
+    fn = {}
+    if name:
+        fn["name"] = name
+    if arguments:
+        fn["arguments"] = arguments
+    delta = {"index": index, "function": fn}
+    if call_id:
+        delta["id"] = call_id
+    return delta
+
+
+def test_stream_emits_tokens_then_answer(env, monkeypatch):
+    """stream=True forwards content tokens live and returns the accumulated
+    answer — same result as the buffered path."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    events: list[chat_mod.AgentEvent] = []
+    chunks = iter([_chunk(content="The "), _chunk(content="answer.")])
+    monkeypatch.setattr(chat_mod, "chat_stream", lambda backend, messages, **kw: chunks)
+
+    result = answer_question(scan_id, "what is the risk?", stream=True, on_event=events.append)
+
+    tokens = "".join(e.payload["delta"] for e in events if e.kind == "token")
+    assert tokens == "The answer."
+    assert result.answer == "The answer."
+    assert result.tool_mode == "context-only"
+    assert result.tool_runs == []
+
+
+def test_stream_accumulates_tool_call_and_emits_steps(env, monkeypatch):
+    """Tool-call arguments split across chunks merge correctly, and the loop
+    emits tool_start/tool_end around the execution with a recorded ToolRun."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    events: list[chat_mod.AgentEvent] = []
+    chunks = iter(
+        [
+            _chunk(
+                tool_calls=[
+                    _tc_delta(0, call_id="c1", name="search_code", arguments='{"pat'),
+                ]
+            ),
+            _chunk(tool_calls=[_tc_delta(0, arguments='tern": "WebView"}')]),
+            _chunk(content="Found it in com/app/W.java:42."),
+        ]
+    )
+    monkeypatch.setattr(chat_mod, "chat_stream", lambda backend, messages, **kw: chunks)
+
+    result = answer_question(scan_id, "where is the webview?", stream=True, on_event=events.append)
+
+    kinds = [e.kind for e in events]
+    assert "tool_start" in kinds and "tool_end" in kinds
+    start = next(e for e in events if e.kind == "tool_start")
+    assert start.payload["id"] == "c1"
+    assert start.payload["name"] == "search_code"
+    assert start.payload["args"] == {"pattern": "WebView"}  # merged across chunks
+    end = next(e for e in events if e.kind == "tool_end")
+    assert end.payload["status"] == "ok"
+    assert end.payload["count"] == 1  # one hit in com/app/W.java
+    assert end.payload["duration_ms"] >= 0
+    assert result.tools_used == ["search_code"]
+    assert result.tool_mode == "tools"
+    assert len(result.tool_runs) == 1
+    run = result.tool_runs[0]
+    assert run.name == "search_code" and run.status == "ok" and run.args == {"pattern": "WebView"}
+    assert run.count == 1
+
+
+def test_stream_tool_error_records_error_status(env, monkeypatch):
+    """A tool that fails (ToolError -> {"error": ...}) ends its step as an
+    error with the message — never a crash."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    events: list[chat_mod.AgentEvent] = []
+    chunks = iter(
+        [
+            _chunk(
+                tool_calls=[
+                    _tc_delta(0, call_id="c1", name="search_code", arguments='{"pattern": "("}'),
+                ]
+            ),
+            _chunk(content="the search failed"),
+        ]
+    )
+    monkeypatch.setattr(chat_mod, "chat_stream", lambda backend, messages, **kw: chunks)
+
+    result = answer_question(scan_id, "search for (", stream=True, on_event=events.append)
+
+    end = next(e for e in events if e.kind == "tool_end")
+    assert end.payload["status"] == "error"
+    assert "invalid regex" in end.payload["error"]
+    assert result.tool_runs[0].status == "error"
+    assert "invalid regex" in result.tool_runs[0].error
+
+
+def test_stream_defensive_tool_call_without_index(env, monkeypatch):
+    """Malformed local-server deltas without an index still execute (fall
+    back to the call id / position)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    chunks = iter(
+        [
+            _chunk(
+                tool_calls=[
+                    {
+                        "id": "c1",
+                        "function": {"name": "search_code", "arguments": '{"pattern": "WebView"}'},
+                    }
+                ]
+            ),
+            _chunk(content="done"),
+        ]
+    )
+    monkeypatch.setattr(chat_mod, "chat_stream", lambda backend, messages, **kw: chunks)
+    result = answer_question(scan_id, "where?", stream=True)
+    assert len(result.tool_runs) == 1
+    assert result.tool_runs[0].name == "search_code"
+
+
+def test_stream_fallback_on_tools_rejection_streams_too(env, monkeypatch):
+    """If the backend rejects the tools kwarg mid-stream, the plain-chat
+    fallback also streams tokens (same shape, same events)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    events: list[chat_mod.AgentEvent] = []
+    calls = {"n": 0}
+
+    def flaky_stream(backend, messages, **kwargs):
+        calls["n"] += 1
+        if "tools" in kwargs:
+            raise RuntimeError("backend rejects the tools kwarg")
+        return iter([_chunk(content="recovered from fallback")])
+
+    monkeypatch.setattr(chat_mod, "chat_stream", flaky_stream)
+    result = answer_question(scan_id, "what is the risk?", stream=True, on_event=events.append)
+
+    assert calls["n"] == 2  # tools call + plain fallback
+    assert result.answer == "recovered from fallback"
+    tokens = "".join(e.payload["delta"] for e in events if e.kind == "token")
+    assert tokens == "recovered from fallback"
+
+
+def test_stream_cancel_raises_interrupted_between_rounds(env, monkeypatch):
+    """The Stop button's flag still stops a streaming turn at the next round
+    boundary (token/tool events before it are fine — no half-answer)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls = {"n": 0}
+
+    def one_round_then_cancel(backend, messages, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Round 1 returns a tool call (forcing a round 2) and the cancel
+            # lands before round 2's boundary check runs.
+            chat_mod.request_cancel(scan_id)
+            return iter(
+                [
+                    _chunk(
+                        tool_calls=[
+                            _tc_delta(
+                                0,
+                                call_id="c1",
+                                name="search_code",
+                                arguments='{"pattern": "WebView"}',
+                            ),
+                        ]
+                    )
+                ]
+            )
+        raise AssertionError("round 2 must never run after cancel")
+
+    monkeypatch.setattr(chat_mod, "chat_stream", one_round_then_cancel)
+    with pytest.raises(chat_mod.ChatInterrupted, match="interrupted"):
+        answer_question(scan_id, "where is the webview?", stream=True)
+    assert calls["n"] == 1
+    assert scan_id not in chat_mod._CANCEL_FLAGS
+
+
+# ---- M6: multi-step orchestration + tool_mode + platform filtering ------------
+
+
+def test_multi_step_search_then_decompiled_class(env, monkeypatch):
+    """Phase D multi-step: the fake model runs search_code FIRST, then reads
+    the hit via get_decompiled_class, then answers — assert the ordered tool
+    results reach the follow-up prompt and tools_used reflects both."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    batches: list[list[dict]] = []
+    responses = iter(
+        [
+            _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            ),
+            _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c2", "get_decompiled_class", json_args({"fqcn": "com.app.W"})),
+                    ],
+                )
+            ),
+            _resp(_msg("The WebView client is com/app/W.java — see line 42.")),
+        ]
+    )
+
+    def fake_chat(backend, messages, **kwargs):
+        batches.append(list(messages))
+        return next(responses)
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+
+    result = answer_question(scan_id, "find the WebView class and read it")
+
+    assert result.tools_used == ["get_decompiled_class", "search_code"]
+    assert result.tool_mode == "tools"
+    assert "com/app/W.java" in result.answer
+    # the final prompt carries BOTH tool results in call order (the history
+    # accumulates; earlier batches only hold the results seen so far)
+    tool_msgs = [m for m in batches[-1] if m["role"] == "tool"]
+    assert [m["tool_call_id"] for m in tool_msgs] == ["c1", "c2"]
+    # the class source (from get_decompiled_class) reached the final prompt
+    assert "public class W extends WebViewClient" in tool_msgs[1]["content"]
+
+
+def test_flagship_question_uses_graph_query_first(env, monkeypatch, tmp_path):
+    """Phase D flagship: 'where is certificate pinning located' — the fake
+    model picks graph_query FIRST (Layer 3, not the context-only path); the
+    graph result reaches the answer and is cited."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    graph_file = tmp_path / "graphs" / str(scan_id) / "graphify-out" / "graph.json"
+    graph_file.parent.mkdir(parents=True)
+    graph_file.write_text(json.dumps({"nodes": [{"id": "n1"}], "links": []}))
+
+    from app.graph import graphify
+
+    monkeypatch.setattr(
+        graphify,
+        "query",
+        lambda p, q, budget=1500: {
+            "found": True,
+            "text": "certificate pinning: com/app/NetSec.java:12 uses CertificatePinner (okhttp)",
+            "nodes": ["com/app/NetSec.java"],
+            "via": "search",
+        },
+    )
+    batches: list[list[dict]] = []
+    responses = iter(
+        [
+            _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "g1",
+                            "graph_query",
+                            json_args({"question": "where is certificate pinning located"}),
+                        ),
+                    ],
+                )
+            ),
+            _resp(
+                _msg(
+                    "Certificate pinning is in com/app/NetSec.java:12 (okhttp CertificatePinner)."
+                )
+            ),
+        ]
+    )
+
+    def fake_chat(backend, messages, **kwargs):
+        batches.append(list(messages))
+        return next(responses)
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+
+    result = answer_question(scan_id, "where is certificate pinning located")
+
+    assert result.tool_mode == "tools"
+    assert result.tools_used == ["graph_query"]
+    assert "com/app/NetSec.java:12" in result.answer
+    assert any(c.file == "com/app/NetSec.java" and c.line == 12 for c in result.citations)
+    tool_msg = next(m for m in batches[1] if m["role"] == "tool")
+    assert "CertificatePinner" in tool_msg["content"]
+
+
+def test_max_tool_rounds_knob_from_settings(env, monkeypatch):
+    """M6 Phase C: max_tool_rounds defaults from settings — with the knob
+    set to 1 the loop runs at most 2 tool rounds before the plain fallback."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "max_tool_rounds", 1)
+    rounds = {"n": 0}
+
+    def always_tools(backend, messages, **kwargs):
+        if "tools" in kwargs:
+            rounds["n"] += 1
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        return _resp(_msg("context-only answer"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", always_tools)
+    result = answer_question(scan_id, "where is the webview?")
+    assert rounds["n"] == 2  # settings knob (1) + the final no-tools round is separate
+    assert result.answer == "context-only answer"
+    assert result.tools_used == ["search_code"]
+
+
+def test_max_tool_rounds_explicit_argument_wins(env, monkeypatch):
+    """M6 Phase C: an explicit max_tool_rounds argument overrides settings."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "max_tool_rounds", 1)
+    rounds = {"n": 0}
+
+    def always_tools(backend, messages, **kwargs):
+        if "tools" in kwargs:
+            rounds["n"] += 1
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        return _resp(_msg("done"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", always_tools)
+    result = answer_question(scan_id, "where is the webview?", max_tool_rounds=3)
+    # the loop runs max_tool_rounds + 1 iterations, so 3 => 4 tool rounds
+    assert rounds["n"] == 4
+    assert result.answer == "done"
+
+
+def test_any_model_gets_tools_offered_soft_gate(env, monkeypatch):
+    """M6 Phase B soft gate: tools are offered to ANY configured model — the
+    known-good list (Qwen2.5/2.5-coder, Llama 3.1+) is a documented
+    recommendation, not a hard gate. An arbitrary (off-list) backend still
+    receives the full platform tool schemas."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["tools"] = kwargs.get("tools")
+        return _resp(_msg("off-list model answers from context"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(scan_id, "what is the main risk?")
+    assert result.answer == "off-list model answers from context"
+    names = {t["function"]["name"] for t in captured["tools"]}
+    assert "search_code" in names and "read_manifest" in names
+
+
+def test_ios_never_offered_get_decompiled_class(monkeypatch, db_session_factory, tmp_path):
+    """M6 Phase B: an iOS scan's tool schemas exclude the Android-only class
+    tool — the model can't waste a round on a guaranteed-failing call."""
+    monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
+    monkeypatch.setattr("app.db.SessionLocal", db_session_factory)
+    with db_session_factory() as session:
+        scan = Scan(filename="app.ipa", platform="ios", status="done")
+        session.add(scan)
+        session.commit()
+        scan_id = scan.id
+    app_root = tmp_path / "work" / str(scan_id) / "bundle" / "Payload" / "Test.app"
+    app_root.mkdir(parents=True)
+    (app_root / "Info.plist").write_bytes(
+        __import__("plistlib").dumps(
+            {"CFBundleIdentifier": "com.example.iosapp"}, fmt=__import__("plistlib").FMT_BINARY
+        )
+    )
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["tools"] = kwargs.get("tools")
+        return _resp(_msg("the bundle id is com.example.iosapp"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(scan_id, "what is the bundle id?")
+    assert "com.example.iosapp" in result.answer
+    names = {t["function"]["name"] for t in captured["tools"]}
+    assert "get_decompiled_class" not in names
+    assert {"read_manifest", "get_permissions", "search_strings", "run_secrets_scan"} <= names
 
 
 # ---- greetings + loop-exhaustion fallback -------------------------------------

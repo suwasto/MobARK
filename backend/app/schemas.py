@@ -149,6 +149,9 @@ class ChatRequest(BaseModel):
     # settings.chat_timeout_seconds when omitted. A hung LLM call can never
     # block the API worker beyond this.
     timeout_seconds: int | None = Field(default=None, ge=1)
+    # M6 Phase C: max tool-calling rounds before the context-only fallback;
+    # falls back to settings.max_tool_rounds when omitted.
+    max_tool_rounds: int | None = Field(default=None, ge=1, le=10)
 
 
 class Citation(BaseModel):
@@ -157,10 +160,32 @@ class Citation(BaseModel):
     snippet: str
 
 
+class ToolRunRead(BaseModel):
+    """One executed tool call — the persistent trace on a chat response, so
+    the dock can render a collapsible per-tool record (args, status,
+    duration, capped result preview)."""
+
+    id: str
+    name: str
+    args: dict
+    status: str  # "ok" | "error"
+    duration_ms: int
+    result_preview: str = ""
+    error: str | None = None
+    count: int | None = None
+
+
 class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation]
     sources: list[str]
+    # M6 Phase B: "tools" when the agent ran tool calls this turn,
+    # "context-only" when it answered from the findings context alone.
+    tool_mode: str = "context-only"
+    tools_used: list[str] = []
+    # M6 follow-up: the persistent per-tool trace (the live SSE events are
+    # the same records, streamed as they happen).
+    tool_runs: list[ToolRunRead] = []
 
 
 class ScanGraphState(BaseModel):

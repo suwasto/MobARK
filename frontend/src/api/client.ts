@@ -38,6 +38,21 @@ export class ApiError extends Error {
   }
 }
 
+async function toApiError(res: Response): Promise<ApiError> {
+  let detail = `${res.status} ${res.statusText}`
+  try {
+    const body = (await res.json()) as { detail?: unknown }
+    if (typeof body.detail === 'string') {
+      detail = body.detail
+    } else if (body.detail != null) {
+      detail = JSON.stringify(body.detail)
+    }
+  } catch {
+    // Non-JSON error body — fall back to the status text above.
+  }
+  return new ApiError(res.status, detail)
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   const hasBody = init.body != null
@@ -56,18 +71,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(0, `Network error: ${msg}`)
   })
   if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`
-    try {
-      const body = (await res.json()) as { detail?: unknown }
-      if (typeof body.detail === 'string') {
-        detail = body.detail
-      } else if (body.detail != null) {
-        detail = JSON.stringify(body.detail)
-      }
-    } catch {
-      // Non-JSON error body — fall back to the status text above.
-    }
-    throw new ApiError(res.status, detail)
+    throw await toApiError(res)
   }
   if (res.status === 204) {
     return undefined as T
@@ -151,6 +155,21 @@ export const api = {
       signal,
     })
   },
+  /** M6 follow-up: SSE stream of one agent turn (live token + tool events).
+   * Returns the raw Response — the caller reads the body as a stream and
+   * decodes events (pre-stream HTTP errors — 400 no-model, 409 not analyzed —
+   * still surface as ApiError here; in-stream failures arrive as SSE
+   * `error` frames). */
+  chatStream: (scanId: number, question: string, signal?: AbortSignal) =>
+    fetch(`${API_BASE}/scans/${scanId}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+      signal,
+    }).then(async (res) => {
+      if (!res.ok) throw await toApiError(res)
+      return res
+    }),
   /** Stop an in-flight agent chat (the Stop button) — fire-and-forget; the
    * server polls this flag between agent rounds and halts the LLM loop so it
    * stops burning tokens instead of running to the end of the budget. */

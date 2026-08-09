@@ -51,21 +51,16 @@ def model_string(backend: ModelBackend) -> str:
     return f"{backend.provider.model_prefix}{backend.model}"
 
 
-def chat(
+def _completion_kwargs(
     backend: ModelBackend,
     messages: list[dict],
     *,
-    max_tokens: int | None = None,
-    temperature: float | None = None,
-    timeout: float = 60.0,
+    max_tokens: int | None,
+    temperature: float | None,
+    timeout: float,
     **kwargs,
-):
-    """Run a chat completion against ``backend``.
-
-    ``messages`` uses the standard OpenAI format. Returns the raw litellm
-    response object — callers read ``response.choices[0].message.content``.
-    Raises ValueError if no model is configured, or the underlying litellm
-    error otherwise (M5's callers decide how to surface it).
+) -> dict:
+    """The litellm.completion kwargs shared by the buffered + streaming paths.
 
     Ollama backends additionally send ``think: false`` — local thinking
     models (e.g. Nanbeige4.2) would otherwise spend the whole agent budget
@@ -77,7 +72,7 @@ def chat(
         body = dict(extra.get("extra_body") or {})
         body["think"] = False
         extra["extra_body"] = body
-    return litellm.completion(
+    return dict(
         model=model_string(backend),
         messages=messages,
         api_base=backend.base_url or None,
@@ -87,3 +82,79 @@ def chat(
         timeout=timeout,
         **extra,
     )
+
+
+def chat(
+    backend: ModelBackend,
+    messages: list[dict],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    timeout: float = 60.0,
+    **kwargs,
+):
+    """Run a (buffered) chat completion against ``backend``.
+
+    ``messages`` uses the standard OpenAI format. Returns the raw litellm
+    response object — callers read ``response.choices[0].message.content``.
+    Raises ValueError if no model is configured, or the underlying litellm
+    error otherwise (M5's callers decide how to surface it).
+
+    The dev-only ``fake`` backend (M6 follow-up) is short-circuited here —
+    its completions never touch litellm.
+    """
+    from app.model.fake import fake_chat_response, is_fake
+
+    if is_fake(backend):
+        return fake_chat_response(messages, tools=kwargs.get("tools"))
+    return litellm.completion(
+        **_completion_kwargs(
+            backend,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout=timeout,
+            **kwargs,
+        )
+    )
+
+
+def chat_stream(
+    backend: ModelBackend,
+    messages: list[dict],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    timeout: float = 60.0,
+    **kwargs,
+):
+    """Run a streaming chat completion; yields raw litellm chunks.
+
+    Every chunk has the OpenAI ``ChatCompletionChunk`` shape litellm
+    normalizes all providers to: ``chunk.choices[0].delta.content`` (text
+    token or None) and ``delta.tool_calls`` (a list accumulating per
+    ``index`` — ``arguments`` must be concatenated per index until the
+    stream ends, then parsed as JSON). Content and tool calls can arrive in
+    the same stream (a model that "thinks aloud" before calling a tool).
+
+    Raises ValueError if no model is configured; a provider that ignores
+    streaming still yields a single chunk with the full delta. The dev-only
+    ``fake`` backend (M6 follow-up) short-circuits to a deterministic script.
+    """
+    from app.model.fake import fake_stream_chunks, is_fake
+
+    if is_fake(backend):
+        yield from fake_stream_chunks(messages, tools=kwargs.get("tools"))
+        return
+    response = litellm.completion(
+        stream=True,
+        **_completion_kwargs(
+            backend,
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout=timeout,
+            **kwargs,
+        ),
+    )
+    yield from response

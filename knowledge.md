@@ -358,7 +358,44 @@ columns via `--tree-w`/`--rail-w` CSS vars (≤900px still collapses to
 tree+code). Gates: 240 backend tests + ruff clean, tsc+build green, iOS
 tree/analysis docs verified live (iBugBazaar: 4 docs, 7 binaries hidden).
 
-M6-M10 — not started, except the M7 plan docs (updated Aug 7, 2026).
+M6 — **COMPLETE (Aug 9, 2026).** See `docs/progress/M6.md`. App-oriented
+tool set added to the M4 Layers 2/3 surface in `agent/tools.py`:
+`read_manifest` (AndroidManifest.xml / Info.plist), `get_decompiled_class`
+(Android-only, fqcn→sources path), `get_permissions` (uses-permission set /
+usage strings), `run_secrets_scan` (on-demand gitleaks re-run wrapping
+`analysis/gitleaks.py::scan_directory`, 30 s timeout + size guard),
+`search_strings` (resource/string-file grep). Platform-aware schemas via
+`schemas_for_platform` (iOS never sees `get_decompiled_class`); `ChatResponse`
+gained `tool_mode: tools | context-only` + `tools_used` (Agent dock shows a
+small "tools used" line); `max_tool_rounds` is now a settings knob
+(`MASA_MAX_TOOL_ROUNDS`, default 3) with a per-request override on
+`ChatRequest`. Soft-offer gating per owner decision (tools to any model;
+known-good list Qwen2.5/2.5-coder, Llama 3.1+ documented in techstack as a
+recommendation only). Gates: **339 backend tests green + ruff clean; tsc +
+vite build green.** Real-model QA remains an owner checkpoint (Ollama off
+during dev).
+
+**M6 follow-up (Aug 9, 2026 — live tool steps + token streaming in the Agent
+dock):** the dock now streams the agent's turn over SSE (`POST
+/scans/{id}/chat/stream`, `agent/chat.py` gains a ``stream``/``on_event``
+callback + `AgentEvent`/`ToolRun` records; `model/client.py` gains
+`chat_stream`). Frames: `token` (live answer text, buffered 50 ms client-side)
+· `tool_start`/`tool_end` (live steps: id/name/args → status/duration/preview/count)
+· `answer` (canonical ChatResponse incl. `tool_runs` trace) · `error`
+(kind+detail; pre-stream 400 no-model, 409 not-analyzed stay HTTP). Frontend:
+`lib/sse.ts` StreamDecoder, `api.chatStream`, `useChat` pending-turn state
+machine (ref-backed, abort keeps partial text/steps + "Stopped" note), dock
+renders streaming text + caret + live step rows with expandable args/result
+and clickable file:line chips (reuse `openInDecompiler`), then a collapsed
+`Tools (n)` trace on the finished message; the M6 one-line tools-row was
+replaced by the trace. `chat_stream` accumulates tool-call deltas
+defensively (missing index/id → position; args concatenated per index) and
+normalizes every provider to the OpenAI chunk shape; the tools-kwarg-rejected
+fallback + loop-exhaustion plain chat both stream too. Gates: **350 backend
+tests green (+11) + ruff clean; tsc + vite build green.** Containerized e2e
++ real-model QA remain owner checkpoints.
+
+M7-M10 — not started, except the M7 plan docs (updated Aug 7, 2026).
 **Post-M5 follow-up (Aug 8, 2026 — Gemini provider + curated model list):** (1) **Google Gemini** added to the BYOK provider set — `providers.py` entry (`gemini/` prefix, `GEMINI_API_KEY`, base `https://generativelanguage.googleapis.com/v1beta`, `models_path=None` → static curated list, matching Anthropic), `config.py` `gemini_base_url`/`gemini_api_key`, `backends.py` field maps, BYOKTab add-provider chip. Note: base is pinned to `v1beta` because MASA always passes `api_base` (litellm would otherwise self-select `v1alpha` for Gemini 3+ previews) — curated models are v1beta-compatible. (2) **Settings dialog model chips are now CURATED with a See-all reveal** (owner UX request): `ModelBackendRead` exposes `suggested_models` (provider table is source of truth); `BackendsTab` shows suggested ∩ served by default (first 6 served for local/custom, which have no curated list), the configured default is never hidden, and a dashed `▼ See all (N more)` chip reveals the full served list (collapses on fresh probes). BYOKTab provider order: OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Custom.
 **Owner follow-up (Aug 8, 2026 — BYOK seeding removed + custom key field):** (1) **BYOK backends are no longer seeded keyless** (`backends.py::_seed_backends`): a fresh store carries ONLY the local backends (`ollama`, `lm-studio`); BYOK providers seed only when a real key is configured via env/`Settings` (`MASA_OPENAI_API_KEY` etc.). Keyless cloud entries were unusable and only confused the Settings UI — cloud providers are now added exclusively via the BYOK menu (POST /backends requires the key; this is the only way in). Existing persisted stores keep whatever they had (the store file remains source of truth). Tests updated accordingly (seed = local-only, byok via POST). (2) **BYOK custom-endpoint form now includes an API key field** (`BYOKTab.tsx`, `needsApiKey` flag): base URL is required, key optional (some OpenAI-compatible endpoints are keyless). Gates: 281 backend tests green + ruff clean; tsc + vite build green.
 **Owner follow-up (Aug 8, 2026 — Gemini 2.5 deprecation + progress dialog):** (1) **Gemini curated list moved to the Gemini 3 family** (`providers.py`): Google 404s the 2.5 line (`gemini-2.5-flash`/`2.5-pro`/`2.0-flash`) for NEW API keys — "no longer available to new users". Curated set is now `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview` (all v1beta-served; the pinned `api_base` still wins over litellm's v1alpha self-selection). (2) **Probe walks the curated list** (`health.py::check_backend`): with no model configured, the Settings probe tries every suggestion and records the first that answers — a single stale entry can no longer mark the whole backend unreachable; a user-configured model is still probed exactly (broken choices fail loudly). (3) **Deprecation hint**: `model_arch_hint` (`client.py`) now also appends "no longer served to this account" guidance when the upstream text says a model is no longer available — same self-explaining surface as the Ollama arch hint, shared by Settings probe/chat/insights. (4) **Scan-in-progress is now a DIALOG, not a scrollable view** (owner report: the full view could push header/footer off-screen): `ProgressScreen` renders a `.progress-overlay` (absolute within `<main>`, top bar stays visible) + modal with the pipeline, dismissible via ×/Escape/backdrop-click (scan keeps running; `App.tsx` `progressDismissed` resets per active-scan id); the backdrop shows the last completed scan's dashboard (`DashboardView` `scanOverride` + `TargetBar` `scan` props, newest non-running scan via `backdropScan`) or the empty state on a fresh install; polling now runs while ANY scan is queued/running (`anyScanRunning`) so a dismissed background scan's completion always lands. Gates: **285 backend tests green + ruff clean; `tsc -b` + `vite build` green.** (Model IDs are per Aug-2026 availability research — re-verify if Google shifts the 3.x naming again.)
@@ -368,6 +405,25 @@ M6-M10 — not started, except the M7 plan docs (updated Aug 7, 2026).
 **Follow-up (same session) — BYOK per-provider toggle removed** (owner: "we already have active/inactive in Model backends"): `BYOKTab.tsx` cloud rows no longer carry an enable/disable switch (it duplicated the Model backends tab's toggle on the same `PUT {enabled}` path) — each row keeps a read-only Active/Inactive status + **Remove**. The master **Enable cloud fallback** batch toggle was ALSO removed on the next pass (owner decision) — BYOK is now pure add/remove; per-backend enable/disable lives entirely in the Model backends tab. `tsc -b` + `vite build` green.
 **Follow-up (same session) — risk scoring is now WORST + COUNT, not pure max** (owner: "suppressing one or two highs doesn't move the score; only when ALL highs are gone" — this was the Aug 7 max-over-mean design, but the gauge felt like a switch). Owner approved: `risk = round(10×max_cvss)` plus ~1 point per extra finding at the TOP severity band (high), `int(0.9×(n−1)+0.5)`, capped at +9 so **risk ≤ 89** (CVSS 4.0 8.9 = top of the High band — the removed critical band is never re-introduced and the "CVSS 4.0 · risk n/100 · High" caption stays self-consistent). Bands below high keep their plain representative score (446 mediums = 55, same as 1 medium — the bonus is high-only by design). Live-verified sweep on scan 16: 11 highs = **89 → 88 → 87 → 86 → 85 → 85 → 84 → 83 → 82 → 81 → 80 → 55** as each high is suppressed (the 6↔7 flat step is expected rounding, pinned in tests; 10+ highs saturate at 89) — the first unsuppress jumps 55 → 80 because one high reintroduces the worst band, then +1 per extra. **Migration 0006** (`0006_worst_plus_count.py`, self-contained, mirrors `risk.py` exactly — same Python `int(0.9*(n-1)+0.5)` semantics) recomputes every `done` scan; applied to the volume DB (scan 18 → 89, scan 13 → 84 per its own high count, mediums unchanged). Stale LLM copy fixed: `insights.py` summary `security_score_note` now describes worst+count. Frontend needed no logic change — `SecurityGauge` bands (≥70 High/crimson) and caption already handle 81–89 (doc comment updated). Gates: **309 backend tests green + ruff clean; tsc + vite build green.**
 **Follow-up (same session) — Agent dock chat UI (owner):** (1) **Send button disables when no model is connected** — `AgentDock` computes `modelConnected = backends.some(b => b.enabled && b.model)` from `useApp()` (the exact mirror of backend `pick_chat_backend` / ModelPicker's `active`), gates `submit()` and the button (`disabled={!draft.trim() || !modelConnected}`), and swaps the "⏎ to send" hint for an amber **"No model connected — pick one in the top bar or Settings"** (`.hint.warn`) + a tooltip on the disabled button. (2) **The "Thinking" bubble's Stop button was REMOVED** — the bubble now shows only the animated dots (the in-thread affordance comment in CSS updated). (3) **The input-row stop button (visible while sending) is now icon-only** — bare ■ with `aria-label`, no "Stop" text (`.stop-btn.stop-icon`, 34px square), matching mainstream AI-chat UIs. Live DOM-verified in compose with gemini enabled-but-model-empty: send renders `disabled` + tooltip, hint present, `.stop-icon`/`.hint.warn` in the served CSS. `tsc -b` + `vite build` green (no backend change; app image rebuilt).
+M6.1 — **COMPLETE (Aug 9, 2026).** See `docs/progress/M6.1.md`.
+Dev-only fake LLM (owner request: demo the dock's live steps + token
+streaming with zero Ollama). `MASA_FAKE_MODEL=1` (`Settings.fake_model_enabled`)
+seeds a dev-only `fake` provider/backend (`providers.py`, kind local, static
+`demo` model) FIRST in the M3 store so `pick_chat_backend` resolves it
+deterministically — chat/explain/summary all demo against it.
+`model/client.py` `chat`/`chat_stream` short-circuit `provider_id == "fake"`
+to `app/model/fake.py` (never litellm); `health._probe_completion`
+short-circuits too (green Settings card). The script runs the REAL agent
+loop + REAL tools: round 1 streams thinking text + two tool calls
+(`search_code` pattern `WebView` split across two streamed deltas to
+exercise `_accumulate_tool_call_deltas`, + `read_manifest`), round 2
+composes the final answer from the REAL results (cites the first hit
+`file:line` → clickable src-chip, else the manifest summary).
+`BackendStore.read()` reconciles the fake entry with the knob
+(idempotent, both directions) so flipping the env var converges existing
+stores. Gates: **372 backend tests green (+22) + ruff clean; frontend
+untouched (`tsc -b` + `vite build` green).**
+
 **Follow-up (same session) — the bonus went BAND-SYMMETRIC (owner approved):** `risk.py` now has `_BAND_RISK = {high: (80, 89, 0.9), medium: (55, 69, 0.9), low: (20, 39, 0.9)}` — the worst severity picks the band, base = `round(10×max_cvss)`, and each extra finding at that band adds `int(0.9×(n−1)+0.5)` capped at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 = the qualitative band tops 8.9/6.9/3.9 × 10). Clearing mediums now rewards progress too (16 mediums = 69 · 10 = 63 · 2 = 56 · 1 = 55), bands NEVER overlap (any high ≥ 80 > any no-high ≤ 69 > any low-only ≤ 39), and the caption "CVSS 4.0 · risk n/100 · band" stays literally true in every band (each cap IS the band ceiling — that was the discussion's key finding). **Saturation caveat (accepted)**: bulk bands sit at their ceiling — 446 mediums = 69 until the count drops below ~16, then the tail descends (progress shows via the severity-count stat boxes meanwhile). **Migration 0007** (`0007_band_symmetric_bonus.py`) re-scores every `done` scan (0006 test now upgrades to `0006` in isolation; new 0007 test: 3M → 57, 100L → 39, 11H → 89). Live-verified in compose: scan 16 (446M, no highs) 55 → **69**; scan 18 (11H) stays 89; scan 17 mediums descend 56 → 55 → 20 (low band) → restored 57 (it had one medium left suppressed from the Aug 8 e2e). Defensive `_BAND_RISK.get()` fallback keeps unknown-but-scored severities from crashing (review catch). Gates: **312 backend tests green + ruff clean; tsc + vite build green.**
 
 M7 — **Deep research + interactive browser automation planned; docs updated

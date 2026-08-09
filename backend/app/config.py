@@ -65,11 +65,20 @@ class Settings(BaseSettings):
     graphify_cmd: str | None = None
     graphify_timeout_seconds: int = 1800
 
-    # ---- M4 agent chat ----
+    # ---- M4/M6 agent chat ----
+    # Dev-only fake LLM (M6 follow-up): MASA_FAKE_MODEL=1 seeds a
+    # deterministic "fake" backend whose completions never touch a real
+    # server — the dock's live tool steps + token streaming can be demoed
+    # with zero Ollama. See app/model/fake.py for the script.
+    fake_model_enabled: bool = False
     # Hard overall deadline (seconds) for the whole agent tool loop in
     # answer_question — a hung LLM call can never block the API worker beyond
     # this. Per-request override: POST /scans/{id}/chat {timeout_seconds}.
     chat_timeout_seconds: int = 120
+    # M6 Phase C: max tool-calling rounds before the context-only fallback.
+    # Same pattern as chat_timeout_seconds: settings is the default, an
+    # explicit argument (or ChatRequest.max_tool_rounds) wins.
+    max_tool_rounds: int = 3
 
     # ---- M5 dashboard ----
     # Upload size cap for POST /api/v1/scans (413 over the limit).

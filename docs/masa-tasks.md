@@ -224,7 +224,7 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [x] Docs: `docs/progress/M5.md` status flip to COMPLETE (Aug 8), this checklist checked, knowledge.md updated
 
 ## M6 — Agent tool-calling
-> **Status: planned (Aug 8, 2026) — not started.** Plan + owner decisions:
+> **Status: COMPLETE (Aug 9, 2026)** — see
 > [docs/progress/M6.md](progress/M6.md). Owner decisions at kickoff:
 > `run_secrets_scan` = on-demand gitleaks re-run over a targeted path (Layer 1
 > already carries persisted findings); model gating = **soft offer** (tools to
@@ -232,30 +232,30 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 > both platforms (manifest → Info.plist, permissions → usage strings).
 
 **Phase A — app-oriented tools (extend `agent/tools.py`, platform-aware):**
-- [ ] `read_manifest()` — Android: decompiled `AndroidManifest.xml` (package, SDKs, debuggable, allowBackup, cleartext, exported components) · iOS: `Info.plist` (bundle id, version, ATS, usage strings, background modes) — bounded JSON result
-- [ ] `get_decompiled_class(fqcn)` — Android only: resolve `com.app.Foo` → jadx `sources/` path, bounded source, clean missing-class error; iOS → explicit "no decompiled source" error
-- [ ] `get_permissions()` — Android: uses-permission set (name + `maxSdkVersion` + dangerous flag) · iOS: usage-description keys
-- [ ] `run_secrets_scan(glob)` — wrap the existing `analysis/gitleaks.py::scan_directory` for an on-demand, bounded (per-call timeout + size cap) targeted pass
-- [ ] `search_strings(pattern)` — `search_code` with a `mode="strings"` (targets `strings.xml`/resources)
-- [ ] All new tools: `ToolError` → `{"error":…}` JSON, bounded results, reuse `resolve_tree_root`/plist/gitleaks wrappers (no raw subprocess in the agent layer)
+- [x] `read_manifest()` — Android: decompiled `AndroidManifest.xml` (package, SDKs, debuggable, allowBackup, cleartext, exported components) · iOS: `Info.plist` (bundle id, version, ATS, usage strings, background modes) — bounded JSON result
+- [x] `get_decompiled_class(fqcn)` — Android only: resolve `com.app.Foo` → jadx `sources/` path, bounded source, clean missing-class error; iOS → explicit "no decompiled source" error
+- [x] `get_permissions()` — Android: uses-permission set (name + `maxSdkVersion` + dangerous flag) · iOS: usage-description keys
+- [x] `run_secrets_scan(path)` — wrap the existing `analysis/gitleaks.py::scan_directory` for an on-demand, bounded (per-call timeout + size cap) targeted pass
+- [x] `search_strings(pattern)` — regex over resource/string files only (`strings.xml`/plists/JSON+text resources), same result shape as `search_code`
+- [x] All new tools: `ToolError` → `{"error":…}` JSON, bounded results, reuse `resolve_tree_root`/plist/gitleaks wrappers (no raw subprocess in the agent layer)
 
 **Phase B — platform-aware schemas + soft-offer gating:**
-- [ ] Filter `TOOL_SCHEMAS` per scan by platform (extend the `context.py` whitelist pattern) so iOS never sees Android-only tools
-- [ ] Known-good tool-calling model list (Qwen2.5/2.5-coder, Llama 3.1+) **documented** in masa-techstack.md as a recommendation; tools offered to ANY model (soft — owner decision); existing fallbacks stay as the safety net
-- [ ] Surface `tool_mode: tools | context-only` (+ existing `tools_used`) in `ChatResponse`
+- [x] Filter `TOOL_SCHEMAS` per scan by platform (`schemas_for_platform`, the `context.py` whitelist pattern) so iOS never sees Android-only tools
+- [x] Known-good tool-calling model list (Qwen2.5/2.5-coder, Llama 3.1+) **documented** in masa-techstack.md as a recommendation; tools offered to ANY model (soft — owner decision); existing fallbacks stay as the safety net
+- [x] Surface `tool_mode: tools | context-only` (+ existing `tools_used`) in `ChatResponse` + a small "tools used" line in the Agent dock
 
 **Phase C — loop hardening:**
-- [ ] Per-call timeout/size guards on the new tools (secrets scan ~30 s cap, bounded walk)
-- [ ] Expose `max_tool_rounds` as a config knob (same pattern as `chat_timeout_seconds`)
+- [x] Per-call timeout/size guards on the new tools (secrets scan ~30 s cap, bounded walk, size cap)
+- [x] Expose `max_tool_rounds` as a config knob (same pattern as `chat_timeout_seconds`; also per-request via `ChatRequest`)
 
 **Phase D — tests (mocked, no Ollama):**
-- [ ] Per-tool units: manifest parse (Android + iOS fixtures), class resolution + missing-class, permissions, secrets-scan bounded run (wrapper mocked), platform schema filtering, off-list model still offered tools
-- [ ] Multi-step orchestration: fake model `search_code` → `get_decompiled_class` → answer; ordered tool results + `tools_used`
-- [ ] Flagship case: "where is certificate pinning located" — fake model picks `graph_query` FIRST (Layer 3, not context-only); graph result reaches the answer and is cited
+- [x] Per-tool units: manifest parse (Android + iOS fixtures), class resolution + missing-class, permissions, secrets-scan bounded run (wrapper mocked), platform schema filtering, off-list model still offered tools
+- [x] Multi-step orchestration: fake model `search_code` → `get_decompiled_class` → answer; ordered tool results + `tools_used`
+- [x] Flagship case: "where is certificate pinning located" — fake model picks `graph_query` FIRST (Layer 3, not context-only); graph result reaches the answer and is cited
 
 **Phase E — docs + validation:**
-- [ ] `docs/progress/M6.md` status flip, this checklist, known-good list in techstack, knowledge.md
-- [ ] Gates: pytest + ruff; `tsc -b && vite build` (only if a small "tools used" line lands in the dock); containerized e2e wiring re-prove
+- [x] `docs/progress/M6.md` status flip, this checklist, known-good list in techstack, knowledge.md
+- [x] Gates: pytest + ruff (338 tests green); `tsc -b && vite build` (the "tools used" line landed in the dock)
 - [ ] Real-model QA (owner, Ollama off during dev) — post-completion checkpoint, not a blocker
 
 ## M7 — Deep research / web browsing (+ interactive browser automation)

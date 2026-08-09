@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -70,7 +71,15 @@ class Settings(BaseSettings):
     # deterministic "fake" backend whose completions never touch a real
     # server — the dock's live tool steps + token streaming can be demoed
     # with zero Ollama. See app/model/fake.py for the script.
-    fake_model_enabled: bool = False
+    # Alias note (live-verified Aug 9): pydantic-settings derives env names
+    # from FIELD NAMES — ``fake_model_enabled`` would silently become
+    # MASA_FAKE_MODEL_ENABLED, not the documented MASA_FAKE_MODEL. The
+    # string alias fixes the env name; pydantic-settings uses the raw alias
+    # for env lookup (the MASA_ prefix is NOT re-applied to aliases).
+    fake_model_enabled: bool = Field(
+        default=False,
+        validation_alias="MASA_FAKE_MODEL",
+    )
     # Hard overall deadline (seconds) for the whole agent tool loop in
     # answer_question — a hung LLM call can never block the API worker beyond
     # this. Per-request override: POST /scans/{id}/chat {timeout_seconds}.

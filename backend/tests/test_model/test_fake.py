@@ -38,6 +38,24 @@ def _tool_results(messages):
     return [m["content"] for m in messages if m.get("role") == "tool"]
 
 
+# ---- config knob env mapping (live-verified Aug 9) ---------------------------
+
+
+def test_fake_knob_reads_documented_env_var(monkeypatch):
+    """Regression: pydantic-settings derives env names from FIELD names, so
+    ``fake_model_enabled`` would silently become MASA_FAKE_MODEL_ENABLED —
+    the documented knob MASA_FAKE_MODEL needs the explicit alias. The
+    live demo run exposed this: the server ignored MASA_FAKE_MODEL=1."""
+    from app.config import Settings
+
+    monkeypatch.setenv("MASA_FAKE_MODEL", "1")
+    assert Settings().fake_model_enabled is True
+    monkeypatch.setenv("MASA_FAKE_MODEL", "0")
+    assert Settings().fake_model_enabled is False
+    monkeypatch.delenv("MASA_FAKE_MODEL")
+    assert Settings().fake_model_enabled is False
+
+
 # ---- provider table + store seeding ------------------------------------------
 
 

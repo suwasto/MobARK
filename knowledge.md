@@ -421,8 +421,18 @@ composes the final answer from the REAL results (cites the first hit
 `file:line` → clickable src-chip, else the manifest summary).
 `BackendStore.read()` reconciles the fake entry with the knob
 (idempotent, both directions) so flipping the env var converges existing
-stores. Gates: **372 backend tests green (+22) + ruff clean; frontend
-untouched (`tsc -b` + `vite build` green).**
+stores. **Live-verified (Aug 9)**: env-alias bug — pydantic-settings derives
+env names from field names, so the documented `MASA_FAKE_MODEL=1` was
+silently ignored (server ran knob-off); fixed via explicit
+`validation_alias="MASA_FAKE_MODEL"` (raw alias IS the env name; the MASA_
+prefix is not re-applied) + regression test. Browser e2e: sent "where is the
+webview?" in the dock → thinking tokens streamed with caret, live
+`search_code` (✓ 100 results) + `read_manifest` steps, answer cited real
+`com/google/android/gms/internal/zzgf.java:115`, `Tools (2)` trace expanded,
+zero console errors. Dev-DB caveat: stale host DB at the deleted vector-era
+0004 stamp — re-stamp 0003 → upgrade head → re-stamp 0007. Gates: **373
+backend tests green (+23) + ruff clean; frontend untouched (`tsc -b` +
+`vite build` green).**
 
 **Follow-up (same session) — the bonus went BAND-SYMMETRIC (owner approved):** `risk.py` now has `_BAND_RISK = {high: (80, 89, 0.9), medium: (55, 69, 0.9), low: (20, 39, 0.9)}` — the worst severity picks the band, base = `round(10×max_cvss)`, and each extra finding at that band adds `int(0.9×(n−1)+0.5)` capped at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 = the qualitative band tops 8.9/6.9/3.9 × 10). Clearing mediums now rewards progress too (16 mediums = 69 · 10 = 63 · 2 = 56 · 1 = 55), bands NEVER overlap (any high ≥ 80 > any no-high ≤ 69 > any low-only ≤ 39), and the caption "CVSS 4.0 · risk n/100 · band" stays literally true in every band (each cap IS the band ceiling — that was the discussion's key finding). **Saturation caveat (accepted)**: bulk bands sit at their ceiling — 446 mediums = 69 until the count drops below ~16, then the tail descends (progress shows via the severity-count stat boxes meanwhile). **Migration 0007** (`0007_band_symmetric_bonus.py`) re-scores every `done` scan (0006 test now upgrades to `0006` in isolation; new 0007 test: 3M → 57, 100L → 39, 11H → 89). Live-verified in compose: scan 16 (446M, no highs) 55 → **69**; scan 18 (11H) stays 89; scan 17 mediums descend 56 → 55 → 20 (low band) → restored 57 (it had one medium left suppressed from the Aug 8 e2e). Defensive `_BAND_RISK.get()` fallback keeps unknown-but-scored severities from crashing (review catch). Gates: **312 backend tests green + ruff clean; tsc + vite build green.**
 

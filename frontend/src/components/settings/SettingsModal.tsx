@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useApp } from '../../state/AppContext'
 import { BackendsTab } from './BackendsTab'
 import { BYOKTab } from './BYOKTab'
+import { SearchTab } from './SearchTab'
 
 interface SettingsModalProps {
   open: boolean
@@ -11,10 +12,10 @@ interface SettingsModalProps {
 type TabKey = 'backends' | 'byok' | 'search'
 
 /**
- * Settings modal (mockup 1:1): Model backends + Bring your own key tabs are
- * live; Search & research is an M7 placeholder (SearXNG + agent-browser).
- * Field edits persist as they happen (blur / actions) — "Save changes"
- * closes and refreshes so the top-bar provider/model pickers are current.
+ * Settings modal (mockup 1:1): Model backends + Bring your own key + Search
+ * & research (M7, live) tabs. Field edits persist as they happen (blur /
+ * actions) — "Save changes" closes and refreshes so the top-bar
+ * provider/model pickers are current.
  */
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const { actions } = useApp()
@@ -40,7 +41,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const tabs: { key: TabKey; label: string; disabled?: boolean }[] = [
     { key: 'backends', label: 'Model backends' },
     { key: 'byok', label: 'Bring your own key' },
-    { key: 'search', label: 'Search & research', disabled: true },
+    { key: 'search', label: 'Search & research' },
   ]
 
   return (
@@ -67,7 +68,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               aria-selected={tab === t.key}
               className={`modal-tab ${tab === t.key ? 'active' : ''} ${t.disabled ? 'disabled' : ''}`}
               disabled={t.disabled}
-              title={t.disabled ? 'Search & research ships in M7' : undefined}
               onClick={() => setTab(t.key)}
             >
               {t.label}
@@ -83,7 +83,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             <BYOKTab />
           </div>
           <div className={`modal-pane ${tab === 'search' ? 'active' : ''}`}>
-            <SearchPane />
+            <SearchTab />
           </div>
         </div>
 
@@ -103,40 +103,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           </button>
         </div>
       </div>
-    </div>
-  )
-}
-
-/** M7 placeholder — same privacy framing the mockup ships, no controls yet. */
-function SearchPane() {
-  return (
-    <div>
-      <div className="warn-box">
-        <span className="mark2">⚠</span>
-        <span>
-          Even self-hosted, search queries leave this machine to reach public
-          search engines — a different privacy boundary than local model
-          inference. Browser automation shares that boundary.
-        </span>
-      </div>
-
-      <div className="toggle-row">
-        <div>
-          <div className="label">Enable web research for this scan</div>
-          <div className="sub">
-            Lets the agent search, read, and drive a browser for things like CVE
-            lookups — off by default.
-          </div>
-        </div>
-        <span className="switch" aria-disabled="true" />
-      </div>
-
-      <p className="field-hint" style={{ marginTop: 4 }}>
-        Ships in <strong style={{ color: 'var(--color-steel)' }}>M7</strong>:
-        self-hosted SearXNG search plus interactive browser automation
-        (agent-browser, CDP-driven Chrome) for reading and verifying JS-rendered
-        pages — gated behind the same per-scan opt-in shown here.
-      </p>
     </div>
   )
 }

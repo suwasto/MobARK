@@ -38,6 +38,10 @@ class ScanRead(BaseModel):
     security_score: int | None = None
     error: str | None = None
     stage: str | None = None
+    # M7: per-scan web research opt-in (privacy gate) — the agent's web
+    # tools are offered only when this is on AND an Active search engine
+    # exists. Default off; controlled by the dock 🌐 toggle + Settings.
+    web_research_enabled: bool = False
     created_at: datetime
 
     @field_serializer("created_at")
@@ -325,3 +329,76 @@ class ModelBackendCreate(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     model: str | None = None
+
+
+# ---- M7 search backends (web research engines) ----
+
+
+class SearchBackendHealth(BaseModel):
+    """Reachability of one search engine (Settings -> Search & research)."""
+
+    reachable: bool
+    status: str = "unknown"  # "ok" | "unreachable" | "unknown"
+    latency_ms: int | None = None
+    error: str | None = None
+    checked_at: datetime | None = None
+    # Full-probe extras: how many normalized results a real query returned.
+    result_count: int | None = None
+    sample_title: str | None = None
+
+    @field_serializer("checked_at")
+    def _ser_checked_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None
+
+
+class SearchBackendRead(BaseModel):
+    """One configured search engine (the Active/Inactive radio list). The key
+    is never returned — only ``has_api_key`` (same honesty rule as model
+    backends)."""
+
+    id: str
+    provider_id: str
+    name: str
+    kind: str  # "bundled" | "custom" | "keyed"
+    base_url: str
+    enabled: bool
+    order: int = 0
+    has_api_key: bool = False
+    health: SearchBackendHealth | None = None
+
+
+class SearchBackendUpsert(BaseModel):
+    """Runtime edits to a search backend. ``enabled: true`` triggers the
+    one-Active radio semantics server-side (``SearchStore.enable_only``); an
+    empty ``api_key`` clears the stored key."""
+
+    base_url: str | None = None
+    api_key: str | None = None
+    enabled: bool | None = None
+
+
+class SearchBackendCreate(BaseModel):
+    """Add a search engine: a custom SearXNG-compatible instance (base URL
+    required, no key) or a keyed provider (Brave/Serper/Mojeek — API key
+    required, base URL optional with a per-provider default)."""
+
+    provider_id: str
+    base_url: str | None = None
+    api_key: str | None = None
+
+
+class SearchProviderRead(BaseModel):
+    """One addable search engine — drives the Settings add-form picker."""
+
+    id: str
+    name: str
+    kind: str  # "custom" | "keyed"
+    base_url_required: bool
+    key_required: bool
+    default_base_url: str
+
+
+class WebResearchUpdate(BaseModel):
+    """Per-scan web research opt-in (the dock 🌐 toggle / Settings)."""
+
+    enabled: bool

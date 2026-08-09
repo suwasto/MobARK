@@ -25,6 +25,9 @@ lief==1.0.0
 # M3 — LiteLLM model client (chat + BYOK provider abstraction).
 litellm==1.95.0
 httpx==0.28.1  # direct runtime dep since M3 (health model listing); was dev-only
+# M7 — web_fetch article extraction. Pin is the LICENSE boundary: >=1.8.0 is
+# Apache-2.0; earlier versions were GPLv3+ (see docs/licenses.md).
+trafilatura>=1.8.0,<2.0
 
 # M4 — Graphify code graph, Layer 3 (pinned at install, Aug 6, 2026).
 # The RAG/embedding pipeline (chromadb, llama-index-core) was removed from

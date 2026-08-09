@@ -36,6 +36,11 @@ class Scan(Base):
     # M5: human-readable pipeline stage for the progress screen, e.g.
     # "decompiling" | "analyzing" | "secrets" | "done" (written by run_scan).
     stage: Mapped[str | None] = mapped_column(String(32))
+    # M7: per-scan web research opt-in (privacy gate). The agent's web tools
+    # (web_search/web_fetch) are offered only when this is on AND an Active
+    # search engine exists (SearchStore.active()). Default off; controlled by
+    # the dock 🌐 toggle + Settings -> Search & research.
+    web_research_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow

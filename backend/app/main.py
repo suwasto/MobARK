@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import health, models, scans
+from app.api.routes import health, models, scans, search
 from app.config import settings
 
 
@@ -20,6 +20,7 @@ app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifesp
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(scans.router, prefix="/api/v1")
 app.include_router(models.router, prefix="/api/v1")
+app.include_router(search.router, prefix="/api/v1")
 
 
 @app.get("/")

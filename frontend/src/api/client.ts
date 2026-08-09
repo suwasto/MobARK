@@ -22,6 +22,10 @@ import type {
   ModelBackendUpsert,
   ScanGraphState,
   ScanRead,
+  SearchBackendCreate,
+  SearchBackendRead,
+  SearchBackendUpsert,
+  SearchProviderRead,
   Severity,
   SummaryResponse,
 } from '../types'
@@ -132,6 +136,12 @@ export const api = {
       `/scans/${scanId}/findings/${findingId}/explain${regenerate ? '?regenerate=true' : ''}`,
       { method: 'POST' },
     ),
+  /** M7: per-scan web research opt-in (the dock 🌐 toggle / Settings). */
+  setWebResearch: (scanId: number, enabled: boolean) =>
+    request<ScanRead>(`/scans/${scanId}/web-research`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    }),
   getFiles: (scanId: number) => request<FileTreeResponse>(`/scans/${scanId}/files`),
   getFileContent: (scanId: number, path: string) =>
     request<FileContentResponse>(
@@ -210,4 +220,31 @@ export const api = {
     request<ModelBackendRead>(`/model/backends/${backendId}/test`, { method: 'POST' }),
   backendModels: (backendId: string) =>
     request<ModelBackendModels>(`/model/backends/${backendId}/models`),
+
+  // ---- M7 search backends (web research engines) ----
+  listSearchBackends: () => request<SearchBackendRead[]>('/search/backends'),
+  /** The addable engine set (Settings add-form picker) — everything except
+   * the bundled SearXNG. */
+  listSearchProviders: () => request<SearchProviderRead[]>('/search/providers'),
+  createSearchBackend: (payload: SearchBackendCreate) =>
+    request<SearchBackendRead>('/search/backends', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** `enabled: true` triggers the one-Active radio semantics server-side. */
+  updateSearchBackend: (id: string, payload: SearchBackendUpsert) =>
+    request<SearchBackendRead>(`/search/backends/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  deleteSearchBackend: (id: string) =>
+    request<void>(`/search/backends/${id}`, { method: 'DELETE' }),
+  /** Full probe: a real search query against the engine. */
+  testSearchBackend: (id: string) =>
+    request<SearchBackendRead>(`/search/backends/${id}/test`, { method: 'POST' }),
+  /** One-click start for the bundled engine — runs `docker compose --profile
+   * web up -d searxng` server-side and waits for it to answer (the Settings
+   * "Start engine" button; custom instances 400). */
+  startSearchBackend: (id: string) =>
+    request<SearchBackendRead>(`/search/backends/${id}/start`, { method: 'POST' }),
 }

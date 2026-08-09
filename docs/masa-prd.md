@@ -60,8 +60,7 @@ Secondary: security researchers and students who want a free, local platform to 
 - **Chat-with-decompiled-code (flagship feature):** grounded answers over the scan using three non-embedding layers — the full static-findings set (every source, precision-tagged), `search_code`/`read_file` tools over the decompiled/extracted tree, and (Android) Graphify graph traversal — with citations back to file/line. The RAG/embedding pipeline was removed from v1 (owner decision, Aug 6): see tech stack doc
 - Per-finding "explain this" AI annotation (plain-language explanation + fix guidance)
 - Tool-calling agent loop giving the LLM callable tools: read manifest, get decompiled class, search strings, get permissions, run secrets scan
-- **Deep research / web browsing (Odysseus pattern):** self-hosted SearXNG as the default search backend, with an optional pluggable fallback chain (Brave, DuckDuckGo, Tavily, Serper, Google PSE) via API keys. Powers a multi-step research flow — search → fetch top sources → summarize each → synthesize — surfaced as an agent capability the tester can invoke for things like CVE lookups on a detected library version, checking current MASVS/MASTG guidance, or researching an unfamiliar SDK/endpoint found in the app. Off by default per scan; the agent should only browse when the tester enables it or explicitly asks a question that needs it.
-- **Interactive browser automation (agent-browser, M7):** where deep research *finds* pages, agent-browser *drives* them. **agent-browser** (vercel-labs, Apache-2.0) is a native Rust CLI + daemon that controls Chrome/Chromium over the Chrome DevTools Protocol — no Playwright/Puppeteer/Node needed. The agent opens URLs, reads agent-friendly page text (`browser_read` — markdown/llms.txt-aware, no Chrome required), snapshots the accessibility tree into compact element refs (`@e12`) instead of raw HTML (~90%+ context savings), and clicks/fills/wait/screenshots real JS-rendered pages — multi-step flows in a single `batch` invocation. Same per-scan opt-in and "leaves the machine" boundary as web research; every browsing turn is bounded (max output, allowed-domains guardrail, session teardown).
+- **On-demand agent web research (M7):** two agent tools in the existing tool loop — `web_search(query)` (self-hosted **SearXNG**, a profile-gated compose service; provider registry with custom SearXNG-compatible instances; Brave / Serper / Mojeek are later rows) and `web_fetch(url)` (httpx + **trafilatura ≥1.8.0** extraction — earlier versions are GPLv3+; static pages only — no browser in v1). ChatGPT/Gemini-style: the model triggers a search when a question needs current/external info (CVE lookups, MASTG guidance, dependency versions) and cites source URLs. Engines are configured in Settings — an **Active/Inactive toggle per backend, one Active at a time** — and web research itself is an explicit **per-scan opt-in** (Agent dock 🌐 toggle), which is disabled until an engine is Active. The deep-research pipeline and interactive browser automation were dropped from v1 (owner decision, Aug 9).
 - **Graph-based code understanding (Graphify, Layer 3):** a deterministic
   call/import/inheritance graph is built from decompiled Android source using Graphify
   (tree-sitter AST parsing, code-only mode — no LLM, no API key, nothing leaves the
@@ -119,8 +118,8 @@ These are reasonable candidates for a v2+ roadmap but should not block v1 shippi
 - FR-7: The chat interface must answer questions grounded in the actual scan's data (findings context and/or tool results) and cite the specific file/class/line supporting its answer.
 - FR-8: Each finding must support an on-demand "explain" action that produces a plain-language explanation plus a suggested fix.
 - FR-9: The AI layer must be able to call defined tools (manifest reader, class fetcher, string search, permission lister, secrets scanner) rather than relying on one large unstructured prompt.
-- FR-9a: The agent must support a bounded web research flow (search → fetch → summarize → synthesize) using a self-hosted SearXNG instance by default, with optional fallback to pluggable search providers if a key is configured.
-- FR-9b: Web research must be an explicit, per-scan opt-in — not silently triggered — and the dashboard must indicate when a query is about to leave the local machine, consistent with the local-only indicator already in the UI.
+- FR-9a: The agent must support on-demand web tools — `web_search(query)` (against the single Active search engine configured in Settings) and `web_fetch(url)` (bounded httpx + trafilatura extraction) — in the existing tool loop, not a standalone deep-research pipeline.
+- FR-9b: Web research must be an explicit, per-scan opt-in — not silently triggered — and the dashboard must indicate when a query is about to leave the local machine, consistent with the app's existing local-first framing. The per-scan opt-in control (Agent dock 🌐 toggle) must be **disabled until at least one search engine is Active** in Settings (mirroring the no-model-connected gate on chat).
 - FR-9i: A code graph (calls/imports/inheritance) must be built from decompiled Android
   source via Graphify's code-only extraction mode, requiring no LLM call and no network
   access.
@@ -131,14 +130,11 @@ These are reasonable candidates for a v2+ roadmap but should not block v1 shippi
   may not parse cleanly with tree-sitter's grammars, unlike Android's jadx-produced Java.
   Validate before assuming parity with Android; do not promise it in v1 documentation
   until confirmed.
-- FR-9l: The agent must have interactive browser tools (`browser_open`, `browser_read`,
-  `browser_snapshot`, `browser_click`/`fill`/`type`, `browser_screenshot`, `browser_batch`)
-  via **agent-browser** (vercel-labs, Apache-2.0 — native Rust CLI + CDP daemon over
-  Chrome/Chromium). `browser_snapshot` must return a token-efficient accessibility tree
-  with element refs (e.g. `@e12`), never raw HTML; `browser_read` fetches agent-friendly
-  markdown/llms.txt text. Browser automation shares web research's per-scan opt-in and
-  "leaves the machine" indicator (FR-9b), and every browsing turn is bounded (max output,
-  allowed-domains guardrail, session teardown).
+- FR-9l: Search engines must be configured in Settings — an **Active/Inactive
+  toggle per backend, one Active at a time** (enabling one disables the
+  others); `web_search` runs against the single Active engine, and the web
+  tools are offered only when BOTH the scan's opt-in (FR-9b) and an Active
+  engine hold.
 
 
 ### 6.3 Edit & Recompile
@@ -163,7 +159,7 @@ These are reasonable candidates for a v2+ roadmap but should not block v1 shippi
 
 ## 7. Non-Functional Requirements
 
-- **Privacy/local-first:** No scan data, decompiled source, or chat content leaves the user's machine by default. This is a core value proposition, not an afterthought — it should be visible in the UI (e.g., the model-backend indicator already in the mockup). Web research is the one deliberate exception to this boundary: even self-hosted SearXNG ultimately proxies queries out to public search engines, so it isn't private in the same sense as local inference — it's opt-in per scan, and the UI should make that boundary honest rather than implying full offline operation once it's enabled. Interactive browser automation (agent-browser, M7) sits in the same exception class and shares the same opt-in gate.
+- **Privacy/local-first:** No scan data, decompiled source, or chat content leaves the user's machine by default. This is a core value proposition, not an afterthought — it should be visible in the UI (e.g., the model-backend indicator already in the mockup). Web research is the one deliberate exception to this boundary: even self-hosted SearXNG ultimately proxies queries out to public search engines, so it isn't private in the same sense as local inference — it's opt-in per scan, and the UI should make that boundary honest rather than implying full offline operation once it's enabled.
 - **Auditability:** As an open-source (Apache-2.0) project, code should be organized so the analysis engine and AI layer are inspectable and reasonably modular (not a monolith), inviting review and contribution even though v1 doesn't target contributor growth as a metric.
 - **Performance:** the agent layers are all non-embedding — findings-context assembly, grep/file reads, and graph traversal are sub-second data operations on typical consumer hardware (CPU-only included). No per-scan embedding index exists to slow first chat (the RAG pipeline was removed from v1 for exactly this reason).
 - **Portability:** Should run on Linux and macOS at minimum via Docker; Windows/Docker Desktop support is desirable but not blocking.
@@ -180,7 +176,7 @@ Analysis   Abstraction    (Layer 1: full findings context —
 Engine     (Ollama /      precision-tagged; Layer 2: search_code /
 (jadx/     LM Studio,     read_file over the decompiled/extracted
 apktool/   OpenAI-compat) tree; Layer 3: Graphify graph — Android;
-LIEF)                     browser tools via agent-browser — M7)
+LIEF)                     web_search/web_fetch via SearXNG — M7)
     |
 (no vector store — the RAG/embedding pipeline was removed from v1)
 ```
@@ -193,7 +189,7 @@ LIEF)                     browser tools via agent-browser — M7)
 4. **M4 — Agent context layers (Layers 1-3):** full findings context + search/read tools + Graphify graph tools, with a bounded tool-calling chat — no embeddings (the RAG pipeline was removed from v1; see tech stack doc)
 5. **M5 — Dashboard integration:** wire findings + chat + decompiler view into the UI from the mockup
 6. **M6 — Tool-calling agent:** give the LLM callable tools instead of static prompts
-7. **M7 — Deep research / web browsing + interactive browser automation:** self-hosted SearXNG + pluggable providers, search→fetch→summarize→synthesize flow, gated behind explicit opt-in; agent-browser (CDP-driven Chrome) for interactive page reading/verification — agent-friendly `read`, snapshot refs, click/fill, screenshots
+7. **M7 — Agent web research (on-demand):** `web_search`/`web_fetch` agent tools, self-hosted SearXNG (profile-gated compose service; AGPL boundary — unmodified container, HTTP JSON API only), Settings search-engine registry with Active/Inactive toggles (one Active at a time), per-scan opt-in (dock toggle disabled until an engine is Active) — no deep-research pipeline, no browser automation in v1 (owner decision, Aug 9)
 8. **M8 — Edit & recompile:** Smali edit view + apktool rebuild pipeline for Android, resource/plist/entitlement-only edit + resign for iOS
 9. **M9 — Report generation:** AI-assisted draft report export
 10. **M10 — Packaging:** Docker Compose single-command install, README, Apache-2.0 license, public GitHub release
@@ -204,8 +200,8 @@ LIEF)                     browser tools via agent-browser — M7)
 - **iOS static-only ceiling:** Some real vulnerability classes (runtime keychain misuse, SSL pinning behavior) are hard to confirm without dynamic testing — v1 should be honest in the UI about what static analysis can and can't confirm, to avoid false confidence.
 - **Local hardware variance:** tool-calling agent loops can be slow on modest hardware; may need a "lite mode" recommendation (smaller model, reduced context) similar to Odysseus's Cookbook concept — worth considering for a near-term follow-up even if not v1. (No longer includes an embedding step — that was the removed RAG pipeline.)
 - **Findings-context size:** very large findings sets (500+ findings) make the Layer 1 context heavy for small-context models; the builder renders compactly and offers an explicit `max_findings` escape hatch, but a "lite mode" may need to trim or paginate context.
-- **Web research scope creep:** Odysseus's deep research is a substantial subsystem (query enhancement, multi-provider fallback, ranking, source summarization). MASA should start with a narrower version — bounded number of sources, no autonomous multi-hour research loops — and only grow it if the CVE/library-lookup use case proves valuable in practice.
-- **Browser-automation runtime cost:** agent-browser adds a new runtime dependency beyond the LLM — Chrome for Testing (~150MB+) and a resident CDP daemon. Plan for it host-side like Ollama/LM Studio (keeps the app image lean), bound every browsing turn (snapshot size, `--max-output`, `--allowed-domains`, session teardown, tool-round cap), and treat it as part of the web-research privacy boundary: pages leave the machine by design, opt-in only.
+- **Web research scope creep:** the originally-planned deep-research subsystem (query enhancement, multi-provider fallback, ranking, source summarization) was dropped from v1 in favor of on-demand `web_search`/`web_fetch` tools (owner decision, Aug 9) — bounded results, one Active engine, no autonomous multi-hour research loops. Revisit only if the CVE/library-lookup use case proves it worthwhile.
+- **SearXNG runtime + license boundary:** web research adds a second container (SearXNG, AGPL-3.0) beyond app+redis — profile-gated (`docker compose --profile web up -d searxng`) so the default install stays lean, and reached only over its HTTP JSON API as an unmodified image (never vendored/imported/forked — see `docs/licenses.md`). Queries leave the machine by design; the per-scan opt-in and the Active-engine setting gate that egress.
 - **Recompile reliability:** apktool rebuilds don't always succeed cleanly on every APK (resource clashes, edge-case bytecode) — the pipeline needs to fail loudly and specifically rather than producing a silently broken APK. Worth budgeting time for this in M8 rather than assuming it "just works" once the happy path is wired up.
 - **Recompile misuse potential:** the feature is standard, legitimate pentest tooling (same category as objection/apktool-based SSL-pinning or root-detection bypass workflows), but it's also the one feature in MASA that produces a modified, runnable artifact rather than just analysis. Worth being deliberate about the resigned-build warning staying visible and not something a user can silently disable.
 - **Dependency-over-custom-code decision:** several previously "build from scratch" components (secret scanning, LLM client abstraction, MASVS/MASTG mapping data) were replaced with existing maintained libraries (Gitleaks, Semgrep, LiteLLM, OWASP's own mapping data) — see the tech stack doc for the full list. (LlamaIndex/ChromaDB were adopted and then **removed from v1** with the RAG pipeline, owner decision Aug 6.) This was a deliberate call. MASA ships Apache-2.0, so the GPL/LGPL-licensed tools among them (Semgrep, ldid) must always be invoked as subprocesses, never imported as libraries — the audit in docs/licenses.md records this posture. Worth revisiting at implementation time if any of these libraries turn out to be a worse fit in practice than on paper.

@@ -59,6 +59,7 @@ from app.schemas import (
     ScanGraphState,
     ScanRead,
     SummaryResponse,
+    WebResearchUpdate,
 )
 from app.workers.jobs import enqueue_scan
 
@@ -416,6 +417,21 @@ def file_content(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.put("/{scan_id}/web-research", response_model=ScanRead)
+def set_web_research(scan_id: int, payload: WebResearchUpdate, db: DbSession) -> Scan:
+    """M7: per-scan web research opt-in (the dock 🌐 toggle / Settings).
+
+    This is the privacy gate ONLY — engine-agnostic: it permits the agent's
+    web tools for this scan; which engine (if any) is Active is a Settings
+    concern (``SearchStore``). The chat layer enforces both gates per call.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    if scan.web_research_enabled != payload.enabled:
+        scan.web_research_enabled = payload.enabled
+        db.commit()
+    return scan
 
 
 @router.get("/{scan_id}/graph", response_model=ScanGraphState)

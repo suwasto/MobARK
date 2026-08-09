@@ -1,5 +1,8 @@
 # MASA — local-first mobile pentest dashboard
-# M0 scope: app (FastAPI) + worker (RQ) + redis. searxng arrives in M7.
+# Services: app (FastAPI) + worker (RQ) + redis always-on; searxng is
+# PROFILE-GATED (M7) — start it with `docker compose --profile web up -d
+# searxng` only when the agent's web research is in use (see the Settings ->
+# Search & research tab; the Active toggle never auto-starts the container).
 #
 # Prerequisites:
 #   - Ollama / LM Studio running on the HOST (MASA never bundles an LLM; M3+ connects outward)
@@ -34,6 +37,17 @@ services:
       # this needs the extra_hosts host-gateway mapping below.
       MASA_OLLAMA_BASE_URL: http://host.docker.internal:11434
       MASA_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      # M7: reach the bundled SearXNG from INSIDE the compose network — the
+      # host-published localhost:8888 is not visible in-container (owner
+      # report, Aug 9: Connection refused on the seeded default). The search
+      # store seeds from this on first read; an existing search_backends.json
+      # keeps its own URL (edit it in Settings -> Search & research).
+      MASA_SEARXNG_BASE_URL: http://searxng:8080
+      # Dev-only fake LLM (M6 follow-up): MASA_FAKE_MODEL=1 seeds the
+      # deterministic "fake" backend so the Agent dock's live tool steps +
+      # token streaming (incl. the M7 web-research demo) work with zero
+      # Ollama. Default off — real installs never see it.
+      MASA_FAKE_MODEL: ${MASA_FAKE_MODEL:-0}
       # M4 agent chat: local models (especially thinking models with big
       # findings contexts) are slow — give the tool loop a realistic budget.
       # The per-request payload.timeout_seconds can still override this.
@@ -52,6 +66,24 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  # M7 web research: the agent's search engine. AGPL-3.0 boundary — this is
+  # the UNMODIFIED upstream image reached only over its HTTP JSON API
+  # (GET /search?format=json); the copyleft never crosses the process
+  # boundary (see docs/licenses.md). Profile-gated so the default install
+  # stays lean. Our minimal settings.yml (json format enabled) is mounted at
+  # /etc/searxng/settings.yml — a config artifact we author, not SearXNG code.
+  searxng:
+    image: searxng/searxng:latest
+    profiles: ["web"]
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://localhost:8888
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-data:/etc/searxng
+    ports:
+      - "8888:8080"
 
   worker:
     build:
@@ -72,6 +104,11 @@ services:
       # M3: same host-LLM reachability as the app service.
       MASA_OLLAMA_BASE_URL: http://host.docker.internal:11434
       MASA_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      # M7: same SearXNG reachability as the app service (the worker can run
+      # web-research scans too once the dock opt-in + engine are on).
+      MASA_SEARXNG_BASE_URL: http://searxng:8080
+      # Dev-only fake LLM — same knob as the app service.
+      MASA_FAKE_MODEL: ${MASA_FAKE_MODEL:-0}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -81,3 +118,4 @@ services:
 volumes:
   masa-data:
   redis-data:
+  searxng-data:

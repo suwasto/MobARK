@@ -274,6 +274,55 @@ def test_alembic_0007_band_symmetric_recompute(tmp_path, monkeypatch):
     engine.dispose()
 
 
+def test_alembic_0008_web_research_column(tmp_path, monkeypatch):
+    """M7 migration 0008: scans.web_research_enabled (per-scan web research
+    opt-in, default off — the privacy gate)."""
+    db_url = f"sqlite:///{tmp_path / 'web-research.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    scan_columns = {c["name"] for c in inspector.get_columns("scans")}
+    assert "web_research_enabled" in scan_columns
+    engine.dispose()
+
+
+def test_alembic_0008_defaults_off_and_downgrades(tmp_path, monkeypatch):
+    """New scans default to web research OFF (the safe posture), and the
+    downgrade drops the column."""
+    db_url = f"sqlite:///{tmp_path / 'web-research-down.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    from sqlalchemy import text
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO scans (id, filename, platform, status, created_at) "
+                "VALUES (1, 'a.apk', 'android', 'queued', '2026-08-09T00:00:00')"
+            )
+        )
+        default = conn.execute(
+            text("SELECT web_research_enabled FROM scans WHERE id = 1")
+        ).scalar()
+        assert default == 0  # server_default false — opt-in is never implicit
+    engine.dispose()
+
+    command.downgrade(cfg, "0007")
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "web_research_enabled" not in {
+        c["name"] for c in inspector.get_columns("scans")
+    }
+    engine.dispose()
+
+
 def test_alembic_0005_downgrade_removes_suppression_columns(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'suppress-down.db'}"
     monkeypatch.setenv("MASA_DATABASE_URL", db_url)

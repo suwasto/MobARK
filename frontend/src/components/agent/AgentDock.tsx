@@ -29,6 +29,20 @@ function summarizeArgs(args: Record<string, unknown>): string {
 const FILE_REF_RE =
   /([A-Za-z0-9_./-]+\.(?:java|xml|kt|kts|smali|swift|m|h|plist|json|txt|properties|yml|yaml|html|strings|entitlements))(?::(\d+))?/g
 
+/**
+ * Shorten a long file path for a chip while keeping the part that matters —
+ * the tail (filename:line, what you click to jump) — visible. Middle-ellipsis
+ * like the file tree: a trimmed head + `…` + the kept tail. The full path
+ * stays in the chip's tooltip. Belt-and-braces with the CSS floor on
+ * `.src-chip` (max-width + ellipsis): nothing can ever escape the bubble.
+ */
+function shortenPath(path: string, max = 38): string {
+  if (path.length <= max) return path
+  const tailLen = Math.max(16, Math.floor(max * 0.6))
+  const headLen = Math.max(2, max - tailLen - 1)
+  return `${path.slice(0, headLen)}…${path.slice(-tailLen)}`
+}
+
 function ResultFileChips({
   text,
   onOpenFile,
@@ -50,18 +64,20 @@ function ResultFileChips({
   if (refs.length === 0) return null
   return (
     <div className="src-row" style={{ marginTop: 6 }}>
-      {refs.map((r, i) => (
-        <button
-          key={`${r.file}:${r.line ?? ''}:${i}`}
-          type="button"
-          className="src-chip"
-          title="Open in Decompiler"
-          onClick={() => onOpenFile(r.file)}
-        >
-          {r.file}
-          {r.line != null ? `:${r.line}` : ''}
-        </button>
-      ))}
+      {refs.map((r) => {
+        const full = `${r.file}${r.line != null ? `:${r.line}` : ''}`
+        return (
+          <button
+            key={full}
+            type="button"
+            className="src-chip"
+            title={`${full} — open in Decompiler`}
+            onClick={() => onOpenFile(r.file)}
+          >
+            {shortenPath(full)}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -156,18 +172,20 @@ function AgentMessage({
 
       {message.citations && message.citations.length > 0 && (
         <div className="src-row" aria-label="Sources cited by the agent">
-          {message.citations.map((c, i) => (
-            <button
-              key={`${c.file}:${c.line ?? ''}:${i}`}
-              type="button"
-              className="src-chip"
-              title={c.snippet ? `${c.snippet} — click to open in Decompiler` : 'Click to open in Decompiler'}
-              onClick={() => onOpenFile(c.file)}
-            >
-              {c.file}
-              {c.line != null ? `:${c.line}` : ''}
-            </button>
-          ))}
+          {message.citations.map((c, i) => {
+            const full = `${c.file}${c.line != null ? `:${c.line}` : ''}`
+            return (
+              <button
+                key={`${c.file}:${c.line ?? ''}:${i}`}
+                type="button"
+                className="src-chip"
+                title={c.snippet ? `${full} — ${c.snippet}` : `${full} — open in Decompiler`}
+                onClick={() => onOpenFile(c.file)}
+              >
+                {shortenPath(full)}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -203,10 +221,19 @@ export function AgentDock({
   onOpenFile,
 }: AgentDockProps) {
   const { messages, pending, sending, send, stop } = useChat(scan.id)
-  const { backends } = useApp()
+  const { backends, searchBackends, actions } = useApp()
   const [draft, setDraft] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
 
+  // M7 web research — two layers, per the plan: an Active search engine in
+  // Settings (the radio list; the dock toggle NEVER selects an engine) AND
+  // the per-scan opt-in this toggle controls. The toggle is disabled until
+  // an engine is Active AND a chat model is connected (owner follow-up,
+  // Aug 9) — the mirror of the send button's no-model gate.
+  const activeEngine = useMemo(
+    () => searchBackends.some((b) => b.enabled),
+    [searchBackends],
+  )
   // A chat is only possible when some backend is enabled WITH a model — the
   // exact mirror of backend `pick_chat_backend` (and the ModelPicker's
   // active lookup). Without one the send button is disabled and the hint
@@ -215,6 +242,31 @@ export function AgentDock({
     () => backends.some((b) => b.enabled && b.model),
     [backends],
   )
+  // Web 🌐 toggle lock: it needs BOTH an Active engine AND a connected chat
+  // model — web research is meaningless with no agent to run it, so the
+  // switch is inert (greyed, click does nothing) while either is missing.
+  const webLocked = !activeEngine || !modelConnected
+  const [webResearch, setWebResearch] = useState(scan.web_research_enabled)
+  const [webBusy, setWebBusy] = useState(false)
+  // Reset per scan — the prop may be stale until the next scan-list refresh.
+  useEffect(() => {
+    setWebResearch(scan.web_research_enabled)
+  }, [scan.id, scan.web_research_enabled])
+
+  const toggleWebResearch = async () => {
+    // Inert while locked (no Active engine OR no chat model) — the switch
+    // must not be flippable in that state, even by a stray click.
+    if (webLocked || webBusy) return
+    setWebBusy(true)
+    try {
+      await actions.setWebResearch(scan.id, !webResearch)
+      setWebResearch((v) => !v)
+    } catch {
+      // Keep the switch where it was — the API call is the source of truth.
+    } finally {
+      setWebBusy(false)
+    }
+  }
 
   // Per-scan welcome message. Rebuilt on every render so the counts update
   // once findings finish loading (they start at 0); cheap string work.
@@ -272,11 +324,21 @@ export function AgentDock({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <div
-            className="research-toggle disabled"
-            title="Web research ships in M7 — prompts stay fully local until then"
+            role="switch"
+            aria-checked={webResearch}
+            aria-disabled={webLocked}
+            className={`research-toggle${webLocked ? ' disabled' : ''}${webResearch ? ' on' : ''}`}
+            title={
+              !modelConnected
+                ? 'No model connected — pick one in the top bar or Settings'
+                : activeEngine
+                  ? 'Allow the agent to search the web for this scan (per-scan opt-in — queries leave this machine)'
+                  : 'Web research needs an Active search engine — enable one in Settings → Search & research'
+            }
+            onClick={() => void toggleWebResearch()}
           >
             <span>🌐 Web</span>
-            <span className="switch" aria-hidden="true" />
+            <span className={`switch${webResearch ? ' on' : ''}`} aria-hidden="true" />
           </div>
           <button
             type="button"
@@ -325,7 +387,9 @@ export function AgentDock({
         <div className="row">
           <span className={`hint${modelConnected ? '' : ' warn'}`}>
             {modelConnected
-              ? '⏎ to send'
+              ? webResearch
+                ? '⏎ to send · 🌐 web on'
+                : '⏎ to send'
               : 'No model connected — pick one in the top bar or Settings'}
           </span>
           {sending ? (

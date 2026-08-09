@@ -2,7 +2,7 @@
 
 No fixed dates — sequenced by milestone dependency. Same milestone order as v1, tasks updated to reference actual tools. Feasibility notes are called out inline where a task was corrected from the original plan.
 
-Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector store — the M4 RAG/embedding pipeline was deleted from v1 (owner decision); the agent layer is non-embedding: Layer 1 full findings context + Layer 2 search/read tools + Layer 3 Graphify graph** · jadx + androguard + Semgrep (Android) · LIEF + Mach-O import-table scanner + Gitleaks + Semgrep (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG + GPT Researcher pattern (deep research) · agent-browser (CDP-driven browser automation, M7) · Docker Compose (3 services) · Apache-2.0 · Graphify (code-only, graph-based structure understanding)
+Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector store — the M4 RAG/embedding pipeline was deleted from v1 (owner decision); the agent layer is non-embedding: Layer 1 full findings context + Layer 2 search/read tools + Layer 3 Graphify graph** · jadx + androguard + Semgrep (Android) · LIEF + Mach-O import-table scanner + Gitleaks + Semgrep (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG (profile-gated compose service; on-demand `web_search`/`web_fetch` agent tools, M7) · Docker Compose (app + redis; searxng profile-gated) · Apache-2.0 · Graphify (code-only, graph-based structure understanding)
 
 **Library-first principle:** prefer an existing, maintained library over custom logic wherever one covers the need — the project ships Apache-2.0, so any GPL/LGPL-licensed tool (Semgrep, ldid, and the analysis CLIs) must be invoked as a subprocess, never imported as a library. See tech stack doc for the specific swaps and reasoning.
 
@@ -258,40 +258,55 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [x] Gates: pytest + ruff (338 tests green); `tsc -b && vite build` (the "tools used" line landed in the dock)
 - [ ] Real-model QA (owner, Ollama off during dev) — post-completion checkpoint, not a blocker
 
-## M7 — Deep research / web browsing (+ interactive browser automation)
-- [ ] Add `searxng` as a 3rd Docker Compose service, JSON output format enabled (so results are parseable, not just HTML)
-- [ ] Adapt **GPT Researcher**'s search→fetch→summarize→synthesize pipeline, configured to use SearXNG as its retriever, rather than building that flow from scratch
-- [ ] Wire the pluggable fallback chain (Brave/DuckDuckGo/Tavily/Serper/Google PSE via API key) through the same BYOK-style key storage pattern from M3/M5
-- [ ] Expose `web_search(query)` (SearXNG) as an agent tool, added to the M6 tool-calling set
-- [ ] **Browser capability via `agent-browser`** (vercel-labs, Apache-2.0 — native Rust CLI +
-      CDP daemon, no Playwright/Puppeteer/Node): `npm install -g agent-browser` +
-      `agent-browser install` (downloads Chrome for Testing); pin the version and add a
-      `docs/licenses.md` row (Apache-2.0 — clean fit, no GPL/LGPL constraint, but still
-      invoked as a subprocess like the other CLIs)
-- [ ] Deployment decision: browser daemon + Chrome **host-side** like Ollama/LM Studio
-      (keeps the app image lean — Chrome for Testing is ~150MB+) vs. in-image/extra
-      container; document the choice here + in the tech stack doc
-- [ ] Wrap browser agent tools: `browser_open` · `browser_read` (agent-friendly
-      markdown/llms.txt extraction, no Chrome — replaces the hand-rolled `web_fetch`) ·
-      `browser_snapshot` (accessibility tree → compact refs `@e1`, never raw HTML) ·
-      `browser_click`/`fill`/`type` · `browser_screenshot` · `browser_batch`
-      (multi-command single invocation, avoids per-command process startup)
-- [ ] Token + safety discipline: agent consumes snapshot refs / `read` output only
-      (~90%+ context savings vs raw HTML); bound every turn (`--max-output`,
-      `--allowed-domains`, fixed snapshot scope, session close/teardown, max tool rounds)
-- [ ] Confirm the pipeline stays **bounded** even using GPT Researcher's implementation
-      (fixed source count, e.g. 5) — deliberately smaller in scope than its full
-      autonomous-research feature set for v1
-- [ ] Gate web research + browser automation behind the same explicit per-scan opt-in —
-      never triggered silently by the agent
-- [ ] Update the "Local-only" UI indicator to change state the moment web research/browser
-      automation is enabled, and make the distinction clear in-copy: SearXNG and the
-      browser both mean traffic leaves the machine, unlike local LLM inference
-- [ ] Test the flagship use case: given a detected third-party library + version, agent
-      researches whether it has known CVEs — search → read → snapshot/click through the
-      advisory page → synthesize with source links
-- [ ] Test a MASVS/MASTG reference lookup query end-to-end (a JS-rendered docs page
-      exercises the browser path specifically)
+## M7 — Agent web research (on-demand; ChatGPT/Gemini-style)
+> **Owner decisions (Aug 9, 2026 kickoff):** `agent-browser` is **DROPPED**
+> (no browser automation in v1). The **deep-research / GPT Researcher
+> pipeline is DROPPED** — web research is two on-demand agent tools
+> (`web_search`/`web_fetch`) in the existing tool loop, gated by per-scan
+> opt-in, not a standalone feature. SearXNG ships as a **profile-gated**
+> compose service (unmodified upstream image, HTTP JSON API only — the AGPL
+> boundary; see `docs/licenses.md`). Provider **registry built now, SearXNG
+> only** (+ custom SearXNG-compatible instances); Brave/Serper/Mojeek are
+> later table rows. Plan + progress:
+> [docs/progress/M7.md](progress/M7.md).
+>
+> **Follow-up (same session, owner):** engine enablement is a **Settings**
+> concern — each search backend carries an **Active/Inactive toggle**, **one
+> Active at a time** (radio); the Agent dock 🌐 toggle is the **per-scan
+> opt-in only** (engine-agnostic privacy gate).
+>
+> **Status: COMPLETE (Aug 9, 2026)** — Phases A–D built, the containerized
+> e2e RUN and PASSED, and the same-session follow-ups landed (one-click
+> engine start, provider registry expansion to Brave/Serper/Mojeek, manual
+> web-search testing, chat citation chip fix). See
+> [docs/progress/M7.md](progress/M7.md) for the completion record. Remaining
+> owner checkpoint (not a blocker): real-model QA with Ollama.
+
+**Phase A — search backend (provider registry + store, SearXNG only):**
+- [x] `search/providers.py` — `SearchProvider` table mirroring `model/providers.py` (id, name, kind `bundled|custom`, base URL, key env var, query/parse style); v1 entries: `searxng` (bundled, default `http://localhost:8888`) + `custom` (SearXNG-compatible instance, base URL only, no key)
+- [x] `search/backends.py` — `SearchStore` JSON store (`search_backends.json`, 0600) env-seeded from `MASA_SEARXNG_BASE_URL`, runtime-editable — the `BackendStore` semantics verbatim; `SearchBackend` carries **`enabled`** + **`order`** (reserved for a future fallback chain); the store gains **`enable_only(id)`** (radio — enabling one disables all others) + **`active()`** (the one enabled backend / `None`)
+- [x] `search/client.py` — `query(active_backend, q)`: SearXNG `GET /search?q=…&format=json` (json format enabled via our own minimal `settings.yml`), normalized `[{title, url, snippet, engine}]`, bounded (per-call timeout, top-N; streaming body cap + SSRF guard)
+- [x] `config.py`: `searxng_base_url` (`MASA_SEARXNG_BASE_URL`), `web_search_timeout_seconds`, `web_fetch_timeout_seconds`, `web_fetch_max_bytes`
+- [x] API: `GET/POST/DELETE /api/v1/search/backends` + `PUT /api/v1/search/backends/{id}` (mirrors model backends) — **`PUT {enabled:true}` enforces one-Active server-side (`enable_only`)**; bundled `searxng` seeds enabled
+
+**Phase B — on-demand web tools + per-scan opt-in:**
+- [x] `web_search(query)` agent tool — offered only when the scan has web research enabled **AND an Active engine exists (`SearchStore.active()`)**; system prompt guides when to use it (current/external info: CVE lookups, MASTG guidance, dependency versions) and to cite URLs
+- [x] `web_fetch(url)` agent tool — httpx + **trafilatura (pin ≥1.8.0 — Apache-2.0; earlier versions GPLv3+)** extraction → bounded agent-friendly text; size + timeout caps; static pages only in v1 (no browser → JS-rendered pages degrade)
+- [x] Migration **0008**: `scans.web_research_enabled` (default false); `PUT /scans/{id}/web-research {enabled}`; web tool schemas filtered out when disabled **or no Active engine** (the `schemas_for_platform` filter pattern)
+- [x] Agent dock 🌐 Web toggle goes live as the **per-scan opt-in only** (engine-agnostic — copy: "Allow web research for this scan", never an engine selector), **disabled while no engine is Active** (greyed + hint "enable a search engine in Settings" — the mirror of the no-model send-button gate); Settings → "Search & research" tab becomes live: **search-backend list with Active/Inactive radio toggles** (one at a time — enabling one disables the others) + base URL + Test, add/remove custom instances, plus a per-scan web-research section (removed Aug 9 — the dock 🌐 toggle is the single per-scan control) — reusing the BackendsTab/BYOKTab patterns
+
+**Phase C — deployment (AGPL-safe SearXNG):**
+- [x] `docker-compose.yml`: `searxng` service under `profiles: [web]` — unmodified `searxng/searxng`, port 8080, `SEARXNG_BASE_URL`, minimal settings.yml mounted at `/etc/searxng/settings.yml`; first-use hint "start the search service: `docker compose --profile web up -d searxng`" when research is enabled but the backend is unreachable
+- [x] Docs: `docs/licenses.md` rows (SearXNG AGPL-3.0 network boundary · trafilatura Apache-2.0 ≥1.8.0 · gpt-researcher row removed); techstack + README notes; M10 compose line updated
+
+**Phase D — tests + flagship cases (mocked, no network):**
+- [x] Units: store round-trip/perms/env-seed, **radio semantics (`enable_only` disables all others; `active()` None when all off; two `PUT {enabled:true}` calls leave one Active)**, provider invariants, SearXNG query+parse (httpx monkeypatched), custom-instance entries, web_fetch extraction (trafilatura mocked), **opt-in gating (both gates, both platforms)**, migration 0008 up/down, search-backend API CRUD
+- [x] Flagship: "does library X have known CVEs?" — fake model picks `web_search` → `web_fetch` (advisory) → answer with source URLs cited (buffered + streaming); MASTG reference lookup end-to-end (static MkDocs page reads fine via fetch)
+- [x] Gates: pytest + ruff; `tsc -b && vite build` (dock toggle + Settings tab); **containerized e2e with the profile started — PASSED (Aug 9)**: the bundled SearXNG settings.yml crash (missing `use_default_settings` + `secret_key`) fixed and validated; app→`searxng:8080` probe reachable; scan 19 opt-in + `chat/stream` ran a REAL `web_search` (10 results / 1.1s) + `web_fetch` (top hit 403s — degrades cleanly); fake web script fixed to never re-fetch a failed URL (regression-tested). Final gates: **459 backend tests green + ruff clean; `tsc -b` + `vite build` green**
+- [x] Follow-up: **one-click engine start** — `POST /search/backends/{id}/start` (fixed compose argv, upward compose-file discovery, poll-until-up, 400 custom / 502-504 manual-command errors) + Settings "▶ Start engine" button on the bundled card while unreachable
+- [x] Follow-up: **provider registry expanded** — the add-form is a provider picker (custom / brave / serper / mojeek) with adaptive fields (default base URL + API key where required); `query_style` dispatch + per-style normalizers + key-rejected hint; env-key seeding stays disabled until the Active radio is flipped; `GET /search/providers`; write-only `api_key` + "✓ key set" indicator
+- [x] Follow-up: **manual web-search testing with the fake model** — `fake.py::_web_query` uses the user's own question text as the web_search query (canned fallback for short input), so a manual dock test types its own search; **chat citation chips can no longer escape the bubble** (`shortenPath` middle-ellipsis + `.src-chip` max-width/ellipsis floor + `.md code`/`.msg` overflow-wrap)
+- [ ] Real-model QA (owner, Ollama off during dev): a web-research question with a real LLM — post-completion checkpoint, not a blocker
 
 ## M8 — Edit & recompile
 - [ ] Wire apktool's disassemble (baksmali) output into the file tree as the "Smali" view alongside jadx's "Java" view for the same file
@@ -314,7 +329,7 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [ ] If a recompiled test build (M8) was produced, note it in the report distinctly from the original analyzed artifact
 
 ## M10 — Packaging & release
-- [ ] Finalize `docker-compose.yml` (3 services: app, redis, searxng) — confirm truly single-command install on a clean machine
+- [ ] Finalize `docker-compose.yml` (app + redis always-on; searxng under the `web` profile — confirm truly single-command install on a clean machine, with the profile command documented)
 - [ ] README: setup, Ollama/LM Studio prerequisites (must be running on host before `docker-compose up`), hardware/model recommendations, screenshots
 - [ ] Apache-2.0 license file
 - [ ] Naming collision check ("MASA" vs existing GitHub/npm/PyPI projects)
@@ -325,6 +340,16 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 ---
 
 ## Deferred / v1.1 candidates (unchanged from v1, not blocking v1)
+- [ ] Interactive browser automation (agent-browser dropped from M7 at owner kickoff,
+      Aug 9 — JS-rendered page verification returns only with a future browser
+      capability)
+- [ ] Deep-research pipeline (the multi-source search→fetch→summarize→synthesize flow
+      was dropped from M7 in favor of on-demand web tools; a v1.1 candidate if users
+      ask for full autonomous research)
+- [ ] Additional search engines beyond the M7 v1 set (custom SearXNG-compatible
+      instances + Brave/Serper/Mojeek shipped Aug 9; DuckDuckGo/Google CSE/Bing
+      ruled out: no API / sunset / dead — further engines are just new table
+      rows + small normalizers, no rework)
 - [ ] MASVS/MASTG reference lookups through the agent layer (M7 web research covers
       current guidance; an embedded corpus was removed with the RAG pipeline)
 - [ ] "Lite mode" model recommendation for low-spec hardware (Cookbook-style)

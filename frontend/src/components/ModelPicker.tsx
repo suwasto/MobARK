@@ -241,12 +241,19 @@ export function ModelPicker() {
 
       {/* Model dropdown */}
       <div className="relative">
+        {/* The closed pill truncates by necessity — the hover title always
+            carries the full id so the active model is never unreadable
+            (owner follow-up, Aug 9). */}
         <button
           type="button"
           className="model-pill"
           aria-haspopup="listbox"
           aria-expanded={openMenu === 'model'}
-          title="Choose a model for the selected provider, or None to disable AI"
+          title={
+            currentModel
+              ? `Model: ${currentModel}`
+              : 'Choose a model for the selected provider, or None to disable AI'
+          }
           onClick={() => setOpenMenu((m) => (m === 'model' ? null : 'model'))}
         >
           <span className={`dot ${active ? 'online' : 'off'}`} />
@@ -295,6 +302,12 @@ export function ModelPicker() {
                 ) : (
                   <Fragment>
                     <div className="model-divider" />
+                    {/* Model rows are name-only (owner follow-up, Aug 9): the
+                        local-vs-opt-in signal already lives on the provider
+                        dropdown, and the right-aligned via column was what
+                        truncated long model ids. The name wraps instead of
+                        ellipsizing; the title guarantees the full id on
+                        hover regardless. */}
                     {visibleModels.map((m) => (
                       <button
                         key={m}
@@ -303,13 +316,10 @@ export function ModelPicker() {
                           currentModel === m ? 'active' : ''
                         }`}
                         disabled={busy}
+                        title={m}
                         onClick={() => void pickModel(providerBackend, m)}
                       >
                         <span className="mname">{m}</span>
-                        <span className="via">
-                          {providerBackend.name} ·{' '}
-                          {providerBackend.local ? 'local' : 'opt-in'}
-                        </span>
                       </button>
                     ))}
                   </Fragment>

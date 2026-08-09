@@ -26,6 +26,9 @@ export interface ScanRead {
   security_score: number | null
   error: string | null
   stage: string | null
+  /** M7: per-scan web research opt-in (privacy gate) — the agent's web tools
+   * are offered only when this is on AND an Active search engine exists. */
+  web_research_enabled: boolean
   created_at: string
 }
 
@@ -96,6 +99,57 @@ export interface ModelBackendModels {
   models: string[]
   source: 'live' | 'suggested' | 'unavailable'
   error: string | null
+}
+
+// ---- M7 search backends (web research engines) ----
+
+export interface SearchBackendHealth {
+  reachable: boolean
+  status: 'ok' | 'unreachable' | 'unknown'
+  latency_ms: number | null
+  error: string | null
+  checked_at: string | null
+  /** Full-probe extras: how many normalized results a real query returned. */
+  result_count: number | null
+  sample_title: string | null
+}
+
+export interface SearchBackendRead {
+  id: string
+  provider_id: string
+  name: string
+  kind: 'bundled' | 'custom' | 'keyed'
+  base_url: string
+  /** Active/Inactive radio: exactly one engine enabled at a time. */
+  enabled: boolean
+  order: number
+  /** The key itself is never returned — only whether one is set. */
+  has_api_key: boolean
+  health: SearchBackendHealth | null
+}
+
+export interface SearchBackendUpsert {
+  base_url?: string | null
+  /** An empty string clears the stored key. */
+  api_key?: string | null
+  /** `true` triggers the one-Active radio semantics server-side. */
+  enabled?: boolean | null
+}
+
+export interface SearchBackendCreate {
+  provider_id: string
+  base_url?: string | null
+  api_key?: string | null
+}
+
+/** One addable search engine — drives the Settings add-form picker. */
+export interface SearchProviderRead {
+  id: string
+  name: string
+  kind: 'custom' | 'keyed'
+  base_url_required: boolean
+  key_required: boolean
+  default_base_url: string
 }
 
 // ---- M4 agent layer ----

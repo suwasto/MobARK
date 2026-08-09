@@ -62,6 +62,14 @@ _STRING_GLOBS = (
 # Tools that are Android-only in v1 (no decompiled Swift/ObjC source on iOS).
 _ANDROID_ONLY_TOOLS = frozenset({"get_decompiled_class"})
 
+# M7 web tools: offered ONLY when BOTH gates hold — the scan's web-research
+# opt-in (scans.web_research_enabled) AND an Active search engine
+# (SearchStore.active()). They are the one deliberate egress in MASA, so the
+# model never even sees them otherwise (same filter as _ANDROID_ONLY_TOOLS).
+_WEB_TOOLS = frozenset({"web_search", "web_fetch"})
+_MAX_WEB_RESULTS = 10
+_WEB_FETCH_MAX_CHARS = 8000
+
 _ANDROID_NS = "http://schemas.android.com/apk/res/android"
 
 # Suffixes treated as text outright; anything else is binary-sniffed.
@@ -226,6 +234,89 @@ def _cap(text: str, max_chars: int) -> str:
     if len(text) > max_chars:
         return text[:max_chars] + "…"
     return text
+
+
+# ---- M7 web research tools (gated, on-demand) --------------------------------
+# Two layers gate these (owner decision, Aug 9): the per-scan opt-in (the
+# dock 🌐 toggle -> scans.web_research_enabled, default off) AND an Active
+# search engine (the Settings radio list -> SearchStore.active()). The tools
+# are only *offered* to the model when both hold, and the handlers re-check
+# both defensively — a raw API caller can never invoke web egress on a scan
+# that didn't opt in.
+
+
+def web_tools_allowed(scan_id: int) -> bool:
+    """Both gates: the scan's web-research opt-in AND an Active search engine.
+
+    Shared by ``chat.py`` (decides whether the web tools are offered at all)
+    and the tool handlers (defense in depth). Never raises — a missing scan
+    or store simply denies.
+    """
+    from app.db import SessionLocal
+    from app.models import Scan
+
+    db = SessionLocal()
+    try:
+        scan = db.get(Scan, scan_id)
+        enabled = bool(scan is not None and scan.web_research_enabled)
+    finally:
+        db.close()
+    if not enabled:
+        return False
+    from app.search.backends import get_search_store
+
+    return get_search_store().active() is not None
+
+
+def _deny_web() -> ToolError:
+    return ToolError(
+        "web research is not enabled for this scan — turn on the Agent dock "
+        "🌐 toggle (and make sure a search engine is Active in Settings -> "
+        "Search & research)"
+    )
+
+
+def web_search(scan_id: int, query: str) -> list[dict]:
+    """Search the web via the single Active search engine (SearXNG).
+
+    Returns ``[{title, url, snippet, engine}]`` (top ``_MAX_WEB_RESULTS``) so
+    the model can cite source URLs. Errors carry the compose hint for the
+    bundled engine (``docker compose --profile web up -d searxng``).
+    """
+    if not web_tools_allowed(scan_id):
+        raise _deny_web()
+    from app.search.backends import get_search_store
+    from app.search.client import SearchError
+    from app.search.client import query as search_query
+
+    backend = get_search_store().active()
+    if backend is None:
+        raise ToolError(
+            "no Active search engine — enable one in Settings -> Search & research"
+        )
+    try:
+        return search_query(backend, query, limit=_MAX_WEB_RESULTS)
+    except SearchError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+def web_fetch(scan_id: int, url: str) -> dict:
+    """Fetch one page (bounded, SSRF-guarded) and extract article text.
+
+    Returns ``{"url", "title", "text"}`` — the model cites the post-redirect
+    URL. Static pages only in v1; JS-rendered pages degrade cleanly.
+    """
+    if not web_tools_allowed(scan_id):
+        raise _deny_web()
+    from app.search.client import SearchError
+    from app.search.client import web_fetch as fetch_page
+
+    try:
+        page = fetch_page(url)
+    except SearchError as exc:
+        raise ToolError(str(exc)) from exc
+    page["text"] = page["text"][:_WEB_FETCH_MAX_CHARS]
+    return page
 
 
 # ---- M6 app-oriented tools (platform-aware by design) ------------------------
@@ -839,6 +930,49 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the public web via the configured search engine "
+                "(SearXNG). Use ONLY when the question needs current or "
+                "external information the scan data cannot answer — CVE "
+                "lookups for detected library versions, OWASP MASTG "
+                "guidance, dependency advisories. Returns up to 10 results "
+                "with title, url, and snippet — always cite the source URLs "
+                "you use. Queries leave this machine by design (the scan "
+                "opted in)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_fetch",
+            "description": (
+                "Fetch one web page (static content only — no browser in "
+                "v1) and extract its article text. Use on URLs from "
+                "web_search, e.g. a CVE advisory or MASTG docs page, then "
+                "cite the final URL in your answer. Size- and timeout-"
+                "bounded; refuses private-network hosts."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "http(s) URL to fetch"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
 ]
 
 _HANDLERS = {
@@ -854,24 +988,37 @@ _HANDLERS = {
     "graph_query": lambda scan_id, a: graph_query(scan_id, a["question"], a.get("budget", 1500)),
     "graph_path": lambda scan_id, a: graph_path_between(scan_id, a["node_a"], a["node_b"]),
     "graph_explain": lambda scan_id, a: graph_explain_node(scan_id, a["node"]),
+    # M7: gated web tools — the handlers re-check both gates defensively, so
+    # even a raw API caller can never trigger web egress on a non-opted-in scan.
+    "web_search": lambda scan_id, a: web_search(scan_id, a["query"]),
+    "web_fetch": lambda scan_id, a: web_fetch(scan_id, a["url"]),
 }
 
 
-def schemas_for_platform(platform: str | None) -> list[dict]:
-    """Tool schemas offered to a model for a scan's platform (Phase B).
+def schemas_for_platform(
+    platform: str | None,
+    *,
+    web_research_enabled: bool = False,
+) -> list[dict]:
+    """Tool schemas offered to a model for a scan's platform + web gating.
 
     iOS never *sees* Android-only tools (``get_decompiled_class``), so the
     model can't waste a round on a guaranteed-failing call — the same
     whitelist pattern as the Layer 1 findings-context tools
-    (``context.py::platform_tools``). Android gets the full set.
+    (``context.py::platform_tools``). Android gets the full platform set.
+
+    M7: the web tools (``web_search``/``web_fetch``) are appended only when
+    BOTH gates hold — the per-scan opt-in passed here AND an Active search
+    engine (checked by the caller via ``web_tools_allowed``). Off = the
+    model never even sees the schemas, so it cannot burn a round on a
+    call the scan did not permit.
     """
-    if platform != "android":
-        return [
-            s
-            for s in TOOL_SCHEMAS
-            if s["function"]["name"] not in _ANDROID_ONLY_TOOLS
-        ]
-    return list(TOOL_SCHEMAS)
+    return [
+        s
+        for s in TOOL_SCHEMAS
+        if not (s["function"]["name"] in _ANDROID_ONLY_TOOLS and platform != "android")
+        and not (s["function"]["name"] in _WEB_TOOLS and not web_research_enabled)
+    ]
 
 
 def execute_tool(scan_id: int, name: str, args: dict) -> str:

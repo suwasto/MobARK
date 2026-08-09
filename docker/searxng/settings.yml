@@ -1,0 +1,27 @@
+# MASA's minimal SearXNG settings (M7) — mounted read-only at
+# /etc/searxng/settings.yml on the `web`-profile compose service.
+#
+# `use_default_settings: true` makes this file a MERGE over the upstream
+# defaults — without it the schema treats the file as the complete config
+# and REQUIRES `server.secret_key` (SearXNG 2026.x hard-fails with
+# "server.secret_key: The value has to be one of these types/values: str" —
+# hit live in the containerized e2e, Aug 9). The key below only signs local
+# session cookies; this engine binds to localhost and is single-user.
+#
+# Everything else stays upstream defaults; this file ONLY enables the JSON
+# output format MASA's agent `web_search` tool consumes
+# (GET /search?q=…&format=json) and keeps the limiter off so the local
+# single-user instance never rate-limits itself. It is a config artifact we
+# author — NOT SearXNG code — so the AGPL boundary (unmodified upstream
+# image, HTTP JSON API only) holds (see docs/licenses.md).
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "masa-local-dev-secret"
+  limiter: false
+  public_instance: false

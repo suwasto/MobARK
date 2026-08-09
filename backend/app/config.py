@@ -89,6 +89,25 @@ class Settings(BaseSettings):
     # explicit argument (or ChatRequest.max_tool_rounds) wins.
     max_tool_rounds: int = 3
 
+    # ---- M7 web research ----
+    # The bundled SearXNG engine (compose profile `web`):
+    # `docker compose --profile web up -d searxng`. Seeds the bundled search
+    # backend's base URL (search_backends.json); editable in Settings.
+    searxng_base_url: str = "http://localhost:8888"
+    # Keyed search engines (Aug 9 follow-up): Brave/Serper/Mojeek. Keys seed
+    # the search store only when set via env (mirrors the model BYOK
+    # seeding — no keyless entry is ever seeded); the Settings -> Search &
+    # research add-form is the runtime path. Env names derive from the field
+    # names: MASA_BRAVE_API_KEY, MASA_SERPER_API_KEY, MASA_MOJEK_API_KEY.
+    brave_api_key: str | None = None
+    serper_api_key: str | None = None
+    mojeek_api_key: str | None = None
+    # Per-call bounds for the agent's web tools (web_search / web_fetch).
+    web_search_timeout_seconds: int = 20
+    web_fetch_timeout_seconds: int = 20
+    # Hard cap on the raw HTML read into memory before trafilatura extraction.
+    web_fetch_max_bytes: int = 1_000_000
+
     # ---- M5 dashboard ----
     # Upload size cap for POST /api/v1/scans (413 over the limit).
     max_upload_mb: int = 200

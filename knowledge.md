@@ -436,15 +436,195 @@ backend tests green (+23) + ruff clean; frontend untouched (`tsc -b` +
 
 **Follow-up (same session) — the bonus went BAND-SYMMETRIC (owner approved):** `risk.py` now has `_BAND_RISK = {high: (80, 89, 0.9), medium: (55, 69, 0.9), low: (20, 39, 0.9)}` — the worst severity picks the band, base = `round(10×max_cvss)`, and each extra finding at that band adds `int(0.9×(n−1)+0.5)` capped at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 = the qualitative band tops 8.9/6.9/3.9 × 10). Clearing mediums now rewards progress too (16 mediums = 69 · 10 = 63 · 2 = 56 · 1 = 55), bands NEVER overlap (any high ≥ 80 > any no-high ≤ 69 > any low-only ≤ 39), and the caption "CVSS 4.0 · risk n/100 · band" stays literally true in every band (each cap IS the band ceiling — that was the discussion's key finding). **Saturation caveat (accepted)**: bulk bands sit at their ceiling — 446 mediums = 69 until the count drops below ~16, then the tail descends (progress shows via the severity-count stat boxes meanwhile). **Migration 0007** (`0007_band_symmetric_bonus.py`) re-scores every `done` scan (0006 test now upgrades to `0006` in isolation; new 0007 test: 3M → 57, 100L → 39, 11H → 89). Live-verified in compose: scan 16 (446M, no highs) 55 → **69**; scan 18 (11H) stays 89; scan 17 mediums descend 56 → 55 → 20 (low band) → restored 57 (it had one medium left suppressed from the Aug 8 e2e). Defensive `_BAND_RISK.get()` fallback keeps unknown-but-scored severities from crashing (review catch). Gates: **312 backend tests green + ruff clean; tsc + vite build green.**
 
-M7 — **Deep research + interactive browser automation planned; docs updated
-(Aug 7, 2026)**: `docs/masa-{techstack,prd,tasks}.md` now include
-**agent-browser** (vercel-labs, Apache-2.0 — native Rust CLI + CDP daemon
-over Chrome/Chromium, no Playwright/Puppeteer/Node) as the agent's browser
-capability: token-efficient accessibility-tree snapshots with element refs
-(`@e12`, ~90%+ context savings vs raw HTML), `read` (markdown/llms.txt-
-aware) replaces the hand-rolled `web_fetch`, `batch` for multi-step flows;
-SearXNG still the search provider. Same per-scan opt-in + "leaves the
-machine" boundary as web research; every browsing turn bounded (`--max-
-output`, `--allowed-domains`, session teardown). Open deployment question:
-Chrome for Testing (~150MB+) host-side like Ollama vs in-image. M6
-(tool-calling surface), M8–M10 unchanged.
+M7 — **Agent web research (on-demand; COMPLETE Aug 9, 2026 — see
+`docs/progress/M7.md`)**. Owner decisions at kickoff: (1) **agent-browser
+DROPPED** — no browser automation in v1, JS-rendered pages degrade. (2)
+**Deep-research / GPT Researcher pipeline DROPPED** (GPT Researcher's
+Apache-2.0 license was verified — scope decision, not license): web research
+is two on-demand agent tools, `web_search(query)` + `web_fetch(url)` (httpx
++ **trafilatura ≥1.8.0** — Apache-2.0 only at ≥1.8.0, earlier = GPLv3+),
+gated by **per-scan opt-in** (`scans.web_research_enabled`, migration 0008,
+default off), ChatGPT/Gemini-style: the model triggers search when a question
+needs current/external info (CVEs, MASTG guidance, dep versions). (3)
+**SearXNG = bundled, profile-gated** compose service (`profiles: [web]`,
+unmodified upstream image, our own minimal settings.yml enables json
+format). **AGPL boundary**: SearXNG is AGPL-3.0; MASA stays clean because it
+runs as an unmodified separate container over HTTP JSON API only — never
+imported/vendored/forked; AGPL §13 reaches modified copies of SearXNG
+itself, not the calling app (`docs/licenses.md` row). (4) **Search provider
+registry now, SearXNG only** — `search/providers.py` + `search/backends.py`
+JSON store mirror the M3/M5 BYOK pattern; custom SearXNG-compatible
+instances (base URL, no key) are the free-form BYOK analogue; Brave/Serper/
+Mojeek are later rows. **Engine enablement is a Settings concern (owner
+follow-up, same session):** each search backend carries an **Active/Inactive
+toggle** in Settings → Search & research, **one Active at a time** (radio —
+enabling one disables the others, mirroring `pick_chat_backend`
+determinism); the store keeps `enabled` + `order` so a priority fallback
+chain is a resolver-only change later. The Agent dock 🌐 toggle is the
+**per-scan opt-in ONLY** (engine-agnostic privacy gate — never selects or
+starts an engine) and is **disabled until an engine is Active** (greyed,
+hint to Settings); web tools are offered only when BOTH the scan opt-in
+(`scans.web_research_enabled`) AND an Active engine hold. **Ruled out as
+future providers**: Google CSE (closing to new customers Jan 2027), Bing v7
+(dead, HTTP 410), DuckDuckGo (no official API). M8–M10 unchanged.
+
+**M7 built (Aug 9, 2026 — Phases A–D, mocked-test gates green):**
+`app/search/` package — `providers.py` (SearXNG bundled + custom table),
+`backends.py` (`SearchStore`: `search_backends.json` 0600, env-seeded
+`MASA_SEARXNG_BASE_URL`, **`enable_only(id)`/`active()` radio** — one Active
+at a time, enforced server-side on `upsert(enabled=True)` and `add()`;
+`enable_only` delegates to upsert so the radio has ONE implementation),
+`client.py` (SearXNG `GET /search?q=&format=json` →
+`[{title,url,snippet,engine}]`; **`web_fetch` = streaming bounded httpx +
+trafilatura extraction, SSRF-guarded** — http(s) only, private/reserved
+hosts refused at the first hop AND every redirect hop, IPv4-mapped-IPv6
+loopback refused, body read in chunks capped at `web_fetch_max_bytes`;
+`check_backend` probe never raises — a misbehaving engine degrades to an
+unreachable result, never a 500). API `GET/POST/DELETE /search/backends` +
+`PUT …/{id}` (radio) + `POST …/{id}/test` (real query). Migration **0008**
+(`scans.web_research_enabled`, default off) + `PUT /scans/{id}/web-research`.
+Agent: `web_search`/`web_fetch` tools gated by **both** gates via
+`web_tools_allowed(scan_id)` (scan opt-in AND `SearchStore.active()`),
+`schemas_for_platform(platform, web_research_enabled=…)` filters the
+schemas, handlers re-check defensively; system prompt gains a WEB RESEARCH
+section only when allowed. Dev-only fake model (M6.1) gained a web-research
+script (web_search → web_fetch → cited answer) so the flagship case demos
+with zero Ollama. Frontend: Settings → **Search & research tab live**
+(`SearchTab.tsx` — engine radio cards + base URL + Test probe + add/remove
+custom, reusing BackendsTab/BYOKTab patterns — the per-scan opt-in lives
+ONLY on the dock 🌐 toggle; a Settings copy was removed Aug 9);
+Agent dock **🌐 Web toggle live** (per-scan opt-in only, disabled until an
+engine is Active, green when on, "⏎ to send · 🌐 web on" hint); AppContext
+`searchBackends` state + CRUD/probe/setWebResearch actions. Compose:
+`searxng` under `profiles: [web]` (port 8888:8080, our
+`docker/searxng/settings.yml` — json on, limiter off — mounted read-only at
+/etc/searxng/settings.yml, `searxng-data` volume); `trafilatura>=1.8.0,<2.0`
+in requirements.txt (the license boundary). Gates: **432 backend tests green
++ ruff clean; `tsc -b` + `vite build` green.** Remaining owner checkpoints:
+containerized e2e with the profile started (upload → enable research → chat
+streams a real search via compose SearXNG) + real-model QA.
+
+**Follow-up (same session, Aug 9 — dock UX + compose SearXNG wiring, owner
+review):** (1) **Agent dock minimum width raised 260 → 320 px** — at the old
+min the header "Agent · this scan" overlapped the 🌐 Web toggle
+(`DashboardView` `DOCK_MIN`); `.agent-header .title` also gained
+`overflow: hidden` + `text-overflow: ellipsis` as a defensive clip at any
+width. (2) **Dock drag-to-resize direction FIXED** — the real "extend/shrink"
+complaint was the divider drag, not the button (owner confirmed: "extend
+and shrink … using cursor … like in decompiler view"; the collapse button
+glyphs were left at their original ⤡/⤢). The dock is the right-edge pane,
+but its splitter ADDED the delta (`+ d`), so pulling the divider right GREW
+the dock — the opposite of every other divider in the app (the decompiler
+rail shrinks when dragged right via `railW - d`). Now `dockW - d`: drag
+right narrows the dock, drag left extends it, matching the rail splitter. (3) **Settings per-scan opt-in section REMOVED** (`SearchTab.tsx`
+`ScanOptInSection`) — redundant with the dock 🌐 toggle; the dock remains
+the single per-scan control (`setWebResearch` / `PUT /scans/{id}/web-research`
+unchanged). (4) **Compose app/worker now set
+`MASA_SEARXNG_BASE_URL: http://searxng:8080`** — inside the compose network
+the seeded `localhost:8888` pointed at the container itself (Connection
+refused); the store seeds from the env on first read, an existing
+`search_backends.json` keeps its own URL (edit in Settings → Search &
+research). Start the engine with `docker compose --profile web up -d searxng`
+(published to host `localhost:8888`). (5) **Web 🌐 toggle now also locks
+without a chat model** — it was gated only on an Active engine; now
+`webLocked = !activeEngine || !modelConnected` greys it and makes it
+click-inert with a "No model connected — pick one in the top bar or
+Settings" tooltip, mirroring the send-button gate (web research is
+meaningless with no agent to run it).
+
+**Containerized e2e RUN (Aug 9) — the M7 owner checkpoint, live in
+compose with the fake model (Ollama off):** (1) **SearXNG crashed on boot —
+`server.secret_key: The value has to be one of these types/values: str`.**
+Our minimal `docker/searxng/settings.yml` lacked the `use_default_settings:
+true` merge flag AND a secret_key; SearXNG 2026.8.4 schema-validation hard-
+fails without them. Fixed in the file (fixed dev secret, localhost-only
+engine) + validated in a throwaway container before recreating. (2) The
+engine is reached live end-to-end: `POST /search/backends/searxng/test`
+from the app → `reachable: true, result_count: 1` (app→`searxng:8080`
+in-network). (3) The persisted store kept `localhost:8888` (file is source
+of truth) — repointed via `PUT /search/backends/searxng {base_url:
+http://searxng:8080}` (the documented Settings edit, done via API).
+(4) Full chat e2e on scan 19 (InsecureBankv2, `MASA_FAKE_MODEL=1`):
+`PUT /scans/19/web-research {enabled:true}` → `POST /scans/19/chat/stream`
+"any known CVEs?" → streamed thinking tokens, live `web_search` tool step
+**10 real results / 1.1s**, `web_fetch` attempt → **HTTP 403 from the top
+hit (medium.com blocks the honest `MASA-agent/0.1` UA)** — degrades
+cleanly. (5) **Fake web script FIXED** (regression-tested): it used to
+re-fetch the SAME failed URL until the 3-round limit, so the final answer
+lost its citation; now round 3 composes from the search results (cites the
+top URL + "the top page blocked direct reading" note) — `_web_response`
+never retries a failed fetch. Real-model QA remains an owner checkpoint.
+
+**Follow-up (same session) — one-click engine start (owner request):**
+Settings → Search & research now has a **▶ Start engine** button on the
+bundled SearXNG card whenever the probe reports it unreachable — instead of
+only the `docker compose --profile web up -d searxng` hint text. Backend:
+`POST /search/backends/{id}/start` runs the FIXED compose argv (no shell /
+no user input — not an injection surface) with the compose file discovered
+upward from cwd (`_find_compose_file`), then polls the engine until it
+answers (`_wait_for_engine`) and returns the fresh health. 400 for custom
+instances; 502/504 carrying the manual command when Docker is missing /
+timed out / compose failed. Frontend: `api.startSearchBackend` +
+`AppContext.startSearchBackend` (merged in place like the probe) +
+SearchTab button (bundled + `!health.reachable` only). Live-verified:
+442 backend tests green (6 new) + ruff clean; tsc + vite build green;
+endpoint in the app container (no Docker on its host) returns the clean
+502 manual-command detail; host-side `docker compose -f … up -d searxng`
+idempotent on the running engine. The Active toggle still never starts the
+container — this button is the explicit start affordance.
+
+**Follow-up (same session, Aug 9) — search provider registry expanded
+(owner question: "what about duckduck, brave etc.? can it be simplified to
+base URL + API key?")** — Settings → Search & research now offers four
+providers instead of only SearXNG. The add-form is a **provider picker**
+chip row (mirroring BYOKTab) whose fields adapt per provider: base URL
+(pre-filled with the provider's default, optional when it has one) + API
+key (required for keyed providers, hidden for SearXNG instances).
+Providers: **custom** (SearXNG-compatible, base URL only), **brave**
+(`api.search.brave.com`, `X-Subscription-Token` header, `GET
+/res/v1/web/search`), **serper** (`google.serper.dev`, `X-API-KEY` header,
+`POST /` JSON body — Google SERP), **mojeek** (`www.mojeek.com`, `q` +
+`api_key` params, `fmt=json`). DuckDuckGo stays ruled out (no official
+API); Google CSE (closing Jan 2027) and Bing v7 (HTTP 410) remain future-
+rows only. `search/providers.py` now carries the keyed rows
+(`key_required`/`default_base_url`/`query_style`/`parse_style`);
+`client.py` dispatches by `query_style` (`searxng` | `brave` | `serper` |
+`mojeek`) with per-style normalizers → the shared `[{title,url,snippet}]`
+shape, plus a **key-rejected hint** (401/403 → "check the API key in
+Settings") and a keyed-aware `check_backend` probe (skips the real query
+when no key, reports `missing key`). `backends.py` env-seeds keyed engines
+from `MASA_BRAVE_API_KEY` etc. but **disabled** (key presence alone never
+activates an engine — the radio does); `upsert` accepts `api_key`;
+`config.py` gains the key fields; `schemas.py` gains `has_api_key`,
+`api_key` on create/upsert, and `GET /search/providers` (the picker's
+source of truth). Frontend: `types.ts` `SearchProvider` + `api_key`
+fields, `api.searchProviders()`, `SearchTab` provider-chip add-form with
+a **key-set indicator** ("✓ key set" on a backend row) — `api_key` is
+write-only in responses. Tests: provider invariants (every keyed row has a
+default base URL + parse style), keyed normalizers (brave/serper/mojeek
+parse fixtures), key-rejected hint, env-seed-disabled, API create-with-key
++ has_api_key + GET /providers. Gates: **457 backend tests green (+15) +
+ruff clean; tsc + vite build green**; live in compose: `GET
+/search/providers` serves all four rows with correct shapes.
+
+**Follow-up (same session, Aug 9) — manual web-search testing + chat chip
+overflow fix (owner):** (1) **The fake model now searches with the USER'S
+OWN question text** — `fake.py::_web_query` picks the last user message
+(≥4 chars, else the canned `InsecureBankv2 known vulnerabilities CVE`
+fallback) as the round-1 `web_search` query, so a manual test types its own
+search in the dock and the fake runs it verbatim (a real model would
+paraphrase; the fake is a script). Live-verified in compose: question
+"SQLite database CVEs 2026" → `web_search` args `{query: "SQLite database
+CVEs 2026"}` → 10 results → `web_fetch` of the top hit (sqlite.org/cves.html,
+read cleanly this time) → cited answer with the source URL. Manual test
+recipe: fake model selected (MASA_FAKE_MODEL=1) + an Active engine in
+Settings → Search & research + the dock 🌐 toggle on (per-scan opt-in) —
+then just ask; the tool steps stream live and the `Tools (n)` trace shows
+the real results. (2) **file:line citation chips could escape the chat
+bubble** (long unbroken paths) — fixed three ways: `AgentDock`
+`shortenPath` (middle-ellipsis keeping the filename:line tail + full path
+in the chip tooltip), `.src-chip` `max-width:100%` + ellipsis floor (with
+`.src-row` capped), and `.md code`/`.msg` `overflow-wrap: anywhere` so
+inline paths in answers wrap instead of pushing the bubble out of the dock.
+Gates: **459 backend tests green (+2 new) + ruff clean; tsc + vite build
+green**; app image rebuilt and live.

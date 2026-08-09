@@ -230,6 +230,104 @@ def test_fake_stream_rounds_flow_through_real_accumulator():
     assert json.loads(message.tool_calls[0].function.arguments) == {"pattern": "WebView"}
 
 
+# ---- M7 web-research demo script ---------------------------------------------
+
+
+def _web_tools():
+    """The tool schemas a web-enabled scan's chat offers the model."""
+    return [
+        {"type": "function", "function": {"name": "web_search"}},
+        {"type": "function", "function": {"name": "web_fetch"}},
+    ]
+
+
+def test_fake_web_round1_issues_search_when_no_results():
+    response = fake_chat_response(
+        [{"role": "user", "content": "any CVEs?"}], tools=_web_tools()
+    )
+    message = response.choices[0].message
+    assert [c.function.name for c in message.tool_calls] == ["web_search"]
+
+
+def test_fake_web_round1_uses_the_users_question_as_the_query():
+    """A manual web-search test types its OWN query — the fake's round-1
+    web_search must run the user's actual question text (a real model would
+    paraphrase it; the fake is a script and searches verbatim). The canned
+    query is only the fallback for empty/short questions."""
+    response = fake_chat_response(
+        [{"role": "user", "content": "SQLite database CVE 2026"}], tools=_web_tools()
+    )
+    message = response.choices[0].message
+    assert [c.function.name for c in message.tool_calls] == ["web_search"]
+    assert json.loads(message.tool_calls[0].function.arguments) == {
+        "query": "SQLite database CVE 2026"
+    }
+
+
+def test_fake_web_round1_short_question_falls_back_to_canned_query():
+    response = fake_chat_response([{"role": "user", "content": "hi"}], tools=_web_tools())
+    message = response.choices[0].message
+    assert json.loads(message.tool_calls[0].function.arguments)["query"] == (
+        "InsecureBankv2 known vulnerabilities CVE"
+    )
+
+
+def test_fake_web_round2_fetches_top_result_once():
+    messages = [
+        {"role": "user", "content": "any CVEs?"},
+        {"role": "tool", "tool_call_id": "call_search",
+         "content": json.dumps([{"title": "T", "url": "https://example.com/cve",
+                                 "snippet": "s"}])},
+    ]
+    response = fake_chat_response(messages, tools=_web_tools())
+    message = response.choices[0].message
+    assert [c.function.name for c in message.tool_calls] == ["web_fetch"]
+    assert json.loads(message.tool_calls[0].function.arguments) == {
+        "url": "https://example.com/cve"
+    }
+
+
+def test_fake_web_round3_failed_fetch_never_retried_cites_results():
+    """Regression (containerized e2e, Aug 9): a 403'd page (e.g. medium.com
+    blocking the honest MASA UA) must NOT be re-fetched — the next response
+    composes the answer from the search results, citing the top URL, so the
+    demo always lands a citation within the default 3 tool rounds instead of
+    looping on the same failed fetch until the round limit."""
+    messages = [
+        {"role": "user", "content": "any CVEs?"},
+        {"role": "tool", "tool_call_id": "call_search",
+         "content": json.dumps([{"title": "T", "url": "https://example.com/cve",
+                                 "snippet": "s"}])},
+        {"role": "tool", "tool_call_id": "call_fetch",
+         "content": json.dumps({"error": "web_fetch got HTTP 403 from "
+                                        "https://example.com/cve"})},
+    ]
+    response = fake_chat_response(messages, tools=_web_tools())
+    message = response.choices[0].message
+    assert not getattr(message, "tool_calls", None)  # no re-fetch of the same URL
+    content = message.content
+    assert "https://example.com/cve" in content
+    assert "blocked direct reading" in content
+
+
+def test_fake_web_round3_successful_page_is_cited():
+    messages = [
+        {"role": "user", "content": "any CVEs?"},
+        {"role": "tool", "tool_call_id": "call_search",
+         "content": json.dumps([{"title": "T", "url": "https://example.com/cve",
+                                 "snippet": "s"}])},
+        {"role": "tool", "tool_call_id": "call_fetch",
+         "content": json.dumps({"url": "https://example.com/cve",
+                                 "title": "CVE-2024-0001",
+                                 "text": "A vulnerability..."})},
+    ]
+    response = fake_chat_response(messages, tools=_web_tools())
+    message = response.choices[0].message
+    assert not getattr(message, "tool_calls", None)
+    assert "CVE-2024-0001" in message.content
+    assert "https://example.com/cve" in message.content
+
+
 # ---- client + health short-circuits ------------------------------------------
 
 

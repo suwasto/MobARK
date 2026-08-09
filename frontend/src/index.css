@@ -1188,6 +1188,17 @@
     white-space: nowrap;
     min-width: 0;
   }
+  /* The clip+ellipsis lives on the TEXT node, not the flex container — on
+     the container it would also clip the dot's steel glow at the box edge,
+     and text-overflow isn't spec-guaranteed on flex containers (review
+     catch, Aug 9). Shrinking + clipping here is what stops "Agent · this
+     scan" from overlapping the 🌐 Web toggle at narrow widths. */
+  .agent-header .title > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .collapse-btn {
     background: none;
     border: none;
@@ -1229,6 +1240,9 @@
     line-height: 1.6;
     padding: 10px 12px;
     border-radius: 6px;
+    /* Long unbroken runs (URLs, pasted paths) wrap instead of pushing the
+       bubble out of the dock (owner report, Aug 9). */
+    overflow-wrap: anywhere;
   }
   .msg.user {
     align-self: flex-end;
@@ -1306,6 +1320,12 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 10px;
+    /* Chips must never escape the bubble: a long unbroken file path could
+       otherwise push the row past .msg's max-width (owner report, Aug 9).
+       The row caps each chip at the bubble width; the chip truncates its
+       own text (the JS shortens paths first so the filename:line tail stays
+       visible — this is the belt-and-braces floor). */
+    max-width: 100%;
   }
   .src-chip {
     font-family: var(--font-mono);
@@ -1316,6 +1336,10 @@
     background: var(--color-graphite);
     color: var(--color-steel);
     cursor: pointer;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     transition:
       border-color 0.15s ease,
       color 0.15s ease;
@@ -1515,11 +1539,20 @@
     font-family: var(--font-mono);
     font-size: 10.5px;
     color: var(--color-bone-faint);
-    cursor: default;
+    cursor: pointer;
     white-space: nowrap;
+    transition: color 0.15s ease;
+  }
+  .research-toggle:hover:not(.disabled) {
+    color: var(--color-bone-dim);
+  }
+  /* M7 live state: the per-scan opt-in is on — green like the switch. */
+  .research-toggle.on {
+    color: var(--color-steel);
   }
   .research-toggle.disabled {
     opacity: 0.45;
+    cursor: not-allowed;
   }
 
   .send-btn {
@@ -1640,7 +1673,10 @@
   .model-pill {
     cursor: pointer;
     position: relative;
-    max-width: 180px;
+    /* Widened from 180px (owner follow-up, Aug 9) — the closed pill truncates
+       long model ids like `qwen2.5-coder:32b-instruct-q4_K_M`; the hover
+       title carries the full id, and the wider cap keeps more of it visible. */
+    max-width: 240px;
   }
 
   /* Suppressed (false-positive) findings — the review queue is visually
@@ -1672,7 +1708,9 @@
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
-    width: 280px;
+    /* Widened from 280px (owner follow-up, Aug 9) — roomier menu for long
+       model ids now that the via column is gone from the rows. */
+    width: 340px;
     max-height: 380px;
     overflow-y: auto;
     background: var(--color-panel-raised);
@@ -1711,10 +1749,14 @@
   }
   .model-opt .mname {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     color: var(--color-bone);
+    /* Model rows are name-only — the full id must stay readable, so wrap
+       instead of ellipsizing mid-id (owner follow-up, Aug 9). Short names
+       stay single-line; only overflow wraps. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.45;
   }
   .model-opt.active .mname {
     color: var(--color-steel);
@@ -2222,6 +2264,11 @@
   padding: 1px 5px;
   border-radius: 2px;
   color: var(--color-bone);
+  /* file:line citations and URLs in answers are long unbroken runs — wrap
+     them inside the bubble instead of overflowing it (owner report, Aug 9).
+     Same treatment as the model dropdown names. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .md pre {
   margin: 0 0 0.75em;
@@ -2237,6 +2284,10 @@
   padding: 0;
   font-size: 11.5px;
   color: var(--color-bone-dim);
+  /* The inline-code wrap rule above must NOT reach fenced blocks — long
+     lines there keep the pre's horizontal scroll (review catch, Aug 9). */
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .md h1,
 .md h2,

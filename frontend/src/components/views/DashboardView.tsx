@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { api } from '../../api/client'
 import { useFindings } from '../../hooks/useFindings'
 import { formatRelative, platformLabel } from '../../lib/format'
 import { useApp } from '../../state/AppContext'
 import type { ScanRead } from '../../types'
+import { Splitter } from '../Splitter'
 import { TargetBar } from '../TargetBar'
 import { AgentDock } from '../agent/AgentDock'
 import { CodeMapsPanel } from '../panels/CodeMapsPanel'
@@ -19,6 +21,38 @@ type Tab =
   | 'codemaps'
   | 'report'
 
+// Resizable Agent dock (owner follow-up, Aug 9): dragged width persisted per
+// browser like the decompiler splitters. The 45vw CSS cap keeps a wide drag
+// from swallowing the dashboard on narrow windows. DOCK_MIN is sized so the
+// dock header ("Agent · this scan" + 🌐 Web toggle + collapse button) fits
+// without the title overlapping the toggle (owner report, Aug 9).
+const DOCK_KEY = 'masa.dockW'
+const DOCK_DEFAULT = 340
+const DOCK_MIN = 320
+const DOCK_MAX = 560
+
+/** Live ceiling for the dock — the CSS renders `clamp(320px, dockW, 45vw)`, so
+ * mirroring the 45vw cap in JS keeps a drag (and the persisted width) from
+ * diverging from what's actually visible on this viewport (review catch,
+ * Aug 9). Never below DOCK_MIN: on sub-~711px windows the CSS resolves the
+ * clamp to its min, and the state must match. */
+function dockLiveCap(): number {
+  return Math.max(
+    DOCK_MIN,
+    Math.min(DOCK_MAX, Math.floor(window.innerWidth * 0.45)),
+  )
+}
+
+function readDockWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(DOCK_KEY))
+    if (Number.isFinite(n)) return Math.min(dockLiveCap(), Math.max(DOCK_MIN, n))
+  } catch {
+    // Storage unavailable (private mode) — session default is fine.
+  }
+  return Math.min(DOCK_DEFAULT, dockLiveCap())
+}
+
 interface DashboardViewProps {
   onPickFile: () => void
   uploading: boolean
@@ -33,6 +67,22 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
   const { activeScan } = useApp()
   const [tab, setTab] = useState<Tab>('overview')
   const [dockCollapsed, setDockCollapsed] = useState(false)
+  // Dragged dock width — same readWidth/clamp/persist pattern as the
+  // decompiler panes, so the splitter behavior is identical everywhere.
+  const [dockW, setDockW] = useState(readDockWidth)
+  const dockWRef = useRef(dockW)
+  const setDockWClamped = (w: number) => {
+    const next = Math.min(dockLiveCap(), Math.max(DOCK_MIN, w))
+    dockWRef.current = next
+    setDockW(next)
+  }
+  const commitDockW = () => {
+    try {
+      localStorage.setItem(DOCK_KEY, String(dockWRef.current))
+    } catch {
+      // ignore
+    }
+  }
   // Scroll target for tab switches — panels stay mounted (see below) but a
   // reopened tab should start at its top, not wherever the previous tab
   // left off. Refs the shared scroll container on <main>.
@@ -119,9 +169,14 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
       <TargetBar onPickFile={onPickFile} uploading={uploading} scan={current} />
 
       <div
-        className={`grid min-h-0 flex-1 ${
-          dockCollapsed ? 'grid-cols-[1fr_44px]' : 'grid-cols-[1fr_340px]'
-        }`}
+        className="grid min-h-0 flex-1"
+        style={
+          {
+            gridTemplateColumns: dockCollapsed
+              ? 'minmax(0, 1fr) 44px'
+              : `minmax(0, 1fr) 6px clamp(${DOCK_MIN}px, ${dockW}px, 45vw)`,
+          } as CSSProperties
+        }
       >
         <main ref={mainRef} className="min-w-0 overflow-y-auto">
           {/* Header (scrolls away with the content) */}
@@ -223,6 +278,24 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
             </div>
           </div>
         </main>
+
+        {!dockCollapsed && (
+          <Splitter
+            title="Drag to resize the agent dock (double-click to reset)"
+            /* The dock is the RIGHT-edge pane, so its divider follows the
+               decompiler rail-splitter convention (owner report, Aug 9 —
+               "extend and shrink … like in decompiler view"): dragging the
+               divider right NARROWS the dock, dragging it left EXTENDS it.
+               The old `+ d` grew the dock when the divider was pulled right
+               — the opposite of every other divider in the app. */
+            onDelta={(d) => setDockWClamped(dockWRef.current - d)}
+            onCommit={commitDockW}
+            onReset={() => {
+              setDockWClamped(DOCK_DEFAULT)
+              commitDockW() // a reset should persist too, like a drag
+            }}
+          />
+        )}
 
         <AgentDock
           key={current.id}

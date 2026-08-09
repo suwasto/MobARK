@@ -28,6 +28,7 @@ frontend/vite.config.d.ts
 .opencode/
 graphify-out/
 /app_m2_test.py
+build.log
 
 # ---- OS / editors ----
 .DS_Store

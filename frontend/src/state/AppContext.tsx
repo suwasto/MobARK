@@ -14,6 +14,9 @@ import type {
   ModelBackendRead,
   ModelBackendUpsert,
   ScanRead,
+  SearchBackendCreate,
+  SearchBackendRead,
+  SearchBackendUpsert,
 } from '../types'
 
 /**
@@ -37,10 +40,13 @@ interface AppContextValue {
   activeScan: ScanRead | null
   health: HealthResponse | null
   backends: ModelBackendRead[]
+  /** M7: configured search engines (the web-research radio list). */
+  searchBackends: SearchBackendRead[]
   actions: {
     refreshScans: () => Promise<void>
     refreshHealth: () => Promise<void>
     refreshBackends: () => Promise<void>
+    refreshSearchBackends: () => Promise<void>
     refreshAll: () => Promise<void>
     selectScan: (id: number | null) => void
     uploadScan: (file: File) => Promise<ScanRead>
@@ -52,6 +58,18 @@ interface AppContextValue {
     deleteBackend: (id: string) => Promise<void>
     /** Full health probe; the probed backend is merged into state in place. */
     testBackend: (id: string) => Promise<ModelBackendRead>
+    /** M7 — search engine mutations (Settings -> Search & research). */
+    updateSearchBackend: (id: string, payload: SearchBackendUpsert) => Promise<void>
+    createSearchBackend: (payload: SearchBackendCreate) => Promise<void>
+    deleteSearchBackend: (id: string) => Promise<void>
+    /** Full probe; the probed engine is merged into state in place. */
+    testSearchBackend: (id: string) => Promise<SearchBackendRead>
+    /** One-click start for the bundled engine (compose up + wait, server-
+     * side); the returned card carries the fresh health, merged in place. */
+    startSearchBackend: (id: string) => Promise<SearchBackendRead>
+    /** M7 — per-scan web research opt-in (the dock 🌐 toggle). Refreshes the
+     * scan list so ScanRead.web_research_enabled stays honest. */
+    setWebResearch: (scanId: number, enabled: boolean) => Promise<void>
   }
 }
 
@@ -72,6 +90,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [scans, setScans] = useState<ScanRead[]>([])
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [backends, setBackends] = useState<ModelBackendRead[]>([])
+  const [searchBackends, setSearchBackends] = useState<SearchBackendRead[]>([])
   const [activeScanId, setActiveScanId] = useState<number | null>(readStoredScanId)
   const [booting, setBooting] = useState(true)
 
@@ -104,10 +123,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const refreshSearchBackends = useCallback(async () => {
+    try {
+      setSearchBackends(await api.listSearchBackends())
+    } catch {
+      setSearchBackends([])
+    }
+  }, [])
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshScans(), refreshHealth(), refreshBackends()])
+    await Promise.all([
+      refreshScans(),
+      refreshHealth(),
+      refreshBackends(),
+      refreshSearchBackends(),
+    ])
     setBooting(false)
-  }, [refreshScans, refreshHealth, refreshBackends])
+  }, [refreshScans, refreshHealth, refreshBackends, refreshSearchBackends])
 
   useEffect(() => {
     void refreshAll()
@@ -176,6 +208,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return probed
   }, [])
 
+  const updateSearchBackend = useCallback(
+    async (id: string, payload: SearchBackendUpsert) => {
+      await api.updateSearchBackend(id, payload)
+      await refreshSearchBackends()
+    },
+    [refreshSearchBackends],
+  )
+
+  const createSearchBackend = useCallback(
+    async (payload: SearchBackendCreate) => {
+      await api.createSearchBackend(payload)
+      await refreshSearchBackends()
+    },
+    [refreshSearchBackends],
+  )
+
+  const deleteSearchBackend = useCallback(
+    async (id: string) => {
+      await api.deleteSearchBackend(id)
+      await refreshSearchBackends()
+    },
+    [refreshSearchBackends],
+  )
+
+  const testSearchBackend = useCallback(async (id: string) => {
+    const probed = await api.testSearchBackend(id)
+    // Merge the probe result in place (same as the model-backend probe).
+    setSearchBackends((prev) => prev.map((b) => (b.id === probed.id ? probed : b)))
+    return probed
+  }, [])
+
+  /** One-click start for the bundled engine — the returned card carries the
+   * fresh health, merged in place so a full list refresh never downgrades it
+   * to the lightweight reachability check. */
+  const startSearchBackend = useCallback(async (id: string) => {
+    const started = await api.startSearchBackend(id)
+    setSearchBackends((prev) => prev.map((b) => (b.id === started.id ? started : b)))
+    return started
+  }, [])
+
+  const setWebResearch = useCallback(
+    async (scanId: number, enabled: boolean) => {
+      await api.setWebResearch(scanId, enabled)
+      await refreshScans()
+    },
+    [refreshScans],
+  )
+
   const activeScan = useMemo(() => {
     if (activeScanId != null) {
       const byId = scans.find((s) => s.id === activeScanId)
@@ -200,10 +280,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeScan,
       health,
       backends,
+      searchBackends,
       actions: {
         refreshScans,
         refreshHealth,
         refreshBackends,
+        refreshSearchBackends,
         refreshAll,
         selectScan,
         uploadScan,
@@ -212,6 +294,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         createBackend,
         deleteBackend,
         testBackend,
+        updateSearchBackend,
+        createSearchBackend,
+        deleteSearchBackend,
+        testSearchBackend,
+        startSearchBackend,
+        setWebResearch,
       },
     }),
     [
@@ -221,9 +309,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       activeScan,
       health,
       backends,
+      searchBackends,
       refreshScans,
       refreshHealth,
       refreshBackends,
+      refreshSearchBackends,
       refreshAll,
       selectScan,
       uploadScan,
@@ -232,6 +322,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       createBackend,
       deleteBackend,
       testBackend,
+      updateSearchBackend,
+      createSearchBackend,
+      deleteSearchBackend,
+      testSearchBackend,
+      startSearchBackend,
+      setWebResearch,
     ],
   )
 

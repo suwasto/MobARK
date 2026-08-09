@@ -71,6 +71,23 @@ SYSTEM_PROMPT = (
     "than guessing."
 )
 
+# M7: appended to the system prompt ONLY when the scan's web-research opt-in
+# AND an Active search engine both hold (the web tools are otherwise never
+# even offered — see schemas_for_platform).
+_WEB_PROMPT = (
+    "\n\nWEB RESEARCH IS ENABLED for this scan (the per-scan opt-in is on and "
+    "a search engine is Active). You have two extra tools:\n"
+    "- web_search(query): search public web sources (CVE databases, OWASP "
+    "MASTG guidance, dependency advisories) when a question needs CURRENT or "
+    "EXTERNAL information the scan data cannot answer.\n"
+    "- web_fetch(url): read one page (static content only) from a search "
+    "result, e.g. a CVE advisory, then cite its final URL in your answer.\n"
+    "Use these SPARINGLY — only when the question genuinely needs external "
+    "facts; never search for information already in the findings context. "
+    "Queries leave this machine by design (the scan opted in). Always cite "
+    "the source URLs you actually used."
+)
+
 
 class ChatNotConfigured(RuntimeError):
     """No chat model configured in the M3 backend store."""
@@ -500,7 +517,7 @@ def answer_question(
 
     on_token = (lambda delta: _emit(on_event, "token", {"delta": delta})) if on_event else None
 
-    from app.agent.tools import execute_tool
+    from app.agent.tools import execute_tool, web_tools_allowed
     from app.config import settings
 
     context = _load_context(scan_id)
@@ -516,8 +533,14 @@ def answer_question(
     if max_tool_rounds is None:
         max_tool_rounds = int(settings.max_tool_rounds)
 
+    # M7: both gates — the scan's web-research opt-in AND an Active search
+    # engine. When they hold, the web tools are offered (and the system
+    # prompt tells the model when to use them + to cite URLs).
+    web_allowed = web_tools_allowed(scan_id)
+    system_prompt = SYSTEM_PROMPT + (_WEB_PROMPT if web_allowed else "")
+
     messages: list[dict] = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\n\n" + context.rendered},
+        {"role": "system", "content": system_prompt + "\n\n" + context.rendered},
         {"role": "user", "content": question},
     ]
     # The original 2-turn prompt — used by the exhaustion fallback so the
@@ -525,8 +548,9 @@ def answer_question(
     # reject without a `tools` parameter.
     prompt = list(messages)
     # M6 Phase B: offer only the tools that exist for this scan's platform
-    # (iOS never sees get_decompiled_class).
-    tools = schemas_for_platform(context.platform)
+    # (iOS never sees get_decompiled_class). M7: plus the web tools when the
+    # two gates hold.
+    tools = schemas_for_platform(context.platform, web_research_enabled=web_allowed)
     tools_used: list[str] = []
     tool_runs: list[ToolRun] = []
     final_text = ""

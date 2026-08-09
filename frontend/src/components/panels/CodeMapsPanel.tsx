@@ -9,6 +9,13 @@ import type {
 } from '../../types'
 
 const SEARCH_DEBOUNCE_MS = 300
+// The graph build job is chained AFTER the Android analysis completes (it
+// took ~51s for InsecureBankv2's 46k-node graph), so a freshly rescanned
+// app legitimately shows "not built yet" for a minute or two. Poll the
+// filesystem-derived state until it flips to built, then stop; the cap
+// keeps a permanently failed build from polling forever.
+const GRAPH_STATE_POLL_MS = 5000
+const GRAPH_STATE_MAX_POLLS = 72 // ~6 min — then stop and show the hint
 
 interface CodeMapsPanelProps {
   scanId: number
@@ -37,6 +44,12 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
   const [state, setState] = useState<ScanGraphState | null>(null)
   const [stateLoading, setStateLoading] = useState(true)
   const [stateError, setStateError] = useState<string | null>(null)
+  /** True while the tab is auto-refreshing the graph state (the Android
+   * build window). Goes false once built, on a permanent error, or after
+   * the poll cap — the hint copy and the "building…" label key off it. */
+  const [polling, setPolling] = useState(false)
+  /** Bumped by the hint's "check again" button to restart the poll loop. */
+  const [retryNonce, setRetryNonce] = useState(0)
 
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -51,27 +64,54 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
   const built = state?.built ?? false
   const queryActive = query.trim().length > 0
 
-  // Graph build state (filesystem-derived backend state).
+  // Graph build state (filesystem-derived backend state). The chained graph
+  // build job runs AFTER the scan completes, so a freshly rescanned app can
+  // show "not built yet" for a minute or two — keep polling until the state
+  // flips to built. Android only: iOS never builds a graph, so it must not
+  // poll forever. Transient errors (e.g. the API restarting) keep the loop
+  // alive up to the cap instead of wedging the tab into the error box.
   useEffect(() => {
     let cancelled = false
+    let timer: number | null = null
+    let polls = 0
+    const fetchState = () => {
+      polls += 1
+      api
+        .getGraph(scanId)
+        .then((s) => {
+          if (cancelled) return
+          setState(s)
+          setStateError(null)
+          if (!s.built && platform === 'android' && polls < GRAPH_STATE_MAX_POLLS) {
+            setPolling(true)
+            timer = window.setTimeout(fetchState, GRAPH_STATE_POLL_MS)
+          } else {
+            setPolling(false)
+          }
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return
+          setStateError(err instanceof Error ? err.message : String(err))
+          if (platform === 'android' && polls < GRAPH_STATE_MAX_POLLS) {
+            setPolling(true)
+            timer = window.setTimeout(fetchState, GRAPH_STATE_POLL_MS)
+          } else {
+            setPolling(false)
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setStateLoading(false)
+        })
+    }
     setStateLoading(true)
     setStateError(null)
-    api
-      .getGraph(scanId)
-      .then((s) => {
-        if (!cancelled) setState(s)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled)
-          setStateError(err instanceof Error ? err.message : String(err))
-      })
-      .finally(() => {
-        if (!cancelled) setStateLoading(false)
-      })
+    setPolling(platform === 'android')
+    fetchState()
     return () => {
       cancelled = true
+      if (timer != null) window.clearTimeout(timer)
     }
-  }, [scanId])
+  }, [scanId, platform, retryNonce])
 
   // Hubs for the initial view — loaded once per scan.
   useEffect(() => {
@@ -194,7 +234,9 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
             ? '…'
             : built
               ? `${state?.nodes?.toLocaleString() ?? '–'} nodes · ${state?.edges?.toLocaleString() ?? '–'} edges`
-              : ''}
+              : polling
+                ? 'building…'
+                : ''}
         </span>
       </div>
 
@@ -213,10 +255,25 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
               Code maps are <strong>Android-only</strong> — iOS has no
               decompiled source tree to graph ({state.reason}).
             </>
+          ) : polling ? (
+            <>
+              {state.reason} — it builds automatically right after the
+              Android analysis completes (usually a minute or two). This
+              view refreshes by itself while it builds, so there's no need
+              to re-scan.
+            </>
           ) : (
             <>
-              {state.reason} — it builds automatically after the Android
-              analysis completes. Re-scan the app to generate it.
+              {state.reason}. If it still hasn't appeared after a few
+              minutes the build may have failed —{' '}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setRetryNonce((n) => n + 1)}
+              >
+                check again
+              </button>
+              .
             </>
           )}
         </div>

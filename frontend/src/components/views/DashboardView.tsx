@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { useFindings } from '../../hooks/useFindings'
 import { formatRelative, platformLabel } from '../../lib/format'
@@ -33,6 +33,10 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
   const { activeScan } = useApp()
   const [tab, setTab] = useState<Tab>('overview')
   const [dockCollapsed, setDockCollapsed] = useState(false)
+  // Scroll target for tab switches — panels stay mounted (see below) but a
+  // reopened tab should start at its top, not wherever the previous tab
+  // left off. Refs the shared scroll container on <main>.
+  const mainRef = useRef<HTMLElement>(null)
   // Citation-click -> decompiler: agent cites `file:line` paths relative to
   // the platform tree root; the Decompiler tab resolves them against the
   // loaded tree and reports back via onRequestConsumed.
@@ -53,6 +57,12 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
   const consumeFileRequest = useCallback(() => setFileRequest(null), [])
 
   const current = scan ?? scanOverride ?? activeScan
+
+  // Tabs keep their panels mounted (hidden, not unmounted) so switching
+  // never refetches the file tree / code graph — see the panels block.
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0)
+  }, [tab, current?.id])
 
   // Keyed on the id (not the object) so the backdrop's scan rows refreshing
   // during background polling never triggers a backfill storm.
@@ -113,7 +123,7 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
           dockCollapsed ? 'grid-cols-[1fr_44px]' : 'grid-cols-[1fr_340px]'
         }`}
       >
-        <main className="min-w-0 overflow-y-auto">
+        <main ref={mainRef} className="min-w-0 overflow-y-auto">
           {/* Header (scrolls away with the content) */}
           <div className="px-7 pt-5">
             <div className="flex items-baseline gap-2.5">
@@ -144,7 +154,12 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
             </div>
           </div>
 
-          {/* Panels */}
+          {/* Panels — kept MOUNTED once first visited: visibility is toggled
+              instead of unmounting, so reopening a tab is instant and never
+              refetches the file tree / code graph (the wait was the remount
+              refetch, not the data). Per-scan state still resets when the
+              active scan changes (DecompilerPanel keys its fetches on
+              scanId; CodeMapsPanel is keyed below). */}
           <div className="px-7 pb-16 pt-6">
             {failed && current.error && (
               <div className="mb-6 rounded-md border border-crimson/30 bg-crimson/10 p-4 font-mono text-[11.5px] leading-relaxed text-bone-dim">
@@ -152,7 +167,7 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
               </div>
             )}
 
-            {tab === 'overview' && (
+            <div className={tab !== 'overview' ? 'hidden' : undefined}>
               <OverviewPanel
                 scan={current}
                 findings={findings}
@@ -161,8 +176,8 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
                 findingsError={error}
                 onOpenFindings={() => setTab('findings')}
               />
-            )}
-            {tab === 'findings' && (
+            </div>
+            <div className={tab !== 'findings' ? 'hidden' : undefined}>
               <FindingsPanel
                 scanId={current.id}
                 findings={findings}
@@ -174,14 +189,14 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
                 error={error}
                 onChanged={onFindingsChanged}
               />
-            )}
-            {tab === 'dependencies' && (
+            </div>
+            <div className={tab !== 'dependencies' ? 'hidden' : undefined}>
               <PlaceholderPanel
                 title="Dependencies"
                 note="Dependency CVE research ships in M7. The tab is shown here as a placeholder only."
               />
-            )}
-            {tab === 'decompiler' && (
+            </div>
+            <div className={tab !== 'decompiler' ? 'hidden' : undefined}>
               <DecompilerPanel
                 scanId={current.id}
                 findings={findings}
@@ -189,23 +204,23 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
                 requestFile={fileRequest}
                 onRequestConsumed={consumeFileRequest}
               />
-            )}
-            {tab === 'codemaps' && (
-              /* Keyed per scan so search/hubs/selection never leak from the
-                 previous scan (same remount pattern as AgentDock). */
+            </div>
+            <div className={tab !== 'codemaps' ? 'hidden' : undefined}>
+              {/* Keyed per scan so search/hubs/selection never leak from the
+                 previous scan (same remount pattern as AgentDock). */}
               <CodeMapsPanel
                 key={current.id}
                 scanId={current.id}
                 platform={current.platform}
                 onOpenFile={openInDecompiler}
               />
-            )}
-            {tab === 'report' && (
+            </div>
+            <div className={tab !== 'report' ? 'hidden' : undefined}>
               <PlaceholderPanel
                 title="Report"
                 note="AI-drafted report generation and export ship in M9. The tab is shown here as a placeholder only."
               />
-            )}
+            </div>
           </div>
         </main>
 

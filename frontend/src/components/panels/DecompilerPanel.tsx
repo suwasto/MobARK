@@ -145,6 +145,9 @@ function resolveTreePath(
     const candidate = `${root.name}/${file}`
     if (byPath.has(candidate)) return { rootName: root.name, path: candidate }
   }
+  // Graph node files are normalized to root-relative in the backend
+  // (graphify._normalize_source_file), so this resolver only ever sees
+  // root-relative paths — no root-prefix handling needed here.
   return all.find((f) => f.path.endsWith(`/${file}`)) ?? null
 }
 

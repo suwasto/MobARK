@@ -185,6 +185,41 @@ def test_query_falls_back_to_label_search_when_cli_finds_nothing(monkeypatch, tm
     assert result["nodes"][0]["line"] == 7
 
 
+def test_node_row_normalizes_jadx_root_prefix(tmp_path):
+    """The graph's source_file keeps the jadx root prefix
+    (``sources/com/...``); node rows must be root-relative so code maps /
+    citations share one path shape with the Decompiler tree."""
+    p = _write_graph(
+        tmp_path,
+        nodes=[
+            ("n1", "GoogleApiClient", "sources/com/gms/GoogleApiClient.java", "L25"),
+            ("n2", "NetSecConfig", "resources/res/xml/netsec.xml", "L3"),
+            ("n3", "LoginActivity", "com/app/LoginActivity.java", "L1"),
+        ],
+    )
+    hits = search_labels(p, "GoogleApiClient NetSecConfig LoginActivity", limit=10)
+    by_label = {h["label"]: h for h in hits}
+    assert by_label["GoogleApiClient"]["file"] == "com/gms/GoogleApiClient.java"
+    assert by_label["NetSecConfig"]["file"] == "res/xml/netsec.xml"
+    # Already root-relative paths must never be mangled.
+    assert by_label["LoginActivity"]["file"] == "com/app/LoginActivity.java"
+
+
+def test_query_parses_cli_nodes_with_root_prefix(monkeypatch, tmp_path):
+    """``graphify query`` CLI output carries the same root-prefixed src;
+    parsed citation rows normalize it too."""
+    p = _write_graph(tmp_path, nodes=[("n1", "Foo", "f.java", "L1")])
+    _stub_run(
+        monkeypatch,
+        returncode=0,
+        stdout="NODE GoogleApiClient [src=sources/com/gms/GoogleApiClient.java loc=L25]",
+    )
+    result = query(p, "google api client")
+    assert result["via"] == "graphify-query"
+    assert result["nodes"][0]["file"] == "com/gms/GoogleApiClient.java"
+    assert result["nodes"][0]["line"] == 25
+
+
 def test_query_returns_false_when_nothing_matches(monkeypatch, tmp_path):
     p = _write_graph(tmp_path, nodes=[("id_x", "Foo", "f.java", "L1")])
     _stub_run(monkeypatch, returncode=0, stdout="No matching nodes found.")
@@ -304,6 +339,54 @@ def test_explorer_hubs_ranks_by_degree(tmp_path):
     hubs = graphify.hubs(p, limit=2)
     assert [h["node"]["id"] for h in hubs] == ["b", "a"]
     assert hubs[0]["degree"] == 2
+
+
+def test_explorer_index_rebuilds_on_version_mismatch(tmp_path):
+    """A stale explorer.json from an older build (v1, root-prefixed rows)
+    must be rebuilt — never served as-is — so the normalized shape wins."""
+    p = _write_explorer_graph(
+        tmp_path,
+        nodes=[
+            ("n1", "GoogleApiClient", "class", "sources/com/gms/GoogleApiClient.java", "L25")
+        ],
+    )
+    (tmp_path / "explorer.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "nodes": [
+                    {
+                        "id": "n1",
+                        "label": "GoogleApiClient",
+                        "file": "sources/com/gms/GoogleApiClient.java",
+                        "line": 25,
+                        "file_type": "class",
+                    }
+                ],
+                "links": [],
+            }
+        )
+    )
+    rows, _ = graphify.search(p, "google")
+    assert rows[0]["file"] == "com/gms/GoogleApiClient.java"
+    saved = json.loads((tmp_path / "explorer.json").read_text())
+    assert saved["version"] == 2
+
+
+def test_explorer_index_rebuilds_when_corrupt(tmp_path):
+    """A torn/truncated explorer.json must degrade to a rebuild, never a
+    JSONDecodeError 500."""
+    p = _write_explorer_graph(
+        tmp_path,
+        nodes=[
+            ("n1", "GoogleApiClient", "class", "sources/com/gms/GoogleApiClient.java", "L25")
+        ],
+    )
+    (tmp_path / "explorer.json").write_text('{"version": 2, "nodes": [{"id": ')  # torn
+    rows, _ = graphify.search(p, "google")
+    assert rows[0]["file"] == "com/gms/GoogleApiClient.java"
+    saved = json.loads((tmp_path / "explorer.json").read_text())
+    assert saved["version"] == 2
 
 
 def test_explorer_index_persisted_next_to_graph(tmp_path):

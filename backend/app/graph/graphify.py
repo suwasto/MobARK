@@ -40,6 +40,30 @@ _STOPWORDS = {
 
 _SEARCH_LIMIT = 8
 
+# jadx decompiles code under a `sources/` root (resources under `resources/`),
+# so the graph's source_file keeps that root prefix (e.g. `sources/com/...`)
+# while the Decompiler tree, agent citations, and code maps rows are all
+# root-relative. The tree resolves the root at open time, so node rows
+# normalize to root-relative — one path shape for every consumer.
+_JADX_ROOTS = {"sources", "resources"}
+
+
+def _normalize_source_file(source_file: str | None) -> str | None:
+    """Strip a leading jadx root segment (``sources/``, ``resources/``).
+
+    Applied in ``_node_row``/``_parse_query_nodes`` so ``file`` is
+    root-relative everywhere (code maps rows, agent graph citations). Only
+    one leading segment is stripped: a package literally named ``sources``
+    yields ``sources/foo/Bar.java``, which is exactly the tree path under
+    the ``sources`` root.
+    """
+    if not source_file:
+        return source_file
+    first, sep, rest = source_file.partition("/")
+    if sep and first in _JADX_ROOTS:
+        return rest
+    return source_file
+
 
 class GraphifyError(RuntimeError):
     """graphify CLI failed or produced no graph — surfaced as a clear error."""
@@ -188,6 +212,10 @@ class ExplorerData:
 # memory, so an unbounded cache would creep on a machine that scans many apps.
 _EXPLORER_CACHE: dict[str, tuple[float, ExplorerData]] = {}
 _EXPLORER_CACHE_MAX = 4
+# explorer.json shape version — bump when the row shape changes (Aug 9, 2026:
+# file normalized to root-relative) so a stale persisted index from an older
+# build is rebuilt instead of served as-is.
+_EXPLORER_INDEX_VERSION = 2
 
 
 def _row_from_node(node: dict) -> dict:
@@ -230,7 +258,10 @@ def _build_explorer(graph_path: Path, index_path: Path) -> ExplorerData:
         degree[target] = degree.get(target, 0) + 1
     try:
         index_path.write_text(
-            json.dumps({"nodes": nodes, "links": links}, separators=(",", ":")),
+            json.dumps(
+                {"version": _EXPLORER_INDEX_VERSION, "nodes": nodes, "links": links},
+                separators=(",", ":"),
+            ),
             encoding="utf-8",
         )
     except OSError:
@@ -238,9 +269,14 @@ def _build_explorer(graph_path: Path, index_path: Path) -> ExplorerData:
     return ExplorerData(nodes=nodes, by_id=by_id, links=links, degree=degree)
 
 
-def _load_explorer_index(index_path: Path) -> ExplorerData:
-    with open(index_path, encoding="utf-8") as fh:
-        data = json.load(fh)
+def _load_explorer_index(index_path: Path) -> ExplorerData | None:
+    try:
+        with open(index_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None  # missing/torn index — caller rebuilds
+    if data.get("version") != _EXPLORER_INDEX_VERSION:
+        return None  # stale shape from an older build — caller rebuilds
     nodes: list[dict] = []
     by_id: dict[str, int] = {}
     for row in data.get("nodes", []):
@@ -275,6 +311,8 @@ def explorer_data(graph_path: Path) -> ExplorerData:
     index_path = graph_path.with_name("explorer.json")
     if index_path.is_file() and index_path.stat().st_mtime >= mtime:
         data = _load_explorer_index(index_path)
+        if data is None:
+            data = _build_explorer(graph_path, index_path)
     else:
         data = _build_explorer(graph_path, index_path)
     _EXPLORER_CACHE[key] = (mtime, data)
@@ -450,7 +488,7 @@ def _node_row(node: dict) -> dict:
     return {
         "id": node.get("id"),
         "label": node.get("label"),
-        "file": node.get("source_file"),
+        "file": _normalize_source_file(node.get("source_file")),
         "line": line,
     }
 
@@ -464,7 +502,14 @@ def _parse_query_nodes(out: str) -> list[dict]:
             continue
         label, src, loc = m.group(1), m.group(2), m.group(3)
         line_no = int(re.sub(r"\D", "", loc)) if re.search(r"\d", loc) else None
-        rows.append({"id": None, "label": label, "file": src or None, "line": line_no})
+        rows.append(
+            {
+                "id": None,
+                "label": label,
+                "file": _normalize_source_file(src) or None,
+                "line": line_no,
+            }
+        )
     return rows
 
 

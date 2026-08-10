@@ -2,7 +2,7 @@
 
 No fixed dates — sequenced by milestone dependency. Same milestone order as v1, tasks updated to reference actual tools. Feasibility notes are called out inline where a task was corrected from the original plan.
 
-Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector store — the M4 RAG/embedding pipeline was deleted from v1 (owner decision); the agent layer is non-embedding: Layer 1 full findings context + Layer 2 search/read tools + Layer 3 Graphify graph** · jadx + androguard + Semgrep (Android) · LIEF + Mach-O import-table scanner + Gitleaks + Semgrep (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG (profile-gated compose service; on-demand `web_search`/`web_fetch` agent tools, M7) · Docker Compose (app + redis; searxng profile-gated) · Apache-2.0 · Graphify (code-only, graph-based structure understanding)
+Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector store — the M4 RAG/embedding pipeline was deleted from v1 (owner decision); the agent layer is non-embedding: Layer 1 full findings context + Layer 2 search/read tools + Layer 3 Graphify graph** · jadx + androguard + Semgrep (Android) · LIEF + Mach-O import-table scanner + Gitleaks + Semgrep (iOS) · Gitleaks (secrets, both platforms) · apktool + apksigner/zipalign (Android recompile) · ldid (iOS resign — deferred to v1.1) · LiteLLM (model/BYOK abstraction) · React + Vite + Tailwind · Ollama/LM Studio (host-run, not containerized) · SearXNG (profile-gated compose service; on-demand `web_search`/`web_fetch` agent tools, M7) · Docker Compose (app + redis; searxng profile-gated) · Apache-2.0 · Graphify (code-only, graph-based structure understanding)
 
 **Library-first principle:** prefer an existing, maintained library over custom logic wherever one covers the need — the project ships Apache-2.0, so any GPL/LGPL-licensed tool (Semgrep, ldid, and the analysis CLIs) must be invoked as a subprocess, never imported as a library. See tech stack doc for the specific swaps and reasoning.
 
@@ -308,15 +308,29 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [x] Follow-up: **manual web-search testing with the fake model** — `fake.py::_web_query` uses the user's own question text as the web_search query (canned fallback for short input), so a manual dock test types its own search; **chat citation chips can no longer escape the bubble** (`shortenPath` middle-ellipsis + `.src-chip` max-width/ellipsis floor + `.md code`/`.msg` overflow-wrap)
 - [ ] Real-model QA (owner, Ollama off during dev): a web-research question with a real LLM — post-completion checkpoint, not a blocker
 
-## M8 — Edit & recompile
-- [ ] Wire apktool's disassemble (baksmali) output into the file tree as the "Smali" view alongside jadx's "Java" view for the same file
-- [ ] Restrict edit capability (manual or agent) to Smali + resource/manifest files only — Java view stays read-only in the actual implementation, not just the mockup
-- [ ] Agent tool: `propose_smali_edit(file, instruction)` — returns a diff for the tester to review before it's applied, don't auto-apply silently
-- [ ] Build the rebuild pipeline: apply accepted edits → apktool rebuild → zipalign → sign with an auto-generated local test keystore (`keytool` + `apksigner`)
+## M8 — Edit & recompile (Android)
+> **Status: PLANNED (Aug 10, 2026)** — kickoff spec + plan written, no code
+> yet. Plan + phase checklists (A–E): [docs/progress/M8.md](progress/M8.md);
+> interview record: [docs/m8-kickoff-spec.md](../m8-kickoff-spec.md). Owner
+> decisions at kickoff: apktool decode is **on-demand** (first Smali view /
+> first edit — not a scan-pipeline step, cached per scan); edits are **diffs
+> in the DB, applied at rebuild** (never silent tree edits); **Android only —
+> iOS plist/entitlement edit + `ldid` resign deferred to v1.1** (an `ldid -S`
+> IPA installs only on jailbroken devices); M8 toolchain bundled into the
+> image (**size gate bumped**); e2e is **contract-style** (`apksigner verify`
+> + signature-differs + labeled filename — no emulator in the automated
+> gate).
+- [ ] On-demand apktool decode (RQ job; triggered by the first Smali view / first edit; cached per scan): `analysis/apktool.py` subprocess wrapper, `scans.apktool_status`, trigger + status API
+- [ ] Wire apktool's disassemble (baksmali) output into the file tree as the "Smali" view alongside jadx's "Java" view for the same file (multidex-aware Java⇄Smali mapping)
+- [ ] Restrict edit capability (manual or agent) to Smali + resource/manifest files only — Java view stays read-only in the actual implementation, not just the mockup (server-side `can_edit` predicate)
+- [ ] Edits stored as reviewable diffs in a new `edits` table (original + new content + unified diff); apply/reject/revert per file (file-by-file for multi-file agent proposals); same-file stacking; "restore original"
+- [ ] Agent tool: `propose_smali_edit(file, instruction, new_content)` — returns a diff for the tester to review before it's applied, don't auto-apply silently (Android-only; gated on decode-ready)
+- [ ] Build the rebuild pipeline: apply accepted edits → apktool rebuild → zipalign → sign with an auto-generated local test keystore (`keytool` + `apksigner`) — one keystore per MASA install; `apksigner verify` sanity gate
 - [ ] Pipeline must fail loudly with a specific error (not a silently broken APK) on rebuild failure — test against at least one APK known to be awkward for apktool (resource clashes, edge-case bytecode)
 - [ ] Persistent, un-dismissable "resigned test build" label on every recompiled artifact — in the UI and embedded in the output filename
-- [ ] iOS: Info.plist/entitlement/resource edit + resign via `ldid` — explicitly no compiled-logic editing path
-- [ ] End-to-end test: agent-proposed SSL-pinning bypass edit → review diff → recompile → confirm the resulting APK actually installs and runs
+- [ ] Full build history per scan (`builds` table): status/stage/error + edits included; re-download any prior artifact
+- [ ] End-to-end test (**contract-style — no emulator**): agent-proposed SSL-pinning bypass edit → review diff → recompile → artifact passes `apksigner verify` with a signature fingerprint differing from the original APK and the resigned label in the filename (real-device install-and-run = owner manual checkpoint)
+- [ ] Docs: progress/M8.md status flip, `docs/licenses.md` rows (apktool + build-tools, Apache-2.0), techstack edit rows, knowledge.md
 
 ## M9 — Report generation
 - [ ] AI-assisted draft report generator: findings + chat insights → structured markdown
@@ -339,7 +353,7 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 
 ---
 
-## Deferred / v1.1 candidates (unchanged from v1, not blocking v1)
+## Deferred / v1.1 candidates (not blocking v1)
 - [ ] Interactive browser automation (agent-browser dropped from M7 at owner kickoff,
       Aug 9 — JS-rendered page verification returns only with a future browser
       capability)
@@ -358,3 +372,10 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [ ] Dynamic analysis (Frida, jailbroken device workflows)
 - [ ] Malware/repackaging diff against official store originals
 - [ ] WebSocket-based real-time updates (only if polling proves genuinely insufficient in practice)
+- [ ] iOS edit & recompile: Info.plist/entitlement/resource edit + resign via `ldid`
+      (explicitly no compiled-logic editing path) — **moved from M8 at kickoff
+      (Aug 10, 2026)**: an `ldid -S` re-signed IPA installs only on jailbroken
+      devices (AppSync Unified) or as handoff input for the user's own
+      Sideloadly/Apple-ID signing — not worth M8 scope; the M8 architecture
+      keeps the seam (edits table + artifact pipeline + resign step are
+      platform-shaped)

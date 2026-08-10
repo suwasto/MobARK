@@ -2,10 +2,13 @@
 
 **Project license: Apache-2.0** (see [LICENSE](../LICENSE)).
 
-> Updated Aug 9, 2026 (M7) — the audit now lists **only what MASA actually
-> installs and uses as of M7**. Nothing is listed on a "planned" basis:
-> future-M8 tools (apktool, apksigner/zipalign, ldid) are **not yet
-> installed or used** and will be audited when they land.
+> Updated Aug 10, 2026 (M8 kickoff) — the audit lists **only what MASA
+> actually installs and uses**. Nothing is listed on a "planned" basis.
+> M8 toolchain status after the kickoff: **apktool + apksigner/zipalign
+> (Android build-tools) are planned for M8 Phase A** — not yet installed,
+> audited when they land (both Apache-2.0); **ldid is deferred to v1.1**
+> with the iOS edit/recompile cut (owner decision, Aug 10, 2026) — not an
+> M8 item.
 
 ## Compliance posture (the non-negotiable rule)
 
@@ -16,8 +19,11 @@ applies today to Semgrep (LGPL-2.1) and to SearXNG (AGPL-3.0, a separate
 container reached only over HTTP — see below), and is observed operationally
 for all the analysis CLIs (jadx, gitleaks, graphify) regardless of their
 permissive licenses, since they are command-line tools by design. ldid (a
-GPL-family CLI) is planned for M8's iOS resign step and will follow the same
-subprocess-only rule when it is actually added.
+GPL-family CLI) was planned for M8's iOS resign step, but iOS edit/recompile
+was **deferred to v1.1** at the M8 kickoff (Aug 10, 2026) — it will follow
+the same subprocess-only rule if it is ever added. apktool and the Android
+build-tools (zipalign/apksigner, both Apache-2.0) are M8 additions and are
+audited here when they land.
 
 The library dependencies actually imported by MASA are all permissive
 (MIT / Apache-2.0 / BSD), so Apache-2.0 + subprocess-only is fully workable.
@@ -152,7 +158,8 @@ not as a separate dependency. Its planned M8 use (test keystore) is future.
   copyleft never crosses a process boundary: Semgrep is a subprocess from an
   isolated venv, SearXNG is an unmodified separate container reached only
   over HTTP. Re-verify Semgrep's pinned version license at install time.
-  (ldid, the planned M8 iOS resign CLI, is not yet installed.)
+  (ldid, originally planned as the M8 iOS resign CLI, is not installed —
+  iOS edit/recompile was deferred to v1.1 at the M8 kickoff, Aug 10, 2026.)
 - **MASVS/MASTG mapping data** (M1/M2) is sourced from the OWASP MASTG repo
   (MIT/CC-BY-4.0 style project data), vendored/cached locally — not a code
   dependency. The vendored mapping includes both Android and iOS tests
@@ -165,9 +172,11 @@ not as a separate dependency. Its planned M8 use (test keystore) is future.
   (BSD-3-Clause). The app image additionally bundles the
   `eclipse-temurin:17-jre-jammy` OpenJDK JRE (GPLv2+CE) for jadx and the
   semgrep venv described above.
-- **Not yet used (future milestones, not installed):** apktool,
-  apksigner/zipalign, and ldid are M8 items — they are absent from the image
-  and the codebase today, and will be audited here when M8 lands. The
+- **Planned for M8 (not yet installed, audited here when they land):**
+  apktool and Android build-tools `zipalign`/`apksigner` (both Apache-2.0)
+  are the M8 Phase A toolchain — absent from the image and codebase today.
+  **Deferred to v1.1:** ldid (the iOS resign CLI) — iOS edit/recompile was
+  cut from M8 at kickoff (Aug 10, 2026), so ldid is not an M8 item. The
   deep-research / browser-automation stack planned for the original M7 was
   dropped (owner decision, Aug 9) and its rows (gpt-researcher,
   agent-browser) never shipped.

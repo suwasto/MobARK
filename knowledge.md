@@ -395,7 +395,8 @@ fallback + loop-exhaustion plain chat both stream too. Gates: **350 backend
 tests green (+11) + ruff clean; tsc + vite build green.** Containerized e2e
 + real-model QA remain owner checkpoints.
 
-M7-M10 — not started, except the M7 plan docs (updated Aug 7, 2026).
+M8-M10 — not started, except the M8 kickoff plan (PLANNED Aug 10, 2026 —
+see the M8 record at the end of this file; M7 is COMPLETE below).
 **Post-M5 follow-up (Aug 8, 2026 — Gemini provider + curated model list):** (1) **Google Gemini** added to the BYOK provider set — `providers.py` entry (`gemini/` prefix, `GEMINI_API_KEY`, base `https://generativelanguage.googleapis.com/v1beta`, `models_path=None` → static curated list, matching Anthropic), `config.py` `gemini_base_url`/`gemini_api_key`, `backends.py` field maps, BYOKTab add-provider chip. Note: base is pinned to `v1beta` because MASA always passes `api_base` (litellm would otherwise self-select `v1alpha` for Gemini 3+ previews) — curated models are v1beta-compatible. (2) **Settings dialog model chips are now CURATED with a See-all reveal** (owner UX request): `ModelBackendRead` exposes `suggested_models` (provider table is source of truth); `BackendsTab` shows suggested ∩ served by default (first 6 served for local/custom, which have no curated list), the configured default is never hidden, and a dashed `▼ See all (N more)` chip reveals the full served list (collapses on fresh probes). BYOKTab provider order: OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter, Custom.
 **Owner follow-up (Aug 8, 2026 — BYOK seeding removed + custom key field):** (1) **BYOK backends are no longer seeded keyless** (`backends.py::_seed_backends`): a fresh store carries ONLY the local backends (`ollama`, `lm-studio`); BYOK providers seed only when a real key is configured via env/`Settings` (`MASA_OPENAI_API_KEY` etc.). Keyless cloud entries were unusable and only confused the Settings UI — cloud providers are now added exclusively via the BYOK menu (POST /backends requires the key; this is the only way in). Existing persisted stores keep whatever they had (the store file remains source of truth). Tests updated accordingly (seed = local-only, byok via POST). (2) **BYOK custom-endpoint form now includes an API key field** (`BYOKTab.tsx`, `needsApiKey` flag): base URL is required, key optional (some OpenAI-compatible endpoints are keyless). Gates: 281 backend tests green + ruff clean; tsc + vite build green.
 **Owner follow-up (Aug 8, 2026 — Gemini 2.5 deprecation + progress dialog):** (1) **Gemini curated list moved to the Gemini 3 family** (`providers.py`): Google 404s the 2.5 line (`gemini-2.5-flash`/`2.5-pro`/`2.0-flash`) for NEW API keys — "no longer available to new users". Curated set is now `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-pro-preview` (all v1beta-served; the pinned `api_base` still wins over litellm's v1alpha self-selection). (2) **Probe walks the curated list** (`health.py::check_backend`): with no model configured, the Settings probe tries every suggestion and records the first that answers — a single stale entry can no longer mark the whole backend unreachable; a user-configured model is still probed exactly (broken choices fail loudly). (3) **Deprecation hint**: `model_arch_hint` (`client.py`) now also appends "no longer served to this account" guidance when the upstream text says a model is no longer available — same self-explaining surface as the Ollama arch hint, shared by Settings probe/chat/insights. (4) **Scan-in-progress is now a DIALOG, not a scrollable view** (owner report: the full view could push header/footer off-screen): `ProgressScreen` renders a `.progress-overlay` (absolute within `<main>`, top bar stays visible) + modal with the pipeline, dismissible via ×/Escape/backdrop-click (scan keeps running; `App.tsx` `progressDismissed` resets per active-scan id); the backdrop shows the last completed scan's dashboard (`DashboardView` `scanOverride` + `TargetBar` `scan` props, newest non-running scan via `backdropScan`) or the empty state on a fresh install; polling now runs while ANY scan is queued/running (`anyScanRunning`) so a dismissed background scan's completion always lands. Gates: **285 backend tests green + ruff clean; `tsc -b` + `vite build` green.** (Model IDs are per Aug-2026 availability research — re-verify if Google shifts the 3.x naming again.)
@@ -628,3 +629,42 @@ in the chip tooltip), `.src-chip` `max-width:100%` + ellipsis floor (with
 inline paths in answers wrap instead of pushing the bubble out of the dock.
 Gates: **459 backend tests green (+2 new) + ruff clean; tsc + vite build
 green**; app image rebuilt and live.
+
+M8 — **Edit & recompile (Android); PLANNED (Aug 10, 2026)** — kickoff spec
+(`docs/m8-kickoff-spec.md`, interview record) + plan (`docs/progress/M8.md`,
+phases A–E) written, no code yet; task list updated in docs/masa-tasks.md.
+Three-round owner interview locked the decisions: (1) **apktool decode is
+on-demand** — an RQ job triggered by the first Smali view / first edit
+(cached per scan), never a scan-pipeline step; (2) **edits are diffs in the
+DB** (new `edits` table: original + new content + unified diff per row),
+**applied at rebuild** onto a fresh copy of the decoded tree — never silent
+tree edits, revert-safe; (3) **Android only — iOS edit/ldid resign deferred
+to v1.1**: verified research — an `ldid -S` re-signed IPA installs only on
+jailbroken devices (AppSync Unified) or as handoff input for the user's own
+Sideloadly/Apple-ID signing; stock iOS rejects it and the simulator won't
+run it (wrong platform slice); iOS keeps the read-only bundle view;
+(4) **toolchain bundled + size gate bumped** — apktool (pinned jar) +
+Android build-tools zipalign/apksigner installed at build time (`keytool`
+already ships in the JRE); owner approved growing past 450 MB;
+(5) **agent surface = dock chat tool AND the mockup-faithful inline "Ask
+agent to edit" bar**; `propose_smali_edit(file, instruction, new_content)`
+stores a `proposed` edit + unified diff for human review, never
+auto-applies; apply/reject/revert are human API calls, file-by-file for
+multi-file proposals; (6) **full edit/build history per scan** — per-file
+restore-original + `builds` table (status/stage/error/edits snapshot) with
+re-download of any prior artifact; (7) **one install-scoped test keystore**
+per MASA install (generated once into `data_dir`, `0600`, BYOK-key
+precedent), reused for every rebuild; (8) **rebuild pipeline** = apply
+edits → `apktool b` → `zipalign -f` → `apksigner sign` → `apksigner verify`
+sanity gate; every stage fails loudly with a specific error, never a
+silently broken APK; (9) **e2e is contract-style (no emulator)** — artifact
+passes `apksigner verify`, signature fingerprint differs from the original
+APK, filename carries `-resigned-test-`; real-device install = owner manual
+checkpoint; (10) **persistent, un-dismissable "resigned test build" label**
+— modal warning + filename + download header. Migration **0009**: `edits`,
+`builds`, `scans.apktool_status`/`apktool_error`. masa-tasks.md updated:
+iOS items moved to Deferred/v1.1, smali-decode task notes on-demand timing,
+e2e item re-scoped to contract-style, M8 section now links the plan. Open
+kickoff items (non-blocking): pin apktool + build-tools versions, choose the
+awkward-APK fail-loudly test candidate, confirm the `propose_smali_edit`
+contract.

@@ -23,6 +23,7 @@ Settings probe for the fake so the card renders green.
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 
 FAKE_MODEL = "demo"
@@ -223,6 +224,463 @@ def _web_stream_chunks(messages: list[dict]):
         )
 
 
+# M8 Phase D: the edit-demo script — the flagship "ask the agent to edit"
+# flow with zero Ollama. Deterministic 3-round shape (fits the default
+# max_tool_rounds=3), running the REAL search_code + read_editable_file +
+# propose_smali_edit tools against the scan's real trees:
+#   round 1: thinking text + search_code (a content keyword from the user's
+#            OWN question, so a manual test types its own request and the
+#            demo searches for a real term in it — a real model would
+#            paraphrase; the fake is a script) + read_editable_file on the
+#            target file (the "(Target editable file: ...)" hint when present,
+#            else AndroidManifest.xml)
+#   round 2: propose_smali_edit — a REAL proposed edit row + unified diff
+#            (manifest: toggles android:debuggable; smali: appends a # comment)
+#   round 3: a cited answer naming the top search hit + the stored proposal
+#            for human review (it is NEVER auto-applied — the Review edits
+#            panel owns that).
+# A failed read/propose composes an honest answer instead of retrying, so the
+# script always lands within the round limit (M7 web-demo precedent).
+_EDIT_THINK_TEXT = (
+    "Let me search the decompiled code for the relevant logic, read the "
+    "editable file, then propose the change for your review."
+)
+# The ✨ Ask agent bar used to append this hint so the proposal targets the
+# OPEN file — the parser stays for compatibility (the dock sends plain
+# questions now; a real model would just follow the conversation).
+_EDIT_TARGET_RE = re.compile(r"\(Target editable file: ([^)\n]+)\)")
+
+# Words too generic to search for (the round-1 search_code pattern is the
+# first 4+-char content word from the user's question that isn't one of
+# these) — "disable password validation in authentication" -> "password".
+_EDIT_SEARCH_STOPWORDS = frozenset(
+    {
+        "the", "this", "that", "with", "from", "have", "your", "please",
+        "make", "change", "remove", "disable", "enable", "fix", "edit",
+        "add", "and", "for", "are", "was", "build", "test", "app",
+        "code", "file", "check", "turn", "off", "on",
+    }
+)
+
+# Questions that read as edit requests (the bar always counts via the hint).
+_EDIT_KEYWORDS = (
+    "edit", "propose", "modify", "change", "fix", "harden", "append",
+    "add a", "remove", "disable", "enable", "toggle", "patch",
+)
+
+# Path-ish @mentions in the dock: ``@sources/com/foo/A.java`` etc. The
+# frontend ALSO sends the paths structurally (ChatRequest.mentioned_files),
+# but the fake is a script over the raw messages, so it parses the mention
+# text like a real model reading the question.
+_MENTION_RE = re.compile(
+    r"@([A-Za-z0-9_./-]+\.(?:java|kt|kts|smali|xml|plist|json|txt|"
+    r"properties|yml|yaml|html|strings|entitlements))"
+)
+
+
+def _offers_edit(tools: list[dict] | None) -> bool:
+    """True when the offered tool schemas include the M8 edit tools."""
+    if not tools:
+        return False
+    return any(
+        (t.get("function") or {}).get("name") == "propose_smali_edit"
+        for t in tools
+    )
+
+
+def _edit_requested(messages: list[dict], tools: list[dict] | None) -> bool:
+    """Run the edit demo only for edit-y questions when edit tools are
+    offered: the bar's target-file hint always counts, an @-mention of an
+    EDITABLE path (smali/manifest/res) counts too (the dock's flagship
+    "@file … change it" flow), plus edit keywords for plain dock questions.
+    A jadx-source mention alone (e.g. "@A.java what does this do?") is a
+    question, not an edit request — it keeps the main demo."""
+    if not _offers_edit(tools):
+        return False
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = m.get("content") or ""
+            if _EDIT_TARGET_RE.search(content):
+                return True
+            for hit in _MENTION_RE.findall(content):
+                if _mention_to_edit_path(hit) is not None:
+                    return True
+            q = content.lower()
+            return any(k in q for k in _EDIT_KEYWORDS)
+    return False
+
+
+def _mention_to_edit_path(mention: str) -> str | None:
+    """Tree-path mention -> edits-table path when the mention is editable
+    (smali*/res/AndroidManifest.xml), else None (jadx sources are read-only
+    — a real model would find_smali_sibling; the demo treats them as a
+    question, not an edit target)."""
+    from app.analysis import editable
+
+    root, sep, rel = mention.partition("/")
+    if not sep:
+        return None
+    if root == editable.MANIFEST_ROOT:
+        if rel == editable.MANIFEST_ROOT:
+            return editable.MANIFEST_ROOT
+        return None  # manifest tree root only serves the manifest file
+    if root == "res" or root == "smali" or root.startswith("smali_classes"):
+        return editable.edit_path_from_tree_path(root, rel)
+    return None
+
+
+def _jadx_mention(messages: list[dict]) -> str | None:
+    """The first ``@sources/...`` mention in the user's question, if any —
+    a jadx class the demo maps to its editable smali sibling via the REAL
+    find_smali_sibling tool (the flagship search -> map -> read -> propose
+    flow, driven by a mention instead of a search hit)."""
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        for hit in _MENTION_RE.findall(m.get("content") or ""):
+            if hit.startswith("sources/") and hit.endswith((".java", ".kt", ".kts")):
+                return hit
+    return None
+
+
+def _edit_target(messages: list[dict]) -> str:
+    """The demo's target: an @-mentioned editable path first (the dock's
+    "@file … change it" flow), else the bar's ``(Target editable file:
+    ...)`` hint when it names a supported editable path (.smali /
+    AndroidManifest.xml), else the always-present decoded
+    AndroidManifest.xml."""
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        for hit in _MENTION_RE.findall(m.get("content") or ""):
+            edit_path = _mention_to_edit_path(hit)
+            if edit_path is not None:
+                return edit_path
+        hit = _EDIT_TARGET_RE.search(m.get("content") or "")
+        if hit:
+            target = hit.group(1).strip()
+            if target == "AndroidManifest.xml" or target.endswith(".smali"):
+                return target
+        return "AndroidManifest.xml"
+    return "AndroidManifest.xml"
+
+
+def _edit_instruction(messages: list[dict]) -> str:
+    """The user's own instruction text (the bar hint line + @-mentions
+    stripped) — the proposal's instruction column + the smali comment show
+    it verbatim."""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = _MENTION_RE.sub(
+                "", _EDIT_TARGET_RE.sub("", m.get("content") or "")
+            ).strip()
+            return content if content else "MASA demo edit"
+    return "MASA demo edit"
+
+
+def _edit_search_pattern(messages: list[dict]) -> str:
+    """The round-1 search_code pattern: a CONTENT keyword from the user's own
+    question (the first 4+-char word that isn't a stopword, @-mentions and
+    the bar hint stripped), so a manual test types its own request and the
+    demo searches for a real term in it — a real model would paraphrase the
+    request; the fake is a script (M7 web-demo precedent: the user's question
+    is the query)."""
+    for m in reversed(messages):
+        if m.get("role") != "user":
+            continue
+        content = _MENTION_RE.sub(
+            "", _EDIT_TARGET_RE.sub("", m.get("content") or "")
+        )
+        for word in re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", content):
+            if word.lower() not in _EDIT_SEARCH_STOPWORDS:
+                return word
+    return "password"
+
+
+def _edit_new_content(
+    target: str, original: str, instruction: str
+) -> str | None:
+    """The demo's NEW content built from the REAL current content — a
+    deterministic, byte-exact change that yields a real diff:
+    - AndroidManifest.xml: toggle ``android:debuggable`` (true<->false; insert
+      false on the <application> tag when absent) — the classic pentest edit.
+    - .smali: append a ``#`` comment (valid smali, a harmless real change).
+    - Anything else (res XML etc.): None — the demo never guesses an XML edit
+      that could duplicate an attribute or break the document (honest fallback
+      over a broken proposal).
+    """
+    if target == "AndroidManifest.xml":
+        if 'android:debuggable="true"' in original:
+            return original.replace(
+                'android:debuggable="true"', 'android:debuggable="false"', 1
+            )
+        if 'android:debuggable="false"' in original:
+            return original.replace(
+                'android:debuggable="false"', 'android:debuggable="true"', 1
+            )
+        if "android:debuggable" in original:
+            return None  # unexpected value — never guess (duplicate-attr risk)
+        # The first REAL <application> tag — never one inside an XML comment
+        # (a comment like `<!-- <application ... -->` would otherwise get a
+        # corrupt insert; an unclosed comment before the match = inside one).
+        tag = None
+        for m in re.finditer(r"<application\b", original):
+            head = original[: m.start()]
+            if head.count("<!--") > head.count("-->"):
+                continue  # inside a comment
+            tag = m
+            break
+        if tag is None:
+            return None
+        idx = tag.end()
+        return original[:idx] + ' android:debuggable="false"' + original[idx:]
+    if target.endswith(".smali"):
+        note = f"# MASA demo edit — {instruction}"
+        return original.rstrip() + "\n\n" + note + "\n"
+    return None
+
+
+def _compose_edit_answer(propose: dict, search_hits: list[dict]) -> str:
+    """Final answer from the REAL stored proposal: cite the file + edit id,
+    show the first diff lines, and point at the Review edits panel — the
+    human applies, never the agent (decision 7). When the round-1
+    ``search_code`` found hits, the top hit is cited too (the dock renders
+    it as a clickable file:line chip), so the demo shows the full
+    search -> read -> propose -> review flow."""
+    edit_id = propose.get("edit_id")
+    file_path = propose.get("file_path")
+    head = (
+        f"I proposed an edit to `{file_path}` — stored as edit "
+        f"#{edit_id} for your review (nothing was applied automatically)."
+    )
+    if search_hits:
+        top = search_hits[0]
+        line = top.get("line")
+        loc = f"{top['file']}:{line}" if line else top["file"]
+        head = (
+            f"I found the relevant code at `{loc}` — `"
+            f"{(top.get('snippet') or '').strip()[:80]}`. " + head
+        )
+    diff = propose.get("unified_diff") or ""
+    if diff:
+        lines = diff.splitlines()[:10]
+        head += " The diff starts:\n```diff\n" + "\n".join(lines) + "\n```"
+    head += (
+        " Open the Review edits panel and Apply or Reject it per file — then "
+        "Edit & recompile to build a resigned test APK."
+    )
+    return (
+        head + " This is a dev-demo answer from the built-in fake model "
+        "(MASA_FAKE_MODEL=1); no LLM was contacted."
+    )
+
+
+def _compose_edit_failed(error: str) -> str:
+    return (
+        f"I could not propose the edit: {error}. "
+        "This is a dev-demo answer from the built-in fake model "
+        "(MASA_FAKE_MODEL=1); no LLM was contacted."
+    )
+
+
+def _edit_response(messages: list[dict]):
+    """Buffered round response for the edit-demo script (see the module
+    comment for the round shapes). Deterministic state machine over the REAL
+    tool results; a failed step composes an honest answer rather than
+    retrying the same call until the round limit.
+
+    Shapes (default max_tool_rounds=3 -> 4 model rounds available):
+    - editable mention / no mention: round 1 search_code + read_editable_file
+      (target), round 2 propose, round 3 answer.
+    - jadx ``@sources/...`` mention: round 1 search_code + find_smali_sibling
+      (map the class to its editable smali), round 2 read_editable_file
+      (sibling), round 3 propose, round 4 answer — the search -> map ->
+      read -> propose flow driven by a mention.
+    """
+    results = _tool_results(messages)
+    search_hits: list[dict] = []
+    read_text: str | None = None
+    propose: dict | None = None
+    error: str | None = None
+    sibling: str | None = None
+    for r in results:
+        if isinstance(r, dict) and "edit_id" in r:
+            propose = r
+        elif isinstance(r, dict) and "sibling" in r and isinstance(r.get("sibling"), str):
+            sibling = r["sibling"]
+        elif isinstance(r, dict) and "error" in r:
+            error = r["error"]
+        elif isinstance(r, str):
+            read_text = r
+        elif isinstance(r, list) and r and isinstance(r[0], dict) and "file" in r[0]:
+            search_hits = r
+
+    if propose is not None:
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=_compose_edit_answer(propose, search_hits)
+                    )
+                )
+            ]
+        )
+    if error is not None:
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=_compose_edit_failed(error))
+                )
+            ]
+        )
+    target = _edit_target(messages)
+    jadx = _jadx_mention(messages)
+    if jadx is not None and sibling is None:
+        # Round 1 (jadx mention): search the jadx tree for a keyword from the
+        # user's own question AND map the mentioned class to its editable
+        # smali sibling — both in one round (the loop executes every tool
+        # call in a message before the next model call).
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=_EDIT_THINK_TEXT,
+                        tool_calls=[
+                            _tool_call(
+                                "call_search",
+                                "search_code",
+                                json.dumps(
+                                    {"pattern": _edit_search_pattern(messages)}
+                                ),
+                            ),
+                            _tool_call(
+                                "call_map",
+                                "find_smali_sibling",
+                                json.dumps({"path": jadx}),
+                            ),
+                        ],
+                    )
+                )
+            ]
+        )
+    if sibling is not None and read_text is None:
+        # Round 2 (jadx mention): read the mapped editable sibling.
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content="Now reading the mapped smali sibling.",
+                        tool_calls=[
+                            _tool_call(
+                                "call_read",
+                                "read_editable_file",
+                                json.dumps({"path": sibling}),
+                            )
+                        ],
+                    )
+                )
+            ]
+        )
+    if read_text is None:
+        # Round 1 (editable mention / plain): search the jadx tree for a
+        # keyword from the user's own question (a real model would
+        # paraphrase; the fake is a script) AND read the editable target —
+        # both in one round (the loop executes every tool call in a message
+        # before the next model call).
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=_EDIT_THINK_TEXT,
+                        tool_calls=[
+                            _tool_call(
+                                "call_search",
+                                "search_code",
+                                json.dumps(
+                                    {"pattern": _edit_search_pattern(messages)}
+                                ),
+                            ),
+                            _tool_call(
+                                "call_read",
+                                "read_editable_file",
+                                json.dumps({"path": target}),
+                            ),
+                        ],
+                    )
+                )
+            ]
+        )
+    # The propose target: the jadx mention's mapped sibling when one drove
+    # the read, else the editable mention / default target. (Round 2 of the
+    # jadx flow read `sibling`; proposing to the manifest fallback would be
+    # a wrong-path diff.)
+    propose_path = sibling or target
+    new_content = _edit_new_content(
+        propose_path, read_text, _edit_instruction(messages)
+    )
+    if new_content is None:
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=_compose_edit_failed(
+                            f"cannot build a safe change for {propose_path} "
+                            "(only AndroidManifest.xml and .smali files are "
+                            "supported by the demo script)"
+                        )
+                    )
+                )
+            ]
+        )
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    content="Now proposing the edit for your review.",
+                    tool_calls=[
+                        _tool_call(
+                            "call_propose",
+                            "propose_smali_edit",
+                            json.dumps(
+                                {
+                                    "path": propose_path,
+                                    "instruction": _edit_instruction(messages),
+                                    "new_content": new_content,
+                                }
+                            ),
+                        )
+                    ],
+                )
+            )
+        ]
+    )
+
+
+def _edit_stream_chunks(messages: list[dict]):
+    """Streaming chunks for the edit-demo script (same round logic as
+    ``_edit_response``, tokenized for the SSE demo). Round 1 issues TWO
+    tool calls (search_code + read_editable_file), so each chunk carries a
+    DISTINCT index — the accumulator would otherwise merge them into one
+    (same-index deltas concatenate args into a single call)."""
+    resp = _edit_response(messages)
+    message = resp.choices[0].message
+    content = message.content or ""
+    tool_calls = list(getattr(message, "tool_calls", None) or [])
+    for word in content.split(" "):
+        yield _chunk(content=word + " ")
+    for n, tc in enumerate(tool_calls):
+        fn = tc.function
+        yield _chunk(
+            tool_calls=[
+                {
+                    "index": n,
+                    "id": tc.id,
+                    "function": {"name": fn.name, "arguments": fn.arguments},
+                }
+            ]
+        )
+
+
 def is_fake(backend) -> bool:
     """True for the dev-only fake backend (short-circuit target)."""
     return getattr(backend, "provider_id", None) == "fake"
@@ -328,6 +786,10 @@ def fake_chat_response(messages: list[dict], tools: list[dict] | None):
         )
     if _offers_web(tools):
         return _web_response(messages)
+    # M8 Phase D: edit-y questions on a decode-ready Android scan run the
+    # edit-demo script (read -> propose -> cited diff for review).
+    if _edit_requested(messages, tools):
+        return _edit_response(messages)
     if _has_tool_results(messages):
         return SimpleNamespace(
             choices=[
@@ -357,6 +819,10 @@ def fake_stream_chunks(messages: list[dict], tools: list[dict] | None):
         return
     if _offers_web(tools):
         yield from _web_stream_chunks(messages)
+        return
+    # M8 Phase D: the edit-demo script streams exactly like the others.
+    if _edit_requested(messages, tools):
+        yield from _edit_stream_chunks(messages)
         return
     if _has_tool_results(messages):
         for word in _compose_answer(messages).split(" "):

@@ -630,9 +630,195 @@ inline paths in answers wrap instead of pushing the bubble out of the dock.
 Gates: **459 backend tests green (+2 new) + ruff clean; tsc + vite build
 green**; app image rebuilt and live.
 
-M8 — **Edit & recompile (Android); PLANNED (Aug 10, 2026)** — kickoff spec
-(`docs/m8-kickoff-spec.md`, interview record) + plan (`docs/progress/M8.md`,
-phases A–E) written, no code yet; task list updated in docs/masa-tasks.md.
+**Follow-up (Aug 10 — guided SearXNG start + auto-detect, owner report):**
+the ▶ Start engine button in Settings → Search & research could NEVER start
+anything inside the app container (no Docker CLI/socket/compose file — the
+endpoint 502s with the manual command by design). Owner chose **guided start
++ auto-detect** over mounting docker.sock (which would hand the container
+that analyzes untrusted APKs host root — rejected). Frontend-only fix in
+`SearchTab.tsx` + `.engine-guide` CSS: on the 502, `extractStartCommand`
+parses the backticked command (anchored on `docker compose` — the
+compose-failure format embeds the stderr tail BEFORE the command) and the
+card switches to a guided panel — the exact host command in mono + a Copy
+button (clipboard, transient "Copied ✓") + "◌ Detecting — checking every
+4s…" status + the raw 502 note; a polling effect calls
+`listSearchBackends()` every 4s (lightweight reachability) and on
+`health.reachable` merges via `refreshSearchBackends` + a best-effort real
+probe, flips to a green "✓ Engine is up" that auto-clears after 4s; 120s
+cap → "Still unreachable — run the command + click Test" with Dismiss and
+Stop waiting. Review catches fixed: the polling effect depends on the
+STABLE `refreshSearchBackends`/`testSearchBackend` callbacks, not the whole
+`actions` object — AppContext rebuilds it on any state change (e.g. App.tsx
+polling scan progress while a scan runs), which would have restarted the
+interval and reset the 120s cap indefinitely; `role="status" aria-live` on
+the panel. Gates: tsc + vite build green (index-Dn58xM0n.js); live e2e in
+compose: Settings → Search & research → Start engine → panel with the exact
+command + Copy + Detecting + the 502 note → ran the SAME command on the host
+(`docker compose --profile web up -d searxng`, restoring the engine that had
+Exited 137 ~24h earlier) → auto-detect flipped to "Engine is up" within
+~1 min → card dot online, Start row gone, Test → Probe OK (result_count 1),
+zero console errors. (Note: a first e2e pass reported 2 fails that were MY
+script's ambiguous `.backend-card` selector — the model-backends pane shares
+the class; re-scoped to `.modal-pane.active` and all checks passed.)
+
+M8 — **Edit & recompile (Android); COMPLETE (Aug 10, 2026)** —
+kickoff spec (`docs/m8-kickoff-spec.md`, interview record) + plan
+(`docs/progress/M8.md`, phases A–E); Phases D–E not started. **Phase A
+built**: apktool **3.0.3** (pinned jar + `java -jar` wrapper script at
+`/opt/masa-tools/apktool/`) + build-tools **35.0.0** zipalign/apksigner
+(`/opt/masa-tools/build-tools/`, flattened from the version folder so
+apksigner keeps its `lib/`) bundled in `docker/Dockerfile.app` (open item 1
+pinned; size gate measured at the Phase E container gate).
+`analysis/apktool.py` (mirror of jadx.py — `decode()` = `apktool d -f -o
+<work>/<scan>/apktool <apk>`, clean ApktoolError on timeout/non-zero/
+exit-0-without-manifest; `is_ready(scan_id)` = filesystem-derived, the
+`AndroidManifest.xml` presence rule — crash-safe). Migration **0009**:
+`scans.apktool_status` (`not_started|queued|decoding|ready|failed`,
+server_default not_started) + `scans.apktool_error` (Text) — the column
+tracks in-flight states, the tree is the truth for ready.
+`workers/jobs.py::run_apktool_decode` (idempotent on is_ready, iOS returns
+a clean Android-only error, failure → failed + apktool_error) +
+`enqueue_apktool_decode`. API (scans.py): `POST /scans/{id}/smali` (202
+enqueue; 409 not-analyzed / iOS / in-progress / already-ready — the
+filesystem check runs FIRST so a stale column never re-decodes; `failed`
+retries; enqueue failure → 500 + failed) + `GET /scans/{id}/smali-status`
+(filesystem-derived ready) + `apktool_status`/`apktool_error` on ScanRead.
+Frontend: Decompiler toolbar Smali chip **live** — not_started click →
+POST + 2 s poll (in-chip `.smali-spin`); queued/decoding → busy;
+failed → disabled + crimson title/`.hint-error` with the reason + a
+`↻ Retry decode` button; ready → the toggle activates; chip hidden on
+iOS (open items 5/6 per default).
+
+**Phase B (edits model + Smali view, Aug 10)**: migration 0009 extended
+with the **`edits` table** (id/scan_id FK/file_path apktool-root-relative/
+original_content/new_content/unified_diff/source manual|agent/instruction/
+status proposed|applied|rejected|reverted/build_id nullable→FK lands in
+C/created_at/applied_at). `analysis/editable.py` = **can_edit** (smali*/
+res/AndroidManifest.xml only; jadx sources + jadx-fallback smali + original/
++ unknown/ + all iOS read-only, server-enforced) + the path mapping
+helpers (`MANIFEST_ROOT="AndroidManifest.xml"` — the synthetic single-file
+tree root; tree path `AndroidManifest.xml/AndroidManifest.xml` ↔ edit path
+`AndroidManifest.xml`). `analysis/edits.py` service: stdlib difflib
+`make_unified_diff`, `newest_applied`/`effective_content` (newest applied
+edit's new_content), `create_manual_edit` (created **applied** — baselines
+on the EFFECTIVE content so same-file edits stack; rejects unchanged),
+`apply/reject/revert` transitions (revert pops to the prior state).
+Effective-content reads: `tree.read_tree_file(..., effective=True)`
+overlays applied edits via its own SessionLocal (defensive); the on-disk
+apktool tree is never mutated. `list_tree` appends the apktool roots once
+`apktool.is_ready` (`smali`, `smali_classesN` via `apktool.smali_roots`,
+`res`, manifest root). `analysis/smali_map.py` = Java⇄Smali mapping
+(multidex first-found; jadx-fallback smali never maps back) behind `GET
+/scans/{id}/files/smali-sibling`. API: `GET/POST /scans/{id}/edits` (201;
+409 not-analyzed/Android-only/decode-not-ready; 400 non-editable/unchanged;
+413 cap 200 KB; 404 missing baseline), `GET .../edits/{eid}/diff`, `POST
+.../apply|reject|revert` (400 on wrong state). Frontend: `CodeEditor.tsx`
+(plaintext, gutter lines translate with scroll, dirty, Ctrl/Cmd+S,
+save-status) replaces CodeViewer for editable roots; the Java/Smali chips
+jump the open file to its counterpart (`smaliSibling`); the tree refetches
+when a decode turns ready. Gates: **524 backend tests green (+40) + ruff
+clean; tsc + vite build green.** Docker image rebuild + size measurement
+and the awkward-APK candidate (open item 2) remain for Phase E.
+
+**Phase C (rebuild pipeline + resign, Aug 10)**: migration 0009 extended
+with the **`builds` table** (id/scan_id FK/status queued|running|done|failed/
+stage applying|rebuilding|zipping|signing|done/error Text/edits_json snapshot/
+artifact_name/path/sha256/created_at/finished_at) + `edits.build_id` FK
+(SET NULL; builds created before edits so the FK resolves).
+`analysis/rebuild.py` = `build_apk` (fresh copy of the pristine decode →
+`apply_edits` overlay — traversal-guarded, missing file fails loudly →
+`apktool b` → `zipalign -f 4` **before** signing → `apksigner sign` →
+`apksigner verify` gate: a signed-but-invalid APK is a failed build) with
+`on_stage` callbacks (queued→applying→rebuilding→zipping→signing→done).
+**Install-scoped test keystore** (decision 10): `ensure_keystore()`
+generates `data_dir/masa-test.jks` once (keytool from the bundled JRE,
+alias `masa-test`, RSA 2048, JKS) + a **random passphrase** in
+`data_dir/masa-test.jks.pass` — both 0600, BYOK precedent. Artifact naming:
+`{stem}-resigned-test-{build_id}.apk` under `data_dir/artifacts/<scan_id>/`
+(the label embedded in the filename, decision 9; minor format deviation
+from the checklist's `-{scan_id}-b{n}` — build_id is unique per scan, same
+contract); intermediates cleaned in `finally`; `cert_sha256()` parses the
+verify digest for Phase E's fingerprint comparison.
+`workers/jobs.py::run_rebuild(scan_id, build_id)` snapshots the applied
+edit ids into `builds.edits_json` **at job start** (mid-build
+apply/reject never mutates the tree), fails loudly with stage + stderr
+reason, marks consumed edits' `build_id` only on success, allows zero-edit
+(pristine) rebuilds (open item 4 = yes) + `enqueue_rebuild`. API (scans.py):
+`POST /scans/{id}/rebuild` (202; 409 not-analyzed/Android-only/
+decode-not-ready/**one-in-flight-per-scan**; 500 enqueue failure marks the
+build failed) · `GET /scans/{id}/builds` (newest first) · `GET
+/builds/{bid}` (modal poll target) · `GET /builds/{bid}/download`
+(FileResponse, labeled Content-Disposition + `X-Resigned-Test-Build`
+header, 409 not-done / 404 missing-on-disk). `BuildRead` exposes `edit_ids`
+(parsed from edits_json via `validation_alias` — from_attributes maps by
+the alias, not the field name). Frontend: the **Edit & recompile button is
+live** (hidden on iOS — open item 6 default; disabled until decode-ready)
+→ `RecompileModal.tsx` (620px, `.modal-overlay` pattern): persistent
+un-dismissable amber test-build warning (decision 10), applied-edit count,
+Recompile button (disabled while a build runs), live 5-dot stage pipeline
+(2 s poll, settle-refresh both lists), done → labeled download + sha256,
+failed → stage + specific error + ↻ Retry, plus the **Edits & builds
+full-history panel** (decision 8): builds (status/stage/date/edits,
+re-download any done artifact) + edits (per-applied "Restore original" —
+revert pops to the prior state). Reviewer fixes (same pass): dead `STAGES`
+removed; keystore orphan recovery (keystore present but passfile missing →
+unlink + regenerate) + `_write_0600` (no write-then-chmod window);
+**stale-build reaping** in the trigger (queued >5 min / running >45 min →
+failed "stale build" so the one-in-flight guard can't strand the scan after
+a worker crash); `run_rebuild` refuses a build/scan id mismatch; the
+**download endpoint constrains `artifact_path`** to the scan's artifact dir
+(resolve + is_relative_to); apktool b in the pipeline is bound by the
+rebuild step timeout (decode keeps its own default); streaming sha256;
+modal close callback stabilized (useCallback — no re-subscribe churn).
+Gates: **557 backend tests green (+33) + ruff clean; tsc + vite build
+green.**
+
+**Phase D (agent edit flow, Aug 10)**: `agent/tools.py` gained
+`read_editable_file(path)` (reads the **current effective content** —
+baseline + newest applied edit — of an editable apktool-root-relative path,
+so proposals stack on what a rebuild would compile; containment check runs
+BEFORE the editability check so traversal attempts get the `escapes` error)
+and `propose_smali_edit(path, instruction, new_content)` — validates
+editability + `MAX_EDIT_CHARS`, stores a **`proposed`** edit row + generated
+unified diff via `edits.create_agent_proposal` (same stacking rule as
+manual edits; **never auto-applies** — decision 7), returns `{edit_id,
+file_path, instruction, status, unified_diff}` (diff capped at 2000 chars
+for the model; full diff lives in the DB + review panel). Both gated by
+`edit_tools_allowed(scan_id)` (Android AND filesystem-derived
+`apktool.is_ready` — same derive-don't-trust-the-column rule as the Smali
+chip) and filtered out of `schemas_for_platform` unless
+`edit_tools_enabled=True` — the model never even *sees* them on iOS or an
+undecoded scan (M7 web-tool precedent); handlers re-check both gates
+defensively. `chat.py` appends an **M8 EDIT TOOLS** system-prompt section
+only when they're offered (the review contract: a real model proposes,
+never claims it applied anything; non-editable files are read-only).
+`propose_smali_edit` reads the edit's columns BEFORE closing its session
+(SQLAlchemy expire-on-commit → DetachedInstanceError otherwise) and
+converts TreeError/FileNotFoundError to clean ToolErrors. **Fake-model
+flagship demo** (`model/fake.py`): round 1 `read_editable_file` on the
+bar's target, round 2 `propose_smali_edit` (manifest: toggles
+`android:debuggable` true↔false / inserts `false` on `<application>` when
+absent; smali: appends a `# MASA demo edit — <instruction>` comment;
+unsupported targets never guess an XML edit → honest fallback), round 3 a
+cited answer with the stored proposal for review — a failed step composes an
+honest answer instead of retrying (M7 precedent); the demo triggers only on
+edit-y questions when edit tools are offered (the bar's `(Target editable
+file: …)` hint always counts; non-edit questions keep the M6.1 main demo).
+Frontend: the **✨ Ask agent to edit bar** (mockup 1:1 — `.aeb-tag` + input +
+Apply; visible when an editable file is open AND a chat model is connected,
+mirroring the dock's no-model gate) sends the instruction with the open
+file pre-set (appends the target hint), streams its own inline reply
+(`useChat` per panel — token caret + live steps + Tools (n) trace) under
+the bar, and **auto-opens `ProposalsModal`** when a turn lands a successful
+`propose_smali_edit` (guarded per message id). `ProposalsModal` = the
+**diff-review panel (D7)**: per-file cards with lazy-fetched git-style
+colored unified diffs (`.pr-line.add/del/hunk/ctx`) and per-file
+Apply/Reject; the toolbar **Review edits (n)** badge counts proposed rows;
+applying bumps `editVersion` → an open editor remounts + refetches the
+effective content so a manual save can never overwrite a just-applied agent
+edit. Gates: **582 backend tests green (+25) + ruff clean; tsc + vite
+build green.** Phase E (hardening + contract-style e2e) remains.
+
 Three-round owner interview locked the decisions: (1) **apktool decode is
 on-demand** — an RQ job triggered by the first Smali view / first edit
 (cached per scan), never a scan-pipeline step; (2) **edits are diffs in the
@@ -668,3 +854,760 @@ e2e item re-scoped to contract-style, M8 section now links the plan. Open
 kickoff items (non-blocking): pin apktool + build-tools versions, choose the
 awkward-APK fail-loudly test candidate, confirm the `propose_smali_edit`
 contract.
+
+**Phase E COMPLETE (Aug 10, 2026 — hardening + contract-style e2e; M8 done):**
+(1) **Awkward-APK fail-loudly (open item 2 resolved)** — candidate is a
+**deterministic synthetic fixture** (`scripts/make_awkward_apk.py`: corrupt
+`resources.arsc` + plain-text manifest in an APK-shaped ZIP). Real apktool
+in the image fails the decode with the specific reason (`Unexpected chunk:
+0x6702 (expected: RES_TABLE_TYPE)` from BinaryResourceParser);
+`apktool_status=failed` + `apktool_error` carry it; no ready tree. The
+REBUILD-side awkward case = an invalid-smali edit: build row `failed` at the
+**`rebuilding`** stage with apktool's exact `Could not smali file` reason,
+**no artifact**, download 409; `rebuild.py` now wraps the `ApktoolError`
+from `apktool b` into the stage-tagged `RebuildError`. New unit tests:
+service + job rebuilding-stage failure, awkward-decode fail-loudly chain,
+and the **mid-build edit/rebuild race** (an edit applied after the job's
+snapshot never reaches the build tree — `edits_json` immutable, late edit's
+`build_id` stays None). (2) **Containerized contract-style e2e PASSED**: scan
+20 InsecureBankv2 → real apktool 3.0.3 decode (ready in ~60s) → **manual
+manifest edit** (debuggable off) + **agent-proposed edit** (fake model
+streamed `read_editable_file` → `propose_smali_edit`; dup manifest
+proposals rejected via the human API, smali `# MASA demo edit` comment
+applied) → `POST /rebuild` → done in ~10s → `InsecureBankv2-resigned-test-1.apk`:
+**`apksigner verify` passes (CN=MASA Test Signer) + `zipalign -c 4` passes +
+fingerprint differs (`24d14ee1…` vs original `8092db81…`) + `-resigned-test-`
+filename** + labeled download (`Content-Disposition` + `X-Resigned-Test-Build:
+true`); build 1 `edits_json` = [1,6]; failed awkward build 2 stayed in
+history (decision 8). (3) **iOS regression**: scan 22 iBugBazaar keeps the
+read-only bundle tree (no smali/res/manifest roots); smali/edits/rebuild all
+409 Android-only (decision-5 copy); toolbar hides the M8 affordances on iOS.
+(4) **Build-tools pin fix (open item 1, found at the gate)**: Google now
+serves `build-tools_r<v>_linux.zip` (underscore) — `build-tools_r35.0.0-linux.zip`
+404s and 35.0.0 was never published under the underscore scheme; Dockerfile
+pinned **35.0.1** (`build-tools_r35.0.1_linux.zip`, verified against
+repository2-3.xml) and both images rebuilt. Gates: **586 backend tests green
+(+4) + ruff clean; tsc + vite build green**; image **3.47 GB content /
+783 MB compressed** (bump approved). Browser DOM click-through blocked by the
+recurring chrome-devtools outage (code review + the API-level e2e covered it,
+per precedent). Owner post-completion checkpoints (not blockers): real-model
+QA of the agent edit flow; optional manual install-and-run of a rebuilt APK.
+
+**Follow-up (Aug 10 — annotation-rail overflow fix, owner report):** the
+Decompiler annotation rail's last note could overflow its bubble — long
+unbroken finding-title tokens like `com.android.insecurebankv2.LoginActivity`
+pushed past the `.note` border (no wrap rule). Fixed with the M7-precedent
+`overflow-wrap: anywhere` on `.note` (index.css); verified headless-Chrome
+against the exact built CSS (note scrollWidth == clientWidth, overflowPx 0)
++ the app image was rebuilt/recreated so the served bundle carries it.
+
+**Follow-up (Aug 10 — decompiler sticky title + annotation-rail minimize,
+owner report):** (1) **Code title overlap fixed** — scrolled `.code-line`
+rows (position:relative, DOM-after) could paint OVER the `.code-file-path`
+title. `.code-file-path` is now `position: sticky; top: 0; z-index: 2` with
+the opaque pane background (`#111417`) + border-bottom, so lines (and their
+`.flagged::before` bars) scroll beneath a solid title. (2) **Annotation-rail
+minimize** — `.rail-min-btn` (−) in the rail header collapses the rail:
+`.decomp-layout.rail-min` swaps the splitter+rail for a slim 28px
+`.annot-rail-collapsed` vertical restore strip (writing-mode label
+"Annotations (n)"); state persisted as `masa.decomp.railMin` (1/0) like the
+splitter widths, restore returns to the saved rail width; `railMin`/`readFlag`
+added to DecompilerPanel (AnnotationRail gained `onMinimize`); ≤900px hides
+the strip too. Gates: tsc + vite build green (index-BPdWG6X4.js); reviewer
+clean (non-blocking nit: flagged-line click while minimized sets the note id
+silently — appears on re-expand); live headless-Chrome on :8000: after deep
+scroll elementFromPoint at the title's center hits the title (no overlap),
+minimize→strip→restore round-trip with `rail-min` class + localStorage
+1→0, zero console errors; app image rebuilt/recreated.
+
+**Follow-up (same session — the sticky title still showed code ABOVE it;
+root cause was the pane's padding, not stacking):** empirically measured an
+18 px band of `code-line`/`code-text` above the scrolled title. Cause:
+`position: sticky` is constrained to the parent's **content-box top edge** —
+`.code-pane`'s `padding: 18px 0` pushed that edge down, so the title could
+never reach the pane's true top (the earlier elementFromPoint check only
+probed the title's CENTER, missing the band above). Fix (index.css): the
+18 px top spacer moved OUT of `.code-pane` (`padding: 0 0 18px` — bottom
+padding kept) and INTO the sticky `.code-file-path` (`padding: 18px 18px
+12px`) so the opaque bar covers the full strip; `.code-editor .code-file-path
+{padding-top: 0}` keeps the Smali editor's flex header (non-sticky) flush.
+Gates: tsc + vite build green (index-DnrDHuQm.css); reviewer clean; live
+headless-Chrome: deep scroll gap = **0 px**, element at the title's top edge
+is the title, at-rest first-line offset preserved (58 px, ~same as the old
+54 px), editor header padding-top 0 / flush, zero console errors; app image
+rebuilt/recreated.
+
+**Follow-up (Aug 10 — scan-switch view pinned to the first scan, owner
+report):** switching scans from the TargetBar dropdown left the dashboard
+showing the OLD scan until a manual browser refresh. Root cause: `DashboardView`'s
+risk-backfill state (`scan`) pinned the derived `current = scan ?? scanOverride
+?? activeScan` — once the backfill cache was non-null it shadowed the
+selection forever, and the backfill effect was keyed on `current?.id`
+(unchanged) so it never re-ran. Fix: `current` now derives from the
+SELECTION (`selected = scanOverride ?? activeScan`) and only accepts the
+cache when its id matches (`scan?.id === selected?.id ? scan : selected`);
+the backfill effect keys on `selected?.id`, seeds the selection into the
+cache first, and guards the async response with a functional id check (a
+mid-flight switch can never land a stale backfill). Also keyed
+`DecompilerPanel` per scan (`key={current.id}`, the AgentDock/CodeMapsPanel
+precedent) so its M8 per-scan state — the ✨ ask-agent `useChat` thread
+(which never sees scanId), the Smali decode status, and the edits list —
+resets on switch while staying mounted across tab switches. Gates: **tsc +
+vite build green**; **live-verified in headless Chrome against the running
+stack via a CDP script (chrome-devtools agent outage again)** — two
+consecutive dropdown switches (iBugBazaar.ipa → awkward.apk →
+iBugBazaar.ipa) each updated the header + Findings count without a reload,
+zero console errors. **App image rebuilt + container recreated** (`docker
+compose build app && docker compose up -d app`; frontend-only change so the
+worker image is untouched) — now serves `index-DTGS7Orx.js` (was
+`index-BlL6kSES.js`), health ok, and the same CDP scan-switch testre-run against the SERVED container on :8000 passes.
+
+**Follow-up (same session) — Code maps tab hidden on iOS (owner):** the
+Code maps tab is Android-only in v1 (the graph builds the decompiled Java
+tree; iOS has no source-like files and the backend 409s non-Android), so the
+tab no longer appears on iOS scans at all — `DashboardView` filters the
+`codemaps` entry from the tabs array when `current.platform === 'ios'` and
+guards the panel render with the same condition (the CodeMapsPanel is never
+mounted on iOS). A fallback effect resets `tab` to Overview when the active
+tab is the hidden one (`tab==='codemaps' && platform==='ios'` — the user
+switched scans while on Code maps), so the main area is never blank with no
+active tab. Android scans keep the tab (platform null falls through to show,
+mirroring the `platform == null || isAndroid` toolbar convention). Gates:
+tsc + vite build green; app image rebuilt + container recreated (now serves
+`index-DrTX3bwT.js`); **live-verified on :8000 via headless Chrome** — iOS
+scan 22 tabs are Overview/Findings/Dependencies/Decompiler/Report (no Code
+maps), Android scan 21 shows Code maps and it opens, switching back to iOS
+while ON the Code maps tab lands on Overview, zero console errors.
+
+**Follow-up (same session) — Decompiler toolbar fully hidden on iOS (owner):**
+the M8 toolbar already gated the Smali chip and Edit & recompile on
+`platform == null || isAndroid`, but the Java chip rendered unconditionally —
+iOS showed a lone meaningless "Java" chip. `DecompilerPanel` now wraps the
+WHOLE `.decomp-toolbar` (Java/Smali view toggle + Smali decode chip +
+Edit & recompile + Review edits) in `androidToolbar = platform == null ||
+isAndroid`, so iOS renders none of it; the now-redundant inner gates were
+removed (the wrap guarantees them; Retry decode keeps its own
+`isAndroid && smaliFailed` so unknown-platform still shows nothing). The
+view-hint fallback was split: Android/unknown keeps the Smali-chip guidance,
+iOS gets the accurate "Read-only — iOS scans show the unpacked bundle" copy.
+CSS check: `.view-hint` has no `margin-top`, so removing the toolbar leaves
+no spacing gap. Gates: tsc + vite build green; app image rebuilt +
+container recreated (serves `index-DQ3ol0Hg.js`); **live-verified on :8000
+via headless Chrome** — iOS scan 22 Decompiler tab has NO toolbar (zero
+chips, no Edit & recompile) + the iOS hint copy, Android scan 21 shows
+Java/Smali chips + Edit & recompile (with the awkward.apk decode-failed
+hint + Retry), zero console errors.
+
+**Follow-up (same session) — iOS Decompiler audit CLEAN (owner request,
+no code change):** with the toolbar gone, the rest of the iOS Decompiler
+tab was audited live on :8000 (scan 22 iBugBazaar) via headless Chrome at a
+desktop viewport (the ≤900px responsive rule collapses the layout to
+tree+code by design — the audit's first run at 800×600 mis-measured the
+rail as 0, a harness artifact, not a bug). Results: full 5-column layout
+intact (tree 140 / code 736 / rail 160 px); tree roots = `analysis` +
+`vulnios_prod.app` (the .app bundle root is named after the real app dir
+inside the IPA — NOT `iBugBazaar.app`); `Binary (Mach-O) (7)` group
+present with 7 inert `aria-disabled` rows that all become visible on
+expand; the 4 generated analysis docs all open with content (macho-profile.md
+50 lines, entitlements.plist 5, exported-symbols.txt 21, insecure-imports.txt
+15); annotation rail renders `Annotations (0)` with the honest empty-state
+copy — correct, since all 9 iOS findings are binary-level (0 carry
+file_path, by design), so no file can legitimately show notes; zero console
+errors.
+
+**Follow-up (same session) — Decompiler tree now FILTERED by the
+Java/Smali tab (owner decision Aug 10; question: "what is the use of the
+java/smali tab if the tree shows both?").** The chips were previously a
+per-file representation indicator + sibling jumper while the tree always
+showed every root (jadx sources/resources + apktool smali/res/manifest
+side by side). Now the tree follows the active view — `DecompilerPanel`
+gains `isJavaRoot` (`sources`/`resources` = Java side) + a `visibleRoots`
+memo that filters `files.roots` by `view`, **Android only** (iOS keeps the
+full bundle tree — the toggle is hidden there): Java mode = the read-only
+jadx analysis surface; Smali mode = the editable rebuild surface
+(smali*/res/AndroidManifest.xml). Clicking the other chip is now a mode
+switch that ALSO jumps to and selects the sibling (smaliSibling, both
+directions); clicking a tree file keeps the matching mode; the
+auto-select default is picked from the current view's roots; agent
+citation clicks (requestFile) still resolve against the FULL tree then
+switch the view to match the resolved file's side so it's never
+invisible. Side effect: the jadx `resources` root now maps to the Java
+view (was Smali) — read-only, consistent with the split; the editable
+apktool `res` root stays in Smali mode. Notes: findings dots/annotations
+are jadx-path-based so Smali mode shows few dots (smali is the edit
+surface — accepted). JSDoc gotcha caught by tsc: a block comment
+containing `smali*/res` terminated the comment early (`*/` inside) —
+reworded to backticked names. Gates: tsc + vite build green; app image
+rebuilt + container recreated (serves `index-Bl5b-HJG.js`); **live-verified
+on :8000 via headless Chrome (scan 20, decode ready)** — Java mode roots
+`[sources, resources]` vs API's full `[sources, resources, smali, res,
+AndroidManifest.xml]`; Smali chip click → roots `[smali, res,
+AndroidManifest.xml]` + open file jumped `CryptoClass.java →
+CryptoClass.smali`; tree click stays in smali mode; Java chip back →
+`AnimatorRes.smali → AnimatorRes.java` + roots `[sources, resources]`;
+iOS roots stay `[analysis, vulnios_prod.app]`; zero console errors.
+
+**Follow-up (Aug 10 — smali-mode findings dots + rail):** the M8 note above
+said "Smali mode shows few dots — accepted"; the owner then asked to map
+semgrep/androguard findings onto their smali siblings so Smali mode shows
+the analysis too. New endpoint `GET /scans/{id}/smali-mapping`
+(`SmaliMappingResponse`): distinct finding file_paths → only `.java`/`.kt`
+→ rebuild the `sources/` tree-path prefix → `smali_map.java_to_smali` →
+`{mapping: {"sources/...": "smali/..."}, total}` (multidex first-found;
+manifest/res findings never map; empty when undecoded; 409 iOS / not
+analyzed; 404 unknown). **Contract gotcha caught against LIVE data**: finding
+file_paths are ROOT-RELATIVE (`com/.../CryptoClass.java`), NOT
+`sources/`-prefixed — the first route version filtered `startswith("sources/")`
+and would have returned 0 mappings in production; fixed + tests assert the
+real shape. Frontend `DecompilerPanel`: `smaliMap` state fetched when
+`decodeReady && files?.platform === 'android'` (reset per scan,
+best-effort {} on failure); `smaliAlias` memo strips the root prefixes to
+root-relative pairs (declared ABOVE the auto-select effect — a TDZ error
+caught by tsc); `findingsByFile`/`findingFiles` alias each jadx finding
+onto its smali sibling (**line_number → null on the copies** — smali rail
+notes carry no line anchor, only the file; severity dots copy the worst
+rank); auto-select prefers dot-bearing smali files in smali mode. Gates:
+592 backend tests green (+9 mapping tests) + ruff clean; tsc + vite build
+green (`index-Bx3oqpvT.js`); app image rebuilt + recreated; API live-verified
+(scan 20 → 237 mappings; iOS 409); **headless-Chrome live check on :8000**:
+Java roots `[sources, resources]` → Smali chip → roots `[smali, res,
+AndroidManifest.xml]`, active file jumped `CryptoClass.java →
+CryptoClass.smali`, rail `Annotations (10)` with severity-only tags (no
+`· line`), `CryptoClass.smali` row carries `fdot high`, click → 10 aliased
+notes, back in Java mode the line anchors return (`High · line 26` …);
+zero console errors. Harness notes: Node's global WebSocket (no `ws` dep);
+poll for tree roots before clicking the chip (it's disabled until the
+platform loads).
+
+**Follow-up (same session — mapping extended beyond .java/.kt):** the
+smali-mapping endpoint now also carries **identity entries** so res/
+manifest findings dot in Smali mode too: `res/...` → ITSELF (the apktool
+`res` root serves the same relative path as the jadx resources tree —
+frontend strips the root prefix to `values/...` for the res-root node
+paths) and `AndroidManifest.xml` → `AndroidManifest.xml/AndroidManifest.xml`
+(the synthetic root's single file). Route now early-returns empty when
+`apktool.is_ready` is false — the identity entries must not leak before
+the decode exists (previously the empty came implicitly from
+java_to_smali). Live scan 20: total 237 → 238 (1 manifest; zero res
+findings on InsecureBankv2). Frontend `smaliAlias` gained an **identity
+guard** (`javaRel === smaliRel` → skip): the manifest finding's file_path
+`AndroidManifest.xml` ALREADY matches the manifest tree node path (dot +
+rail worked without any alias), so aliasing would have doubled the 15
+manifest findings to 30 — live-verified `Annotations (15)`. No Java-mode
+double-dot for res findings either: the jadx resources root serves
+`res/...`-prefixed node paths (verified live — 808 nodes), so the aliased
+`values/strings.xml` key matches no Java-mode node. Line numbers stay
+dropped on res aliases (jadx vs apktool AXML decode could differ —
+conservative). Gates: 592 backend tests green + ruff clean; tsc + vite
+build green (`index-j7REreZI.js`); app image rebuilt + recreated;
+headless-Chrome live check: Smali roots `[smali, res, AndroidManifest.xml]`,
+manifest row `fdot high`, rail `Annotations (15)` (not 30), CryptoClass.smali
+dot regression intact, zero console errors.
+
+**Follow-up (same session — per-scan mapping CACHE):** repeated Decompiler
+opens re-walked the filesystem per finding path (237 is_file() stats +
+findings query every time); the mapping is immutable per scan (findings
+immutable per scan id — re-runs create new scans; suppression never changes
+finding paths; the decoded tree never mutates — edits are DB diffs), so it
+is cached once per scan mirroring the graph explorer.json pattern. Moved the
+compute out of the route into `smali_map.py`: `compute_mapping(scan, paths)`
+(unchanged semantics — java/kt via java_to_smali, res→itself,
+manifest→`editable.tree_path_from_edit_path`) + `cached_mapping`/
+`store_mapping`. Module cache keyed by the absolute cache path
+(`work/<scan>/smali_mapping.json`) holding `(tree_mtime, mapping)`, bounded
+32 (evict oldest-inserted, same rule as `_EXPLORER_CACHE`); the persistent
+file carries `{version, tree_mtime, mapping}` (shape-versioned + the decoded
+manifest's mtime as the tree identity) written atomically (tmp+rename),
+best-effort — any failure degrades to a recompute, never a wrong answer.
+Route: `is_ready` gate → `cached_mapping` hit returns immediately (SKIPS the
+findings DB query + filesystem walk) → else compute + store. Tests (+3 → 27
+in the file): second-call served from cache (monkeypatched compute_mapping
+counter stays 1), stale-tree-mtime file rebuilds + rewrites, torn-JSON file
+rebuilds after clearing the module cache (fresh-process path), valid disk
+file served without recompute (fresh-process hit), undecoded writes no file.
+One reviewer-driven note: identity entries don't touch the filesystem, so
+their validity assumes the tree exists (route gates is_ready first) —
+documented in compute_mapping. Gates: **595 backend tests green + ruff
+clean**; app image rebuilt + recreated; live: first call computes (total
+238) + `smali_mapping.json` written (28 KB, version 1 / 238 entries) inside
+the container at `/data/work/20/`, second call cache-served, and the cache
+file SURVIVES container recreation (volume) with the fresh process serving
+it — the cross-restart win proven.
+
+**Containerized e2e re-run (Aug 10, 2026 — cache regression check, scan 23,
+contract-style):** the full M8 flow on a FRESH scan with the mapping cache
+live — no disturbance. Upload InsecureBankv2.apk → analyzed done in ~45s;
+`POST /smali` → 202 → decode ready in ~50s (real apktool in the image);
+smali-mapping 238 on both the compute + cached calls with
+`/data/work/23/smali_mapping.json` (version 1 / 238 entries) written; **manual
+manifest edit** (toggled `android:debuggable="true"` → `"false"`, `POST
+/edits` 201, edit 11 applied); **agent edit flow** (app restarted with
+`MASA_FAKE_MODEL=1` for the demo — fake backend seeded + enabled;
+`POST /chat/stream` "remove the debuggable flag (Target editable file:
+AndroidManifest.xml)" → 149 token frames + live `read_editable_file` →
+`propose_smali_edit` steps + answer citing "edit #13 … nothing was applied
+automatically" with the diff; proposals 12/13 both `proposed`, rejected via
+the human API); **rebuild** (build 3: queued → applying → rebuilding → done
+~10s, `edit_ids [11]` — exactly the APPLIED edit, rejected proposals
+excluded, artifact `InsecureBankv2-resigned-test-3.apk`, sha256 present;
+download 200 + `X-Resigned-Test-Build: true` + labeled Content-Disposition);
+**artifact gates in-container**: `apksigner verify` → CN=MASA Test Signer,
+`zipalign -c 4` OK, cert SHA-256 `24d14ee1…` differs from the original's
+`8092db81…` (identical values to the Phase E e2e — same test keystore);
+**iOS regression**: scan 22 smali-mapping/edits/rebuild all 409 Android-only;
+scan 20 mapping still cache-served (238). `MASA_FAKE_MODEL` restored to 0
+(as-found) + health ok. Cache-safety notes: the cache file is a SIBLING of
+`work/<scan>/apktool` so the rebuild's pristine-tree copy never includes it,
+and the mapping endpoint is never on the edit/rebuild/chat path — the e2e
+confirms the whole chain end-to-end.
+
+**Follow-up (Aug 10 — tree node cap removed + server cache):** owner
+questioned why the decompiler says "truncated" and whether it's too heavy to
+not truncate. Measured: scan 23's full tree is 11,510 nodes / ~1.7 MB
+payload (smali 6,729, sources 3,192, resources 808, res 781, manifest 1) —
+fine for a local-first web app. Other decompiler tools (jadx-gui, Android
+Studio APK Analyzer) show the full tree. Owner chose **remove truncation
+entirely**. Changes in `backend/app/analysis/tree.py`:
+`MAX_NODES_PER_ROOT = 1500` deleted; `list_tree` defaults to unbounded
+(`max_nodes: int | None = None`); `MAX_DEPTH` raised 8→16 as symlink-cycle
+guard only; module docstring updated. A new per-scan **server-side tree
+cache** was added mirroring the smali-mapping cache pattern: identity =
+root-name set + decoded manifest mtime; disk file at `work/<scan>/tree_cache.json`;
+in-memory `_TREE_CACHE` bounded to 8 entries; atomic tmp+rename write;
+`cached_list_tree` validates version+identity; any failure degrades to
+recompute. `GET /scans/{id}/files` now calls `tree.cached_list_tree(scan)`.
+Live-verified on scan 23: all roots `truncated: False`, payload 1.7 MB,
+cache file written (1.7 MB), second call mtime unchanged (cache hit), iOS
+unchanged. Tests: 47 scan + 67 edits/smali + 598 full suite green; ruff
+clean. Deployed as `masa-app` + `masa-worker` rebuilds.
+
+**Follow-up (same session — Java/Smali toggle dead-click fix, owner report):**
+clicking **Java** on a smali file with no jadx counterpart did NOTHING —
+`jumpToSibling` had `if (!sibling) return`, and the sibling API returns null
+for res/manifest files and classes jadx didn't decompile (confirmed at code +
+API level: `MyDBHandler.smali`, `AndroidManifest.xml`, `res/values/strings.xml`
+→ null; the smali tree on scan 23 is truncated at 1505 nodes, so no-sibling
+files like MyDBHandler aren't even in the tree payload). Fix in
+`DecompilerPanel.tsx` (frontend only): on null sibling OR a transient lookup
+error, `jumpToSibling` now STILL switches the view, restoring the target
+side's **last-open file** (new `lastSideFile` useRef, recorded in `openFile`,
+sibling jumps, and the citation resolver) or that side's default app-code
+file when never opened (shared `findingPaths` useMemo — the same
+app-code-with-findings logic the auto-open effect uses, extracted so the two
+can't drift; selection cleared when the side is empty). Live-verified in
+compose on scan 23 (12/12 checks): manifest (no sibling) → Java click moves
+view, restores last java file `CryptoClass.java`, tree java-only; reverse
+`resources/res/anim/abc_fade_in.xml` (no smali sibling) → Smali click moves
+view, restores `CryptoClass.smali`; sibling jumps unchanged; zero console
+errors. Deployed as `index-Cm89lR16.js`. Reviewer catches fixed: `findingPaths`
+extraction, citation-resolver side recording, empty-side selection clear.
+
+**Follow-up (Aug 11, 2026 — dock chat is THE agent edit surface; the
+Decompiler's ✨ Ask agent textfield removed, owner):** (1) **The inline
+"Ask agent to edit" bar is GONE** — `DecompilerPanel` no longer renders the
+`.agent-edit-bar` (tag + input + Apply) or its inline reply (`.aeb-reply`,
+`EditStepList`); `editChat`/`editDraft`/`submitEditAsk` deleted; the `.aeb-*`
+CSS removed. The edit conversation lives ENTIRELY in the Agent dock now —
+the owner's flow: chat "disable password validation in authentication" →
+the agent searches the code and proposes an edit. (2) **`find_smali_sibling`
+agent tool added** (`agent/tools.py`, in `_M8_EDIT_TOOLS` so it's gated on
+Android + decode-ready like the other edit tools): maps a jadx
+`sources/.../*.java` path (what `search_code` returns) to its editable
+apktool `smali*/...` sibling (multidex first-found via
+`smali_map.java_to_smali`) — the bridge between the Layer 2 search surface
+and the M8 edit surface; clean errors for non-`sources/` paths and classes
+apktool didn't decode. `_M8_EDIT_PROMPT` now walks the model through
+search_code → find_smali_sibling → read_editable_file → propose_smali_edit.
+(3) **Fake-model edit demo now SEARCHES FIRST** (`model/fake.py`): round 1
+issues `search_code` (a content keyword from the USER'S OWN question —
+"disable password validation in authentication" → `password` — the M7
+user-query precedent) + `read_editable_file` together (the loop executes
+all tool calls in a message; distinct stream indexes — the round-1 two-call
+shape previously merged into one because both chunks carried `index: 0`),
+round 2 `propose_smali_edit`, round 3 a cited answer naming the top search
+hit (`file:line` → clickable chip) + the stored proposal. (4) **Proposals
+review lifted to DashboardView** — one shared surface for the dock and the
+Decompiler toolbar badge: `DashboardView` owns the per-scan `edits` list
+(cleared + refetched on scan switch so the pill/badge never show the OLD
+scan's count, and the review modal closes on switch — review catch),
+`editVersion` (bumped on Apply/Reject → remounts an open CodeEditor),
+`proposalsOpen` + the single `<ProposalsModal>` instance.
+`DecompilerPanel` receives `proposedCount`/`editVersion`/`onOpenProposals`
+props (toolbar Review edits (n) badge → shared modal). (5) **Agent dock**
+gains a **Review edits (n) pill** (persistent, under the header) + **auto-
+opens the shared review modal the moment a turn lands a successful
+`propose_smali_edit`** (message-id guard, mirroring the old bar's
+auto-open), an amber **✏️ edit hint** on Android scans where the smali
+decode isn't ready yet ("open Decompiler → Smali to trigger it") so the
+headline flow is discoverable, and a dock placeholder/welcome advertising
+edit proposals. Gates: **603 backend tests green (30 in test_edit_tools —
+5 new find_smali_sibling tests + updated fake-demo shapes) + ruff clean;
+tsc + vite build green** (served `index-CDrS8u-v.js`). Reviewer catches
+fixed: TDZ (refreshEdits referenced `current` before declaration — proposals
+block moved after `const current`), stale pill count on scan switch,
+modal persisting across scan switch, misleading welcome copy, and the
+stream-index merge.
+
+**Follow-up (Aug 11 — @-mention files in the dock chat):** the dock now lets
+the user **mention a file** (`@sources/com/foo/AuthManager.java`) so the
+agent works on it directly. Frontend: typing `@` opens a **mention picker**
+over the scan's decompiler tree (flattened lazily on the first `@` — the
+full multi-MB tree is never fetched at mount; files only, iOS binaries
+excluded), with Arrow/Enter/Tab/Escape keyboard nav; selecting inserts a
+`@path` token at the caret. The draft's mentions render as a **removable
+chip row** above the input (× strips the token; chip click opens the file in
+the Decompiler), and sent user bubbles render mentions as **clickable
+chips** (same `src-chip`, `UserBubble` splits the text around each token).
+`useChat.send(question, mentionedFiles?)` stores them on the message (a
+Retry re-sends them) and passes `mentioned_files` on the stream request.
+Backend: `ChatRequest.mentioned_files` (validator trims blanks, caps 10,
+512-char paths; Field max_length=50 is a transport bound only);
+`chat.py::_load_mentioned_files` reads each path via the SAME guarded
+`tree.read_tree_file` the viewer uses (traversal-guarded, binary refused,
+plists decoded, **editable files carry the applied-edit overlay** — what a
+rebuild would compile), capped 20k/file + 60k total, and renders a
+**USER-MENTIONED FILES** system-prompt section so the model answers /
+proposes edits about them with no search round; missing/unreadable paths
+degrade to an inline `[could not load — …]` note, never a crash; deduped.
+Both chat endpoints forward `mentioned_files`. **Fake-model demo is
+mention-aware**: an editable mention (`@smali/…`, `@res/…`,
+`@AndroidManifest.xml/AndroidManifest.xml`) becomes the edit target
+(`_mention_to_edit_path` converts the tree path); a jadx `@sources/…`
+mention drives the **search → find_smali_sibling → read sibling → propose
+sibling** flow (the proposal targets the SIBLING, not the manifest
+fallback — review catch); mention alone without edit keywords on a jadx
+source is a question, not an edit. `_edit_instruction`/`_edit_search_pattern`
+strip mentions so the proposal text + search keyword stay clean. CSS:
+`.mention-pop/.mention-opt` (absolutely positioned above the input —
+`.agent-input` gained `position: relative`), `.mention-chips/.mention-chip`
+(removable), `.mention-chip-inline` (in-bubble). Review catches fixed: the
+frontend mention regex now **requires a `/`** (every tree path is
+`<root>/<rel>` — `@gmail.com` can no longer become a bogus chip) and
+`_load_mentioned_files` dedups paths. Gates: **613 backend tests green +
+ruff clean; tsc + vite build green** (`index-CTQnGGB5.js`).
+
+**Follow-up (Aug 11 — Dependencies tab IMPLEMENTED; it was a placeholder):**
+the tab's placeholder copy said "Dependency CVE research ships in M7", but
+M7's owner reframe made that research an agent web-search use case — the tab
+itself was never built. Now it is a **local-first dependency inventory**
+(nothing leaves the machine; no new persistence — everything derives on
+demand from scan output). Backend: `analysis/dependencies.py` +
+`GET /scans/{id}/dependencies`. **Android**: third-party Java/Kotlin package
+groups from the jadx `sources` tree (`_group_key`: longest known-library
+ancestor wins — `com.google.android.gms` groups separately from the generic
+`com.google` bucket; `okhttp3`/`retrofit2` are their own groups; JDK
+namespaces `java/javax/sun` are noise; the app's own package is excluded via
+the manifest `package` attr), per-group non-suppressed semgrep finding
+tallies (a finding-bearing group is listed even when the capped walk missed
+its files), native `lib/<abi>/*.so` from the APK zip (grouped by name with
+ABIs), runtime engine markers (Flutter/React Native/Unity/Cordova/Xamarin/
+Capacitor via substring match on zip entries), app metadata (package +
+min/target SDK from the jadx-decoded `AndroidManifest.xml`). **iOS**: linked
+dylibs from the persisted LIEF "Linked dylibs (N)" info finding (system vs
+third-party: `/usr/`, `/System/`, `/Library/`, `libswift` = system),
+embedded `Frameworks/*.framework` + `.dylib`s, bundle id/version from
+Info.plist. Known-library labels (`_KNOWN_ANDROID_LIBS`: AndroidX, GMS,
+Firebase, Gson, OkHttp, Retrofit, RxJava, Glide, Jackson, …). Frontend:
+`DependenciesPanel.tsx` (app-identity + runtime chips, per-kind sections,
+sev-tag finding counts, "Check known CVEs" per dependency) wired into
+DashboardView replacing the placeholder; the CVE button **pre-fills the
+Agent dock draft** (new `presetDraft` prop, nonce-guarded, expands a
+collapsed dock) — the M7 web-research surface is the CVE lookup, per the
+owner reframe; the panel explains the 🌐-toggle + Active-engine requirement.
+Review catches fixed: dock preset reset on scan switch (AgentDock is keyed
+per scan — a stale preset would pre-fill the next scan), CVE click expands a
+collapsed dock. Live-verified in compose on scan 23 (InsecureBankv2):
+Google Play services 2437 files/171 findings (3 high) · Android Support
+Library 519/306 · com.google 22/8, app com.android.insecurebankv2
+minSdk 15 targetSdk 22; iOS scan 22: 35 system dylibs + bundle
+com.payatu.BugBazar v1.1; headless-Chrome click-through of the tab green,
+zero console errors. Gates: **629 backend tests green (+16 new) + ruff
+clean; tsc + vite build green**. masa-tasks.md M5 placeholder line updated.
+
+**Follow-up (same session — inventory CACHE):** repeated tab opens no longer
+re-walk the sources tree + APK zip — `dependencies.py` gained a per-scan
+cache (module, bounded 32, + a validated `dependencies_cache.json` beside
+the scan's trees — the tree_cache.json / smali_mapping.json pattern:
+versioned, atomic tmp+rename, best-effort). Identity = platform + sources/bundle
+dir mtime + APK stat + a **findings fingerprint** (sha over the passed
+non-suppressed `id:tool:severity` rows) — so suppression toggles flip the
+identity and recompute on the NEXT GET (lazy), and re-runs (new ids) too.
+A vanished tree is a cache MISS, never stale-serving (the smali_map
+`_tree_mtime` precedent — review catch). Live-verified in compose:
+first GET writes the file, **app restart serves from disk with mtime
+unchanged**, suppress→GET rewrites (mtime changes), restore→GET rewrites
+back; unit tests cover hit/eviction-path, suppression invalidation, torn +
+stale-identity files, fresh-process disk serve. Gates: **635 backend tests
+green (+6 cache tests) + ruff clean; frontend untouched.**
+
+**Follow-up (same session — suppression-fingerprint scope DECISION, no code):**
+considered extending the findings-fingerprint pattern to the Code maps
+`explorer.json` and the findings list endpoint. Verified both are
+findings-independent: the explorer is pure graph data (node rows/links/degree,
+zero findings references in graphify.explorer_data or CodeMapsPanel.tsx) with
+its own disk+module+mtime-validated cache already; the findings endpoint is a
+plain indexed SELECT with no cache and no computation to save (a fingerprint
+cache there would be circular — the fingerprint IS the result set). Adding a
+fingerprint to the explorer would force a needless 64 MB re-compaction on
+every suppress toggle. **Owner decision (Aug 11): skip both — keep as-is.**
+Suppression correctness is already handled across the board: risk recomputed,
+`scans.ai_summary` invalidated, frontend refetches; `dependencies_cache.json`
+remains the only findings-fingerprint cache.
+
+**Verification (same session, live in compose on scan 23):** full
+suppress→restore lifecycle re-checked end-to-end. Baseline risk 89/security 11,
+523 findings (11 high). Suppressed finding 8317 (a `com.google.android.gms`
+high): risk → 88/12 ✓, default findings 523→522 with 8317 hidden ✓,
+`include_suppressed` shows it with `suppressed_at` stamped ✓, an injected
+`ai_summary` value cleared to NULL ✓ (the stale-cache invalidation path
+proven live), and the dependencies inventory recomputed on the next GET
+(gms 171→170 findings, high 3→2) with the cache file rewritten ✓. Restored:
+risk back to 89 ✓, findings back to 523 ✓, gms back to 171/3 ✓, cache
+rewritten again ✓, `ai_summary` stays NULL (never stale) ✓, final state 0
+suppressed (as-found, clean). Note: the deps-cache recompute is lazy (next
+GET) — a stat taken before the GET correctly shows an unchanged mtime; the
+payload change is the definitive proof.
+
+**Verification (same session, live in compose on scan 22 — iOS):** the same
+lifecycle against the dylib inventory. Baseline risk 57/security 43, 9
+findings (3 medium; the dylib inventory's source is the info finding
+`Linked dylibs (35)` — deliberately NOT suppressed). Suppressed finding 7881
+(`CC_MD5`, medium): risk → 56 ✓ (band-symmetric 3→2 mediums, security 44),
+default findings 9→8 with 7881 hidden ✓, `include_suppressed` shows it with
+`suppressed_at` stamped ✓, injected `ai_summary` cleared to NULL ✓, deps
+cache recomputed on the next GET (mtime changed, fingerprint flipped) while
+the dylib inventory stayed **intact: 35 system / 0 third-party** ✓ (its
+source finding untouched). Restored: risk back to 57/security 43 ✓, findings
+back to 9 with 7881 visible ✓, `suppressed_at` cleared ✓, cache recomputed
+back (mtime changed) ✓, `ai_summary` stays NULL ✓, final state **0
+suppressed** (as-found, clean).
+
+**Follow-up (Aug 11 — dead search engines can't be activated; dock 🌐 needs a
+LIVE engine, owner):** "if searxng is not live make it disable in setting;
+agent dock web toggle also disable and unable to be clicked unless a search
+provider is active." (1) **Backend** `GET /search/backends` now lightweight-
+probes SearXNG-style engines (bundled + custom, `query_style == "searxng"`)
+**even when INACTIVE** — the cheap base-URL HTTP check — so the Settings radio
+can gate on reachability; keyed engines (brave/serper/mojeek) keep the
+enabled-only rule (their honest check IS a real query that validates the key,
+so they are never probed on the list route; cost note: a list blocks ≤3s per
+dead searxng-style backend — fine at this scale, the UI poll is 4s).
+(2) **Settings Active radio disabled** (`radioDisabled = !enabled &&
+!engineLive`; engineLive = `health.reachable` for searxng-style,
+`has_api_key` for keyed): dimmed `.switch.disabled` + click-inert +
+tooltip ("Engine unreachable — start it (▶ Start engine), then activate" /
+"No API key set — add a key to use this engine"). An ACTIVE engine stays
+toggleable so it can be turned OFF even after going unreachable. Side
+benefit: the ▶ Start engine button now also appears on an INACTIVE bundled
+engine (its health is populated) — start, then activate. (3) **Agent dock 🌐
+toggle now needs a LIVE Active engine**: `liveEngine = some(enabled &&
+health?.reachable)`, `webLocked = !modelConnected || (!liveEngine &&
+!webResearch)` — a dead engine can't ENABLE web research, but an opt-in that
+was already ON stays toggleable so the user can turn it OFF (review catch:
+the fully-inert lock would have stranded the opt-in on while server-side
+`web_tools_allowed` — enabled-only — still offered the tools); tooltip + input
+hint explain ("⏎ to send · 🌐 off — no live search engine (Settings → Search
+& research)"). Gates: **636 backend tests green + ruff clean; tsc + vite build
+green.** Live-verified: disabled searxng still reports `health:
+reachable=True status=ok` on the list (the radio gate's data), re-enabled
+as-found; served bundle carries the new strings/CSS; headless-DOM shows the
+dock toggle with the disabled class in the no-model state. No server-side
+upsert enforcement (deliberate — the gate is the UI affordance; the store
+stays offline and raw-API activations are out of scope).
+
+**Follow-up (Aug 11, 2026 — Decompiler ONE-SCROLL annotation rail, owner
+request: "make the codeview and the annotation one scroll not separate
+scroll"):** the rail no longer has its own scrollbar — the code pane is
+the single scroll SOURCE and the rail's notes are pinned to it. The grid,
+splitters, rail-minimize, and responsive rules are untouched. Mechanics:
+`AnnotationRail.tsx` positions every note ABSOLUTELY at its finding's line
+offset (`(line-1)*lineHeight + compensation`; compensation = code-title
+height − rail-head height, measured once the async content renders via a
+rAF-retrying effect; lineHeight 0 on the smali editor path where notes have
+no line anchors → stack-from-top), clusters overlapping cards below each
+other (ResizeObserver re-clusters when an AI explanation expands a card,
+`NOTE_GAP 10`), and the whole `.annot-rail-notes` column translates by the
+code's scrollTop via a **`--rail-scroll` CSS var set DIRECTLY on the DOM**
+(scrolling never re-renders the panel — the tree is huge). `DecompilerPanel`
+owns the mirror: the scroller is the viewer's `.code-pane` or the smali
+editor's `.editor-textarea`; native non-passive wheel forwarding (React's
+onWheel is passive and can't preventDefault; deltaMode 1 → ×16, review
+catch) so wheeling over the rail scrolls the code; the var write is skipped
+while the rail is minimized; a flagged-line click scrolls the code so the
+line-aligned note comes into view (de-keyed from the findings-array identity
+via a ref — review catch). Review guards: the LAST clustered note is clamped
+inside the code's reachable scroll range (a dense stack can't push a note
+past the pane's bottom, unreachable), and the compensation math was
+derivation-verified (note viewport y = headH + T_N − S; line viewport y =
+titleH + (L−1)·LINE_H − S → T_N = (L−1)·LINE_H + (titleH − headH)).
+Gates: tsc + vite build green; code review clean (4 fixes applied:
+last-note clamp, deltaMode, rail-min skip, effect de-keying); app image
+rebuilt + recreated (serves `index-DO9-1GYI.js`, matches local dist,
+`rail-scroll` present in the bundle). **Live-verified in headless Chrome via
+CDP at a DESKTOP viewport (1440×900)** — harness note: the default 800×600
+headless viewport hits the documented ≤900px responsive rule that hides the
+rail by design, so `display:none` made the first diagnostic read
+`transform: none` (a hidden element has no box — a harness artifact, not a
+bug). At 1440×900: rail `display:flex` + `overflow:hidden` (no own
+scrollbar), notes `position:absolute` + transform rule applied
+(`matrix(1,0,0,1,0,0)` at rest), scrolling the pane to 300 →
+`--rail-scroll: -300px` and the note's viewport top moved **390 → 90
+exactly −300px in lockstep with the code line** (one-scroll proven), zero
+console errors.
+
+**Follow-up (Aug 11 — smali editor one-scroll alignment):** the smali
+CodeEditor path previously fell back to stacked notes (aliases dropped
+line anchors — jadx renumbers source lines, so statement-level mapping to
+smali is impossible). Now the smali notes pin at **method granularity**: the
+smali-mapping endpoint also returns **line anchors** — each finding's jadx
+line maps to its containing method's `.method` line in the apktool smali
+sibling (by name; constructors map to `<init>` via the jadx class simple
+name; `static`/instance-initializer blocks never anchor — no method name).
+Backend: `smali_map.py` `_jadx_methods` (brace-counted at CLASS-BODY depth,
+multi-line throws handled, `new`-anonymous-class field inits + `;`-abstract
+methods excluded, **single-line bodies `{ return x; }` captured** — review
+catch, jadx emits compact one-line accessors) + `_smali_method_lines`
+(`.method` name → line, first-found, `<init>`/`<clinit>` included);
+`compute_anchors(scan, mapping, finding_lines)` groups by file (one read
+per jadx/smali pair), never raises, unresolved lines get NO anchor (the
+note stacks — pre-follow-up behaviour). Cache version bumped to **2**
+(`smali_mapping.json` now stores `mapping` + `anchors`; stale v1 files
+rebuild). Route queries distinct `(file_path, line_number)` and returns
+`anchors` in `SmaliMappingResponse` on both cache-hit and compute paths.
+Frontend: `DecompilerPanel` fetches anchors with the mapping, aliases each
+smali finding's `line_number` to its anchor (`byLine[String(line)] ?? null`
+— string keys on the wire, review catch) so notes pin at the editor's own
+line numbers, and the measure effect now handles the EDITOR path — the
+textarea's computed line-height (12.5px/1.9 → 23.75px) + `scrollHeight`
+(the clamp bound), both re-measured per file. Gates: **640 backend tests
+green (+1 regression) + ruff clean; tsc + vite build green** (`index-C-MKOpWW.js`),
+app image rebuilt + recreated, health ok. **Live-verified in compose (scan
+23, CryptoClass.smali, CDP at 1440×900)**: API — 238 mappings / **172
+files with anchors**, 31/31 sampled anchors land EXACTLY on `.method`
+lines in real apktool output (jadx 26-29 → smali#67 `.method public static
+aes256decrypt`, jadx 34-37 → smali#120 `aes256encrypt` — the hardcoded-key
+findings); browser — 10 notes with smali line tags (`High · line 67` …),
+rail `overflow:hidden`, editor scroll 300 → `--rail-scroll: -300px` with
+the note moving **exactly −300px in lockstep** (1942.39 → 1642.39), wheel
+over the rail forwards to the editor (+120 → 420), and the first note's
+inline top 1552.39px == `(67−1)×23.75 + (title 33.89 − rail-head 49)`
+(1567.5 − 15.11) — **pixel-exact, diff 0**. One-scroll now holds in BOTH
+the viewer and the smali editor.
+
+**Containerized M8 contract-style e2e RE-RUN (Aug 11, 2026 — scan 24,
+with the anchors feature live):** full flow on a fresh InsecureBankv2 scan
+passed end-to-end: upload → analyzed done ~45s (risk 89) → `POST /smali`
+202 → real apktool 3.0.3 decode ready ~45s → smali-mapping **238
+mappings / 172 anchor files** (cache written at `/data/work/24/smali_mapping.json`, 42 KB, version 2 with anchors) → **manual manifest edit**
+(`android:debuggable="true"`→`"false"`, edit 15 applied) → app restarted
+with `MASA_FAKE_MODEL=1` → **agent edit flow** via `chat/stream` (153 token
+frames + live `search_code` → `read_editable_file` → `propose_smali_edit`;
+proposal stored as edit 16 `proposed`, answer cited "stored as edit #16 …
+nothing was applied automatically" with the diff) → **edit 16 rejected via
+the human API** (rejected; edit 15 stays applied) → `POST /rebuild` → build
+5 **done ~10s** → `InsecureBankv2-resigned-test-5.apk` (sha256
+`c8c2afba…`, **`edit_ids: [15]` — exactly the applied edit, rejected
+proposal excluded**) → download 200 + `X-Resigned-Test-Build: true` +
+`Content-Disposition: attachment; filename="InsecureBankv2-resigned-test-5.apk"`
+→ **in-container artifact gates**: `apksigner verify` → **CN=MASA Test
+Signer**, `zipalign -c 4` OK, cert SHA-256 `24d14ee1…` **differs from the
+original** `8092db81…` (identical values to the Phase E e2e — same test
+keystore) → **iOS regression**: scan 22 iBugBazaar `POST /smali`,
+`GET /smali-mapping`, `POST /edits`, `POST /rebuild` all **409 Android-only**
+(decision-5 copy) → `MASA_FAKE_MODEL` restored to 0 (fake backend
+reconciled away; 3 backends as-found), health ok. All M8 contract gates
+hold with the anchors feature deployed.
+
+**Follow-up (same session) — @-mention feature e2e (API + browser):**
+**API (scan 24, fake model):** (1) editable mention
+`@smali/.../CryptoClass.smali` + edit question → streamed `search_code` →
+`read_editable_file` on the mentioned path → `propose_smali_edit` on THAT
+path (edit 17) — the mention drives the target; (2) jadx mention
+`@sources/.../CryptoClass.java` + edit question → `search_code` →
+**`find_smali_sibling`** (maps the mention to
+`smali/.../CryptoClass.smali`) → read sibling → **propose on the SIBLING**
+(edit 18) — the flagship search→map→read→propose flow driven by a mention;
+(3) missing/duplicate mention (`DoesNotExist.java` x2) → clean stream,
+never a crash (dedup + inline `[could not load]` degrade). **Browser (CDP,
+1440×900):** typing `@` opens the `.mention-pop` picker (40 options, lazy
+flatten), `@CryptoClass` filters to the java + smali pair, selection inserts
+the `@path` token + removable `.mention-chip` row, send → the user bubble
+renders the mention as a clickable `.mention-chip-inline`, and the agent
+replies mention-aware (no search — the mentioned file content was attached;
+"…I proposed an edit to `smali/.../CryptoClass…`"). **BUG FOUND + FIXED
+(live-verified):** the mention chip's click called `onOpenFile` with the
+FULL tree path (`smali/com/.../CryptoClass.smali`) but
+`DecompilerPanel.resolveTreePath` only handled root-relative paths
+(`com/...` — agent citations + graph nodes) — the click silently fell back
+to the auto-open default (`CryptoClass.java` in Java view) instead of
+opening the mentioned smali. Fixed: the resolver now also splits off a
+leading `<root>/` and matches that root's node directly (mention picker
+paths), keeping the existing exact/`<root>/<file>`/suffix fallbacks for
+citations — a smali mention now opens the smali file in Smali view
+(live-verified: `openPath = smali/com/android/insecurebankv2/CryptoClass.smalieditable`).
+Gates: **640 backend tests + ruff clean; tsc + vite build green
+(`index-DcI4zIAg.js`)**, app image rebuilt/recreated; test proposals
+rejected (review queue clean: only edit 15 applied as built);
+`MASA_FAKE_MODEL` restored to 0, health ok.
+
+**Follow-up (Aug 11, 2026 — multi-mention verification, scan 24):** the
+@-mention chip was re-tested with TWO files in ONE message (the single-
+mention test above only covered one). Browser CDP, 13/13 checks green:
+typing `@CryptoClass.smali` then `@LoginActivity.smali` → **both draft
+chips in the row**; typing the SAME path a third time → **dedup holds**
+(row stays at 2 — `mentionedFrom` collapses); the × on the dup strips one
+token while both distinct files remain; send → the **sent user bubble
+renders BOTH inline mention chips**; clicking chip 0 opens
+`LoginActivity.smali` and chip 1 opens `CryptoClass.smali` (data-driven
+assertion: each chip opens ITS OWN file in the Smali editor, editable
+badge attached) — the Aug 11 `resolveTreePath` full-tree-path fix covers
+multi-mention with no further code change; zero console errors. Backend
+leg: `POST /chat/stream` with `mentioned_files` = the two smali paths
+deduplicates (a duplicated path in the payload collapses —
+`_load_mentioned_files` dict.fromkeys) and both files stream cleanly; the
+browser run's fake-demo proposals landed on the **mentioned files**
+(edit 24 CryptoClass.smali, 25–27 LoginActivity.smali) confirming the
+mention-aware targeting end-to-end; all test proposals rejected (review
+queue clean, only applied edit 15 remains). One test-harness lesson: the
+basher default 30 s timeout kills the Chrome process group mid-run —
+background CDP runs need an explicit `timeout_seconds` or file-logged
+progress (`/tmp/mention_multi_out.log` pattern). Gates: **640 backend
+tests + ruff clean**; app restored `MASA_FAKE_MODEL=0`, health 200.
+
+**Follow-up (Aug 11, 2026 — agent ends after plan-narration + thinking
+clamp, owner report):** the owner tried the agent on a local model
+(ollama/lm-studio) and got a turn that ended with pure plan narration
+("Let's search for login-related files… Let's read LoginActivity.java…")
+— no tool call, no rollup. Root cause in `chat.py`: the loop's
+`if not tool_calls: final_text = content; break` accepted ANY content-only
+response as the final answer, so a model that narrates intent instead of
+emitting a tool call (a known weak-spot of local models) produced a plan
+with no search ever running. Fixes: (1) **bounded narration nudge** —
+`_NARRATION_INTENT_RE` (intent + action verbs: "let's search", "we need to
+inspect", "i'll read", …), `_MAX_NARRATION_NUDGES=2`, `_NARRATION_NUDGE`
+user message; when a round returns narration with NO tool call AND no
+`file:line` citation (real answers that cite are never re-opened), the
+loop records the assistant message, appends the nudge, and CONTINUES so
+the model actually runs search_code → read → rolls up a grounded answer.
+(2) **SYSTEM_PROMPT rule**: "NEVER describe an action you intend to take
+instead of taking it… a plan like \"Let's search for X\" with no tool call
+is not an answer." (3) **Stale final_text guard (review catch)**: a round
+that emits narration WITH a tool call sets `final_text`; if later rounds
+are nudged and the loop then exhausts, the stale narration used to win
+(skipping the grounded fallback) — the nudge branch now clears
+`final_text=""` so exhaustion falls through to the plain-chat fallback.
+(4) **Streaming thinking clamp** (owner: "max 4 lines, streamed like the
+Freebuff CLI thinking display, not all shown"): `.stream-text` now
+`-webkit-line-clamp: 4` + `overflow: hidden` — the live stream preview
+stays at 4 lines while tokens keep arriving; the FULL answer still lands
+in the finalized message when the turn completes (finalizeMessage uses
+Markdown, not `.stream-text`), so nothing is lost. Fake-model demos are
+unaffected: their thinking text ("Let me search the decompiled source…")
+always ships WITH tool_calls in the same round, so `not tool_calls` never
+fires the nudge — verified. Gates: **644 backend tests (+4: nudge-flow,
+bounded-after-nudges, regex-wording, stale-final_text regression) + ruff
+clean; tsc + vite build green** (`index-C0W6eqB6.js`); live browser check
+on :8000: `.stream-text` computed lineClamp=4 + overflow=hidden while a
+stream ran, short text unclipped, full 273-char final answer landed;
+fake chat sanity (streaming tools + answer) green after the change;
+app image rebuilt + recreated, `MASA_FAKE_MODEL=0`, health 200.

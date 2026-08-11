@@ -62,6 +62,22 @@ _STRING_GLOBS = (
 # Tools that are Android-only in v1 (no decompiled Swift/ObjC source on iOS).
 _ANDROID_ONLY_TOOLS = frozenset({"get_decompiled_class"})
 
+# M8 edit tools: offered ONLY when the scan is Android AND the on-demand
+# apktool decode is ready (the same derive-don't-trust-the-column rule the
+# Smali chip uses — ``apktool.is_ready`` is filesystem-derived). Like the M7
+# web tools, the model never even *sees* them otherwise, and the handlers
+# re-check both gates defensively. ``propose_smali_edit`` stores a **proposed**
+# edit row + unified diff for human review — it never auto-applies (decision
+# 7: apply/reject/revert are human API calls).
+# ``find_smali_sibling`` is the bridge between the Layer 2 search surface
+# (jadx ``sources/`` — what search_code returns) and the M8 edit surface
+# (apktool ``smali*/`` — what the edit tools accept): the model searches,
+# maps the hit here, then reads/proposes.
+_M8_EDIT_TOOLS = frozenset(
+    {"find_smali_sibling", "read_editable_file", "propose_smali_edit"}
+)
+_MAX_EDITABLE_READ_CHARS = 50_000
+
 # M7 web tools: offered ONLY when BOTH gates hold — the scan's web-research
 # opt-in (scans.web_research_enabled) AND an Active search engine
 # (SearchStore.active()). They are the one deliberate egress in MASA, so the
@@ -317,6 +333,174 @@ def web_fetch(scan_id: int, url: str) -> dict:
         raise ToolError(str(exc)) from exc
     page["text"] = page["text"][:_WEB_FETCH_MAX_CHARS]
     return page
+
+
+# ---- M8 edit tools (Android-only, decode-ready gated) -----------------------
+# The editable surface is the apktool tree (smali*/res/AndroidManifest.xml —
+# see editable.can_edit), NOT the jadx sources the Layer 2 tools search. These
+# tools read the *effective* content (baseline + newest applied edit, the same
+# overlay the viewer shows) so a proposal stacks on the current state, and
+# store proposals as DB diffs for the human to review.
+
+
+def edit_tools_allowed(scan_id: int) -> bool:
+    """Both gates: the scan is Android AND the on-demand apktool decode is
+    ready. Shared by ``chat.py`` (decides whether the edit tools are offered
+    at all) and the tool handlers (defense in depth — a raw API caller can
+    never propose on an undecoded/iOS scan). Never raises; a missing scan
+    simply denies."""
+    from app.db import SessionLocal
+    from app.models import Scan
+
+    db = SessionLocal()
+    try:
+        scan = db.get(Scan, scan_id)
+    finally:
+        db.close()
+    if scan is None or scan.platform != "android":
+        return False
+    from app.analysis import apktool
+
+    return apktool.is_ready(scan_id)
+
+
+def _deny_edit_tools() -> ToolError:
+    return ToolError(
+        "edit tools need the smali decode — open the Smali view first "
+        "(the apktool decode runs once and is cached per scan)"
+    )
+
+
+def find_smali_sibling(scan_id: int, path: str) -> dict:
+    """Map a jadx Java/Kotlin tree path to its editable apktool smali sibling.
+
+    The bridge between the Layer 2 search surface (``search_code`` returns
+    ``sources/.../*.java``) and the M8 edit surface (the edit tools accept
+    apktool-root-relative ``smali*/...`` paths): the model searches the jadx
+    tree, maps the hit here, then reads/proposes on the smali sibling.
+    Returns ``{"sibling": "smali/com/foo/AuthManager.smali"}`` (multidex
+    first-found, same rule as the Decompiler toggle). Raises when the path
+    is not a ``sources/`` class file or has no decoded smali counterpart
+    (jadx-fallback smali is never editable). Android + decode-ready gated.
+    """
+    from app.analysis import smali_map
+
+    if not edit_tools_allowed(scan_id):
+        raise _deny_edit_tools()
+    scan = _load_scan(scan_id)
+    if not path.startswith("sources/"):
+        raise ToolError(
+            f"{path!r} is not a sources/ class path — pass the jadx path "
+            "from search_code (e.g. 'sources/com/foo/AuthManager.java')"
+        )
+    sibling = smali_map.java_to_smali(scan, path)
+    if sibling is None:
+        raise ToolError(
+            f"{path} has no decoded smali sibling — this class was not "
+            "decoded by apktool (jadx-fallback smali is read-only)"
+        )
+    return {"sibling": sibling}
+
+
+def read_editable_file(scan_id: int, path: str) -> str:
+    """Read one **editable** file (apktool-root-relative: ``smali/...``,
+    ``res/...``, ``AndroidManifest.xml``) with the applied-edit overlay — the
+    model sees exactly what a rebuild would compile, so a proposal stacks on
+    the current state. Traversal-guarded; binary files refused; content
+    capped. Android + decode-ready gated."""
+    from app.analysis import apktool, editable
+
+    if not edit_tools_allowed(scan_id):
+        raise _deny_edit_tools()
+    scan = _load_scan(scan_id)
+    root = apktool.decoded_root(scan_id).resolve()
+    target = (root / path).resolve()
+    # Containment FIRST (the fundamental boundary): a traversal attempt must
+    # never even reach the editability check.
+    if not target.is_relative_to(root):
+        raise ToolError(f"path escapes the apktool tree: {path!r}")
+    if not editable.can_edit(scan, path):
+        raise ToolError(
+            f"{path!r} is not editable — only smali, res/, and the decoded "
+            "AndroidManifest.xml can be edited"
+        )
+    if not target.is_file():
+        raise ToolError(f"not a file in the decoded tree: {path}")
+    try:
+        data = target.read_bytes()
+    except OSError as exc:
+        raise ToolError(f"cannot read {path}: {exc}") from exc
+    if b"\x00" in data[: _BINARY_SNIFF_BYTES]:
+        raise ToolError(f"{path} is a binary file — no editable text content")
+    text = data.decode("utf-8", errors="replace")
+
+    # Phase B overlay: the model must read the CURRENT state (newest applied
+    # edit), not the pristine on-disk baseline the tree stays at. Same rule
+    # as the viewer's effective-content read (edits.effective_content).
+    from app.analysis import edits
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        overlaid = edits.effective_content(db, scan_id, path)
+    finally:
+        db.close()
+    if overlaid is not None:
+        text = overlaid
+    return _cap(text, _MAX_EDITABLE_READ_CHARS)
+
+
+def propose_smali_edit(
+    scan_id: int, path: str, instruction: str, new_content: str
+) -> dict:
+    """Store an **agent** edit proposal (``status=proposed``) + its generated
+    unified diff — never auto-applied (decision 7: the human reviews and
+    applies file-by-file in the UI). Returns ``{edit_id, file_path,
+    instruction, status, unified_diff}`` (the diff is capped for the model;
+    the full diff is in the DB + review panel).
+
+    The model composes the FULL edited file after reading the current content
+    (``read_editable_file``), so the diff is byte-exact. Android +
+    decode-ready gated; editability + size cap validated server-side.
+    """
+    from app.analysis import editable, edits, tree
+
+    if not edit_tools_allowed(scan_id):
+        raise _deny_edit_tools()
+    scan = _load_scan(scan_id)
+    if not editable.can_edit(scan, path):
+        raise ToolError(
+            f"{path!r} is not editable — only smali, res/, and the decoded "
+            "AndroidManifest.xml can be edited"
+        )
+    if len(new_content) > editable.MAX_EDIT_CHARS:
+        raise ToolError(
+            f"proposed edit exceeds the {editable.MAX_EDIT_CHARS} character cap"
+        )
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        try:
+            edit = edits.create_agent_proposal(
+                db, scan, path, new_content, instruction
+            )
+        except edits.EditError as exc:
+            raise ToolError(str(exc)) from exc
+        except (tree.TreeError, FileNotFoundError) as exc:
+            raise ToolError(str(exc)) from exc
+        # Read the column values BEFORE the session closes — commit expires
+        # the instance and a post-close read would DetachedInstanceError.
+        diff = edit.unified_diff or ""
+        return {
+            "edit_id": edit.id,
+            "file_path": edit.file_path,
+            "instruction": edit.instruction,
+            "status": edit.status,
+            "unified_diff": diff[:2000] + ("…" if len(diff) > 2000 else ""),
+        }
+    finally:
+        db.close()
 
 
 # ---- M6 app-oriented tools (platform-aware by design) ------------------------
@@ -956,6 +1140,107 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "read_editable_file",
+            "description": (
+                "Android only, smali decode ready. Read one EDITABLE file "
+                "(smali, res/, or the decoded AndroidManifest.xml) with the "
+                "current applied-edit state — exactly what a rebuild would "
+                "compile. Use this BEFORE propose_smali_edit so the proposal "
+                "is a byte-exact edit of the current content. Returns the "
+                "full file text."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "apktool-root-relative editable path, e.g. "
+                            "'smali/com/foo/AuthManager.smali', "
+                            "'res/values/strings.xml', or 'AndroidManifest.xml'"
+                        ),
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_smali_sibling",
+            "description": (
+                "Android only, smali decode ready. Map a jadx Java/Kotlin "
+                "class path (from search_code, e.g. "
+                "'sources/com/foo/AuthManager.java') to its editable apktool "
+                "smali sibling path (e.g. 'smali/com/foo/AuthManager.smali'). "
+                "Use this AFTER search_code finds the class and BEFORE "
+                "read_editable_file/propose_smali_edit — the edit tools only "
+                "work on the apktool tree (smali, res/, AndroidManifest.xml), "
+                "not the jadx sources."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "jadx tree path of the class, e.g. "
+                            "'sources/com/foo/AuthManager.java'"
+                        ),
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "propose_smali_edit",
+            "description": (
+                "Android only, smali decode ready. Propose an edit to an "
+                "editable file (smali, res/, AndroidManifest.xml) as a FULL "
+                "replacement file. The proposal is stored with a generated "
+                "unified diff for the human to review — it is NEVER applied "
+                "automatically; the user applies/rejects it per file in the "
+                "Review edits panel. Read the file first "
+                "(read_editable_file) so the new content is a byte-exact "
+                "edit of what a rebuild would compile. Returns the stored "
+                "proposal (edit id + diff)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": (
+                            "Editable path, e.g. 'smali/com/foo/A.smali' or "
+                            "'AndroidManifest.xml'"
+                        ),
+                    },
+                    "instruction": {
+                        "type": "string",
+                        "description": (
+                            "Concise natural-language summary of what the edit "
+                            "does (shown to the reviewer)"
+                        ),
+                    },
+                    "new_content": {
+                        "type": "string",
+                        "description": (
+                            "The FULL edited file content (the model composes it "
+                            "from the current content)"
+                        ),
+                    },
+                },
+                "required": ["path", "instruction", "new_content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_fetch",
             "description": (
                 "Fetch one web page (static content only — no browser in "
@@ -992,6 +1277,15 @@ _HANDLERS = {
     # even a raw API caller can never trigger web egress on a non-opted-in scan.
     "web_search": lambda scan_id, a: web_search(scan_id, a["query"]),
     "web_fetch": lambda scan_id, a: web_fetch(scan_id, a["url"]),
+    # M8: gated edit tools — the handlers re-check the Android + decode-ready
+    # gates defensively (a raw API caller can never propose on iOS/an
+    # undecoded scan), and proposals are stored as proposed rows — the human
+    # applies them (decision 7).
+    "find_smali_sibling": lambda scan_id, a: find_smali_sibling(scan_id, a["path"]),
+    "read_editable_file": lambda scan_id, a: read_editable_file(scan_id, a["path"]),
+    "propose_smali_edit": lambda scan_id, a: propose_smali_edit(
+        scan_id, a["path"], a.get("instruction", ""), a["new_content"]
+    ),
 }
 
 
@@ -999,6 +1293,7 @@ def schemas_for_platform(
     platform: str | None,
     *,
     web_research_enabled: bool = False,
+    edit_tools_enabled: bool = False,
 ) -> list[dict]:
     """Tool schemas offered to a model for a scan's platform + web gating.
 
@@ -1012,12 +1307,17 @@ def schemas_for_platform(
     engine (checked by the caller via ``web_tools_allowed``). Off = the
     model never even sees the schemas, so it cannot burn a round on a
     call the scan did not permit.
+
+    M8: the edit tools (``read_editable_file``/``propose_smali_edit``) are
+    appended only when ``edit_tools_enabled`` holds (Android + apktool decode
+    ready — ``edit_tools_allowed``) — same never-even-seen rule.
     """
     return [
         s
         for s in TOOL_SCHEMAS
         if not (s["function"]["name"] in _ANDROID_ONLY_TOOLS and platform != "android")
         and not (s["function"]["name"] in _WEB_TOOLS and not web_research_enabled)
+        and not (s["function"]["name"] in _M8_EDIT_TOOLS and not edit_tools_enabled)
     ]
 
 

@@ -200,7 +200,7 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [x] Settings modal → Model Backends tab: backend cards, base URL edit, Test, served-model chips, set default model — **Phase H (Aug 7)**: `settings/BackendsTab.tsx`, live probes, per-card enable switch
 - [x] Settings modal → BYOK tab: provider list, add key, custom endpoint, remove — **Phase H (Aug 7)**: `settings/BYOKTab.tsx` (master cloud toggle batches PUTs via `updateBackends`), masked-key honesty (we only ever get `has_api_key`)
 - [x] "Local-only" indicator reflects real state — off the moment a BYOK provider is enabled, not decorative — **Phase H**: derivation in `AppContext.localOnly`, flips live after every Settings mutation (verified via API smoke test: custom create → DELETE, local PUT)
-- [x] Placeholders (not built in M5): Dependencies tab (M7), Report tab + Export report (M9), Smali/edit/recompile (M8), web-research/browser toggle (M7) — **Phase H** also renders the Settings → "Search & research" tab as an M7 placeholder
+- [x] Placeholders (not built in M5): Report tab + Export report (M9), Smali/edit/recompile (M8), web-research/browser toggle (M7) — **Phase H** also renders the Settings → "Search & research" tab as an M7 placeholder. (The Dependencies tab placeholder was **replaced Aug 11** by a real local-first inventory — see the M7 follow-up below.)
 - [x] Settings modal shell: `settings/SettingsModal.tsx` (Escape/overlay close, scroll lock, three tabs) + `ModelPill.tsx` (served models from `health.models`, set default, local/cloud groups) — Gate: `tsc -b && vite build` green; backend surface re-verified live via API (no Ollama — unreachable state is the designed no-model UX; live connection is an owner manual test)
 
 **Owner review follow-ups (Aug 7, 2026):**
@@ -282,6 +282,20 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 > [docs/progress/M7.md](progress/M7.md) for the completion record. Remaining
 > owner checkpoint (not a blocker): real-model QA with Ollama.
 
+**Follow-up (Aug 11, 2026 — Dependencies tab implemented):** the dashboard's
+Dependencies tab was still the M5 placeholder (its copy pointed at "M7" for
+CVE research, but M7's owner reframe made that research an agent web-search
+use case — the tab itself was never built). Now implemented as a **local-first
+dependency inventory**: `GET /scans/{id}/dependencies` (`analysis/dependencies.py`)
+— Android: third-party Java/Kotlin package groups from the jadx sources tree
+(known-library labels, app-package exclusion, per-group non-suppressed semgrep
+finding tallies, native `lib/*.so` with ABIs, runtime engine markers,
+package + SDK metadata) · iOS: linked dylibs from the persisted LIEF profile
+(system vs third-party) + embedded frameworks + bundle metadata. Frontend:
+`DependenciesPanel.tsx` replaces the placeholder; per-dependency **Check known
+CVEs** pre-fills the Agent dock draft (`presetDraft` prop) — CVE research
+stays the M7 web-research surface (🌐 per-scan opt-in + Active engine). Gates: **629 backend tests green (+16 new) + ruff clean; tsc + vite build green**; live-verified in compose (scan 23 Android packages incl. the Android Support Library label; scan 22 iOS dylibs) + headless-Chrome click-through of the tab. **Cache follow-up (same session):** the inventory is now cached per scan (`dependencies_cache.json` beside the scan's trees — the tree_cache.json / smali_mapping.json pattern; identity includes a findings fingerprint so suppress/restore recomputes on the NEXT GET, lazily; a vanished tree is a cache miss). Live-verified: first GET writes the file, app-restart serves from disk (mtime unchanged), suppress/restore each rewrite on the next GET. 635 backend tests green (+6 cache tests), ruff clean, frontend untouched.
+
 **Phase A — search backend (provider registry + store, SearXNG only):**
 - [x] `search/providers.py` — `SearchProvider` table mirroring `model/providers.py` (id, name, kind `bundled|custom`, base URL, key env var, query/parse style); v1 entries: `searxng` (bundled, default `http://localhost:8888`) + `custom` (SearXNG-compatible instance, base URL only, no key)
 - [x] `search/backends.py` — `SearchStore` JSON store (`search_backends.json`, 0600) env-seeded from `MASA_SEARXNG_BASE_URL`, runtime-editable — the `BackendStore` semantics verbatim; `SearchBackend` carries **`enabled`** + **`order`** (reserved for a future fallback chain); the store gains **`enable_only(id)`** (radio — enabling one disables all others) + **`active()`** (the one enabled backend / `None`)
@@ -306,31 +320,46 @@ Stack reference: Python 3.11 + FastAPI · RQ + Redis · SQLite · **no vector st
 - [x] Follow-up: **one-click engine start** — `POST /search/backends/{id}/start` (fixed compose argv, upward compose-file discovery, poll-until-up, 400 custom / 502-504 manual-command errors) + Settings "▶ Start engine" button on the bundled card while unreachable
 - [x] Follow-up: **provider registry expanded** — the add-form is a provider picker (custom / brave / serper / mojeek) with adaptive fields (default base URL + API key where required); `query_style` dispatch + per-style normalizers + key-rejected hint; env-key seeding stays disabled until the Active radio is flipped; `GET /search/providers`; write-only `api_key` + "✓ key set" indicator
 - [x] Follow-up: **manual web-search testing with the fake model** — `fake.py::_web_query` uses the user's own question text as the web_search query (canned fallback for short input), so a manual dock test types its own search; **chat citation chips can no longer escape the bubble** (`shortenPath` middle-ellipsis + `.src-chip` max-width/ellipsis floor + `.md code`/`.msg` overflow-wrap)
+- [x] Follow-up (Aug 11): **dead engines can't be activated + dock 🌐 needs a LIVE engine** — `GET /search/backends` probes SearXNG-style engines (bundled/custom) even when inactive (keyed stay enabled-only — their check is a real query); the Settings Active radio disables for an unreachable SearXNG / keyless keyed engine (dimmed `.switch.disabled`, click-inert, tooltip; an Active engine stays toggleable so it can be turned OFF); the dock 🌐 toggle locks unless the Active engine is `enabled && health.reachable` (a dead engine can't ENABLE web research, but an already-on opt-in stays toggleable off — review catch), with tooltip + hint copy. 636 backend tests green + ruff clean; tsc + vite build green; live-verified (disabled searxng still reports health on the list).
 - [ ] Real-model QA (owner, Ollama off during dev): a web-research question with a real LLM — post-completion checkpoint, not a blocker
 
 ## M8 — Edit & recompile (Android)
-> **Status: PLANNED (Aug 10, 2026)** — kickoff spec + plan written, no code
-> yet. Plan + phase checklists (A–E): [docs/progress/M8.md](progress/M8.md);
-> interview record: [docs/m8-kickoff-spec.md](../m8-kickoff-spec.md). Owner
-> decisions at kickoff: apktool decode is **on-demand** (first Smali view /
-> first edit — not a scan-pipeline step, cached per scan); edits are **diffs
-> in the DB, applied at rebuild** (never silent tree edits); **Android only —
-> iOS plist/entitlement edit + `ldid` resign deferred to v1.1** (an `ldid -S`
+> **Status: COMPLETE (Aug 10, 2026) — all five phases A–E done; the
+> containerized contract-style e2e PASSED (586 backend tests, ruff clean,
+> tsc/build green).** Phase C record: the rebuild pipeline + resign
+> is built + tested (554 backend tests, ruff clean, tsc/build green):
+> `builds` table, `run_rebuild` (apply → apktool b → zipalign → apksigner
+> sign → verify gate), install-scoped test keystore, labeled artifacts +
+> download API, and the recompile modal (un-dismissable test-build warning,
+> live stages, download, error+retry, Edits & builds history + restore).
+> Review-hardened: stale-build reaping (crashed workers can't strand a
+> scan), artifact-dir download guard, keystore orphan recovery + 0600
+> writes, build/scan id mismatch refusal. **557 backend tests green (+33),
+> ruff clean, tsc/build green.** Phases D–E not started. Plan + phase
+> checklists (A–E):
+> [docs/progress/M8.md](progress/M8.md); interview record:
+> [docs/m8-kickoff-spec.md](../m8-kickoff-spec.md). Owner decisions at
+> kickoff: apktool decode is **on-demand** (first Smali view / first edit —
+> not a scan-pipeline step, cached per scan); edits are **diffs in the DB,
+> applied at rebuild** (never silent tree edits); **Android only — iOS
+> plist/entitlement edit + `ldid` resign deferred to v1.1** (an `ldid -S`
 > IPA installs only on jailbroken devices); M8 toolchain bundled into the
-> image (**size gate bumped**); e2e is **contract-style** (`apksigner verify`
-> + signature-differs + labeled filename — no emulator in the automated
-> gate).
-- [ ] On-demand apktool decode (RQ job; triggered by the first Smali view / first edit; cached per scan): `analysis/apktool.py` subprocess wrapper, `scans.apktool_status`, trigger + status API
-- [ ] Wire apktool's disassemble (baksmali) output into the file tree as the "Smali" view alongside jadx's "Java" view for the same file (multidex-aware Java⇄Smali mapping)
-- [ ] Restrict edit capability (manual or agent) to Smali + resource/manifest files only — Java view stays read-only in the actual implementation, not just the mockup (server-side `can_edit` predicate)
-- [ ] Edits stored as reviewable diffs in a new `edits` table (original + new content + unified diff); apply/reject/revert per file (file-by-file for multi-file agent proposals); same-file stacking; "restore original"
-- [ ] Agent tool: `propose_smali_edit(file, instruction, new_content)` — returns a diff for the tester to review before it's applied, don't auto-apply silently (Android-only; gated on decode-ready)
-- [ ] Build the rebuild pipeline: apply accepted edits → apktool rebuild → zipalign → sign with an auto-generated local test keystore (`keytool` + `apksigner`) — one keystore per MASA install; `apksigner verify` sanity gate
-- [ ] Pipeline must fail loudly with a specific error (not a silently broken APK) on rebuild failure — test against at least one APK known to be awkward for apktool (resource clashes, edge-case bytecode)
-- [ ] Persistent, un-dismissable "resigned test build" label on every recompiled artifact — in the UI and embedded in the output filename
-- [ ] Full build history per scan (`builds` table): status/stage/error + edits included; re-download any prior artifact
-- [ ] End-to-end test (**contract-style — no emulator**): agent-proposed SSL-pinning bypass edit → review diff → recompile → artifact passes `apksigner verify` with a signature fingerprint differing from the original APK and the resigned label in the filename (real-device install-and-run = owner manual checkpoint)
-- [ ] Docs: progress/M8.md status flip, `docs/licenses.md` rows (apktool + build-tools, Apache-2.0), techstack edit rows, knowledge.md
+> image (**size gate bumped**); e2e is **contract-style** (`apksigner
+> verify` + signature-differs + labeled filename — no emulator in the
+> automated gate).
+- [x] On-demand apktool decode (RQ job; triggered by the first Smali view / first edit; cached per scan): `analysis/apktool.py` subprocess wrapper, `scans.apktool_status`, trigger + status API — **Phase A done Aug 10**: apktool (3.0.3) + build-tools zipalign/apksigner (35.0.0) bundled in `docker/Dockerfile.app`; `analysis/apktool.py` (`decode()` + filesystem-derived `is_ready`); migration 0009 (`scans.apktool_status`/`apktool_error`); `run_apktool_decode` job + `POST /scans/{id}/smali` (202; 409 not-analyzed/Android-only/in-progress/already-ready; retry from failed) + `GET /scans/{id}/smali-status`; Decompiler toolbar Smali chip live (trigger → spinner poll → ready/failed + Retry; hidden on iOS); licenses.md rows; 36 new tests green
+- [x] Wire apktool's disassemble (baksmali) output into the file tree as the "Smali" view alongside jadx's "Java" view for the same file (multidex-aware Java⇄Smali mapping) — **Phase B done Aug 10**: `list_tree` appends the apktool roots once decode-ready (`smali`, `smali_classesN`, `res`, synthetic `AndroidManifest.xml` root); Java⇄Smali sibling mapping (`analysis/smali_map.py`, first-found multidex) + `GET /scans/{id}/files/smali-sibling`; the Decompiler toggle jumps the open file to its counterpart
+- [x] Restrict edit capability (manual or agent) to Smali + resource/manifest files only — Java view stays read-only in the actual implementation, not just the mockup (server-side `can_edit` predicate) — **Phase B**: `analysis/editable.py::can_edit` enforced in the edit API (+ rebuild apply step in C, agent tool in D); `edits` API 400s jadx sources/jadx-fallback-smali/original/unknown paths
+- [x] Edits stored as reviewable diffs in a new `edits` table (original + new content + unified diff); apply/reject/revert per file (file-by-file for multi-file agent proposals); same-file stacking; "restore original" — **Phase B**: migration 0009 extends with the `edits` table; `analysis/edits.py` (difflib unified diff, stacking baselines on effective content, applied→reverted pops to the prior state); CRUD API `GET/POST /edits` + `GET .../diff` + `POST .../apply|reject|revert`; the viewer overlays applied edits (effective content), the on-disk apktool tree never mutates
+- [x] Agent tool: `propose_smali_edit(file, instruction, new_content)` — returns a diff for the tester to review before it's applied, don't auto-apply silently (Android-only; gated on decode-ready) — **Phase D done Aug 10**: `agent/tools.py` `read_editable_file` (effective-content read) + `propose_smali_edit` (stores a `proposed` row + unified diff, never auto-applies, returns `{edit_id, file_path, instruction, status, diff}`); `edit_tools_allowed` (Android + filesystem-derived decode-ready) + `schemas_for_platform(edit_tools_enabled=…)` filter + system-prompt section (proposals are never claims of application); fake-model flagship demo (read → propose → cited diff); 25 new tests green
+- [x] Multi-file proposals + diff review: one natural-language request may touch several files; the review panel lists them file-by-file with per-file Apply/Reject (human-owned, decision 7) — **Phase D**: `ProposalsModal` (per-file cards, lazy-fetched git-style colored diffs, Apply/Reject per file; multi-file proposals naturally review file-by-file)
+- [x] Inline **"Ask agent to edit" bar** in the Decompiler toolbar (mockup-faithful, decision 6): visible when an editable file is open + a chat model is connected; sends the instruction with the open file pre-set; the returned proposal opens the diff review panel — **Phase D**: `agent-edit-bar` under the toolbar (tag + input + Apply), its own chat stream (inline token/steps reply), auto-opens `ProposalsModal` on a successful `propose_smali_edit`; toolbar "Review edits (n)" badge; open editor remounts after an Apply so a manual save never overwrites a just-applied agent edit
+- [x] Build the rebuild pipeline: apply accepted edits → apktool rebuild → zipalign → sign with an auto-generated local test keystore (`keytool` + `apksigner`) — one keystore per MASA install; `apksigner verify` sanity gate — **Phase C done Aug 10**: `builds` table (migration 0009 extension + `edits.build_id` FK); `run_rebuild` RQ job (snapshots applied edit ids at job start; stages applying → rebuilding → zipping → signing → verify; zero-edit rebuilds allowed); `analysis/rebuild.py` (fresh-copy apply overlay w/ traversal guard, `apktool b`, `zipalign -f 4` before signing, `apksigner sign` with the one-per-install keystore — `data_dir/masa-test.jks` + random pass file, both 0600, `keytool` from the bundled JRE); artifacts under `data_dir/artifacts/<scan_id>/`; API `POST /scans/{id}/rebuild` (202; 409 not-analyzed/Android-only/decode-not-ready/one-in-flight) · `GET /builds` · `GET /builds/{bid}` · `GET /builds/{bid}/download` (labeled attachment name + `X-Resigned-Test-Build` header, artifact-dir-constrained); 33 new tests green
+- [x] Pipeline must fail loudly with a specific error (not a silently broken APK) on rebuild failure — each stage maps to `builds.stage` + `builds.error` (stderr excerpt), `status=failed`, intermediates cleaned, no artifact written; a post-build `apksigner verify` failure is failed too — **the awkward-APK candidate test lands in Phase E** (open item 2)
+- [x] Persistent, un-dismissable "resigned test build" label on every recompiled artifact — in the UI and embedded in the output filename — **Phase C**: the recompile modal's amber warning has no dismiss affordance; filename is `{stem}-resigned-test-{build_id}.apk` (decision 9) and the download response carries the labeled `Content-Disposition` + `X-Resigned-Test-Build` header (decision 10)
+- [x] Full build history per scan (`builds` table): status/stage/error + edits included; re-download any prior artifact — **Phase C**: `GET /builds` + the modal's "Builds" section (per-build status/stage/date/edits, re-download any done artifact) + "Edits" section with per-applied "Restore original" (revert pops to the prior state, decision 7/8)
+- [x] End-to-end test (**contract-style — no emulator**) — **Phase E PASSED (Aug 10)**: fresh InsecureBankv2 scan → real apktool decode → manual manifest edit + agent-proposed smali edit (fake model) → apply → rebuild → artifact passes `apksigner verify` **and** `zipalign -c 4`, signature fingerprint differs from the original APK (`24d14ee1…` vs `8092db81…`), filename carries `-resigned-test-`; awkward-APK decode (corrupt ARSC fixture) + awkward rebuild (invalid smali → `rebuilding` failure, no artifact) both fail loudly with specific reasons; iOS (iBugBazaar) keeps the read-only bundle with all M8 endpoints 409. Real-device install-and-run = owner manual checkpoint
+- [x] Docs: progress/M8.md status flip (COMPLETE), techstack edit rows, knowledge.md (Aug 10 record), licenses.md (build-tools pin note 35.0.0 → 35.0.1)
 
 ## M9 — Report generation
 - [ ] AI-assisted draft report generator: findings + chat insights → structured markdown

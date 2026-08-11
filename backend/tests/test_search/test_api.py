@@ -155,13 +155,35 @@ def test_test_endpoint_runs_full_probe(api):
     assert body["health"]["sample_title"] == "probe hit"
 
 
-def test_disabled_backend_has_no_lightweight_health(api, store):
-    """Inactive engines don't get probed on the list route — nothing to check."""
+def test_disabled_searxng_backend_still_gets_lightweight_health(api, store):
+    """SearXNG-style engines are probed on the list even when INACTIVE — the
+    cheap base-URL check — so the Settings Active radio stays disabled until
+    the engine is actually reachable (owner follow-up, Aug 11)."""
     api.put("/api/v1/search/backends/searxng", json={"enabled": False})
     data = api.get("/api/v1/search/backends").json()
     searxng = next(b for b in data if b["id"] == "searxng")
     assert searxng["enabled"] is False
-    assert searxng["health"] is None
+    assert searxng["health"] is not None
+    assert searxng["health"]["reachable"] is True  # monkeypatched probe
+
+
+def test_disabled_keyed_backend_has_no_health(api, store):
+    """Keyed engines keep the enabled-only rule: their honest health check is
+    a real query (validates the key — the base URL has no meaningful root
+    endpoint), so an INACTIVE keyed engine is never probed on the list route.
+    The (also inactive) bundled SearXNG still carries lightweight health."""
+    api.post(
+        "/api/v1/search/backends",
+        json={"provider_id": "brave", "api_key": "bsk-secret"},
+    )
+    # Adding brave turned searxng off (radio); now deactivate brave itself.
+    api.put("/api/v1/search/backends/brave", json={"enabled": False})
+    data = api.get("/api/v1/search/backends").json()
+    brave = next(b for b in data if b["id"] == "brave")
+    assert brave["enabled"] is False
+    assert brave["health"] is None
+    searxng = next(b for b in data if b["id"] == "searxng")
+    assert searxng["health"] is not None
 
 
 # ---- providers endpoint + keyed creation ------------------------------------

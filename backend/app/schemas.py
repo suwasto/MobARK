@@ -42,6 +42,12 @@ class ScanRead(BaseModel):
     # tools are offered only when this is on AND an Active search engine
     # exists. Default off; controlled by the dock 🌐 toggle + Settings.
     web_research_enabled: bool = False
+    # M8: on-demand apktool decode state (Android only). not_started |
+    # queued | decoding | ready | failed. The dedicated smali-status
+    # endpoint derives ``ready`` from the filesystem; these columns carry
+    # the in-flight states + the specific failure reason.
+    apktool_status: str = "not_started"
+    apktool_error: str | None = None
     created_at: datetime
 
     @field_serializer("created_at")
@@ -156,6 +162,25 @@ class ChatRequest(BaseModel):
     # M6 Phase C: max tool-calling rounds before the context-only fallback;
     # falls back to settings.max_tool_rounds when omitted.
     max_tool_rounds: int | None = Field(default=None, ge=1, le=10)
+    # M8 follow-up (dock @-mentions): tree paths the user explicitly attached
+    # to the question (``@sources/com/foo/A.java`` etc.). The chat layer loads
+    # their content into the agent context so the model answers / proposes
+    # edits about them directly — no search round needed. Capped small (the
+    # validator trims blanks + caps the count; the list Field max is a loose
+    # transport bound only).
+    mentioned_files: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("mentioned_files")
+    @classmethod
+    def _clean_mentions(cls, value):
+        out = []
+        for p in value:
+            p = (p or "").strip()
+            if p and len(p) <= 512:
+                out.append(p)
+            if len(out) >= 10:
+                break
+        return out
 
 
 class Citation(BaseModel):
@@ -402,3 +427,206 @@ class WebResearchUpdate(BaseModel):
     """Per-scan web research opt-in (the dock 🌐 toggle / Settings)."""
 
     enabled: bool
+
+
+# ---- Dependencies tab (local-first inventory) ----
+
+
+class DependencyApp(BaseModel):
+    """Identity metadata for the scanned app (Android package + SDK levels /
+    iOS bundle id + version). Fields are best-effort — missing when the scan
+    output doesn't carry them."""
+
+    package: str | None = None
+    min_sdk: int | None = None
+    target_sdk: int | None = None
+    bundle_id: str | None = None
+    version: str | None = None
+
+
+class DependencyItem(BaseModel):
+    """One entry in the Dependencies tab inventory.
+
+    ``kind``: ``package`` (Android Java/Kotlin group) · ``native`` (Android
+    ``lib/*.so``) · ``dylib`` (iOS Mach-O link) · ``framework`` (iOS
+    embedded ``Frameworks/*.framework``). ``label`` is a human name for
+    well-known libraries (else None — the raw package/name stands).
+    Finding tallies are the non-suppressed semgrep findings inside the
+    dependency's package (Android packages only; the other kinds are
+    inventory without findings).
+    """
+
+    name: str
+    label: str | None = None
+    kind: str  # package | native | dylib | framework
+    evidence: str
+    file_count: int | None = None
+    finding_count: int = 0
+    high_count: int = 0
+    medium_count: int = 0
+    abis: list[str] = []
+    # iOS dylibs only: True for Apple's own runtime libs (system), False for
+    # third-party @rpath/embedded links, None elsewhere.
+    system: bool | None = None
+
+
+class DependenciesResponse(BaseModel):
+    """The Dependencies tab payload — derived on demand from scan output,
+    nothing new persisted. Known-CVE research is NOT a column here: it is
+    the agent's web-research use case (M7) — the UI pre-fills the dock
+    question and the agent decides when to search.
+    """
+
+    platform: str
+    app: DependencyApp = DependencyApp()
+    runtime_markers: list[str] = []
+    dependencies: list[DependencyItem] = []
+    total: int = 0
+    truncated: bool = False
+    generated_at: datetime
+
+    @field_serializer("generated_at")
+    def _ser_generated_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+
+# ---- M8 Phase A: on-demand apktool decode (Smali view) ----
+
+
+class SmaliStatusResponse(BaseModel):
+    """Decode state for the Smali chip: ``ready`` is filesystem-derived
+    (apktool/AndroidManifest.xml exists), the rest comes from the status
+    column. ``error`` carries the specific decode failure."""
+
+    status: str  # not_started | queued | decoding | ready | failed
+    error: str | None = None
+
+
+class EditRead(BaseModel):
+    """One M8 file edit (the edits table). Full file contents are NOT in the
+    list — the unified diff (``GET .../edits/{eid}/diff``) is the review
+    surface; the viewer reads effective content via ``files/content``."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    scan_id: int
+    file_path: str
+    source: str  # manual | agent
+    instruction: str | None = None
+    status: str  # proposed | applied | rejected | reverted
+    build_id: int | None = None
+    created_at: datetime
+    applied_at: datetime | None = None
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+    @field_serializer("applied_at")
+    def _ser_applied_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None
+
+
+class EditCreate(BaseModel):
+    """Manual edit: apktool-root-relative ``file_path`` + the full edited
+    content. Created as ``applied`` (the human authored it in the editor)."""
+
+    file_path: str = Field(min_length=1, max_length=1024)
+    content: str = Field(min_length=1)
+
+
+class EditDiffResponse(BaseModel):
+    """The generated unified diff for one edit (the review surface)."""
+
+    file_path: str
+    diff: str
+
+
+class SmaliSiblingResponse(BaseModel):
+    """Java⇄Smali sibling mapping for the Decompiler view toggle.
+
+    ``path`` echoes the input; ``sibling`` is the counterpart's tree path
+    (multidex-aware, first-found) or null when there is none (e.g. res files,
+    jadx-fallback smali, or the class has no decoded smali)."""
+
+    path: str
+    sibling: str | None = None
+
+
+class SmaliMappingResponse(BaseModel):
+    """Finding→apktool tree-path mapping for a scan's findings — powers the
+    Smali-mode tree dots + annotation rail (findings live on jadx
+    ``sources/...`` paths; their apktool siblings get the same dots/notes
+    once the decode is ready).
+
+    Scoped to finding-bearing paths: the payload stays bounded and the dots
+    only exist where findings exist. Keys/values are full tree paths:
+    ``sources/...`` → multidex-aware smali siblings; ``res/...`` → itself
+    (the apktool ``res`` root serves the same relative path);
+    ``AndroidManifest.xml`` → ``AndroidManifest.xml/AndroidManifest.xml``
+    (the synthetic manifest root's single file).
+
+    ``anchors`` (M8 follow-up, Aug 11) are the smali-mode LINE anchors for
+    line-bearing findings: ``{smali_tree_path: {str(jadx_line): smali_line}}``
+    — each finding's jadx line mapped to its containing method's ``.method``
+    line in the smali sibling (jadx renumbers source lines, so only METHOD
+    granularity is honest; the rail pins notes there so they align with the
+    smali editor's own line numbers). Findings without a resolvable anchor
+    simply have no entry — those notes stack from the top."""
+
+    mapping: dict[str, str]
+    anchors: dict[str, dict[str, int]] = {}
+    total: int
+
+
+# ---- M8 Phase C: rebuild pipeline (recompile + resign) ----
+
+
+class BuildRead(BaseModel):
+    """One recompile attempt (the builds table — full rebuild history, D8).
+
+    ``edit_ids`` is the snapshot of applied edits taken at job start (parsed
+    from ``edits_json``), so history shows exactly what each build consumed.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    scan_id: int
+    # queued | running | done | failed
+    status: str
+    # queued | applying | rebuilding | zipping | signing | done — the failing
+    # stage is kept on a failed build so the error reads in context.
+    stage: str
+    error: str | None = None
+    # Applied edit ids snapshot at job start — read from the stored
+    # ``edits_json`` column (from_attributes maps by the alias, not the
+    # field name).
+    edit_ids: list[int] = Field(default=[], validation_alias="edits_json")
+    artifact_name: str | None = None
+    artifact_sha256: str | None = None
+    created_at: datetime
+    finished_at: datetime | None = None
+
+    @field_validator("edit_ids", mode="before")
+    @classmethod
+    def _parse_edits_json(cls, value):
+        """The column stores a JSON array of edit ids as text (None until a
+        build snapshots its edits)."""
+        if value is None:
+            return []
+        if isinstance(value, str) and value:
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                return []
+        return value
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+    @field_serializer("finished_at")
+    def _ser_finished_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None

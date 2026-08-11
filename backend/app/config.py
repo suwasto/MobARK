@@ -34,6 +34,23 @@ class Settings(BaseSettings):
     gitleaks_timeout_seconds: int = 600
     semgrep_timeout_seconds: int = 900
 
+    # ---- M8 edit & recompile: apktool (Android smali decode) ----
+    # apktool.jar runs under the bundled JRE in the container (the
+    # /opt/masa-tools/apktool/apktool wrapper script); on the host it
+    # resolves from PATH unless MASA_APKTOOL_CMD is set.
+    apktool_cmd: str | None = None
+    apktool_timeout_seconds: int = 1200
+    # ---- M8 Phase C: rebuild pipeline tools + timings ----
+    # zipalign + apksigner (Android build-tools 35.0.0, bundled under
+    # /opt/masa-tools/build-tools/) and keytool (ships in the bundled JRE —
+    # no tools_subdir). Each can be overridden with a *_CMD env var.
+    zipalign_cmd: str | None = None
+    apksigner_cmd: str | None = None
+    keytool_cmd: str | None = None
+    # Per-step deadline for the rebuild pipeline (apktool b, zipalign,
+    # apksigner sign/verify, keytool keystore generation).
+    rebuild_timeout_seconds: int = 900
+
     # ---- M3 model backends ----
     # Local LLM servers on the host. Docker Compose overrides these with
     # host.docker.internal URLs so the container reaches the host.

@@ -1,15 +1,18 @@
-"""M5 decompiler tab: bounded file tree + guarded content reads.
+"""M5 decompiler tab: file tree + guarded content reads.
 
 Serves the Decompiler tab from real scan output — no mockups. Two roots for
 Android (jadx ``sources/`` Java/Kotlin + ``resources/`` incl.
 AndroidManifest.xml), one root for iOS (the unpacked ``Payload/*.app``
 bundle — no source, but plist/entitlements/strings are readable).
 
-The walk is bounded (max depth + max nodes per root) so a large jadx tree
-(thousands of files) stays cheap for the dashboard; ``truncated`` tells the
-UI the tree is incomplete. Content reads reuse the same guards as the
-Layer 2 ``read_file`` tool: path-traversal protection, binary sniff, plist
-decode to text.
+The walk is **unbounded by default** (owner decision, Aug 10: the per-root
+1500-node cap was removed — it truncated real trees mid-branch, hiding app
+code behind library subtrees). ``max_nodes`` remains as an explicit opt-in
+cap for callers that want one; ``max_depth`` stays as a safety guard against
+pathological/cyclic trees (symlinked dirs could otherwise recurse forever).
+When either explicit cap bites, ``truncated`` tells the UI the tree is
+incomplete. Content reads reuse the same guards as the Layer 2 ``read_file``
+tool: path-traversal protection, binary sniff, plist decode to text.
 """
 from __future__ import annotations
 
@@ -18,17 +21,40 @@ import plistlib
 from collections.abc import Callable
 from pathlib import Path
 
+from pydantic import TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.agent.tools import ToolError, is_text_file, resolve_tree_root
+from app.analysis import apktool, editable
 from app.models import Scan
 from app.schemas import FileContentResponse, FileNode, FileTreeRoot
 
-MAX_DEPTH = 8
-MAX_NODES_PER_ROOT = 1500
+# Depth guard only (kept as a safety valve against pathological/symlink-
+# cyclic trees — the node cap was removed Aug 10 per owner decision, so real
+# trees always serve in full). 16 comfortably exceeds any realistic APK
+# decompile tree (sources/com/... is ~5 levels).
+MAX_DEPTH = 16
 MAX_CONTENT_CHARS = 200_000
 _BINARY_SNIFF_BYTES = 8192
+
+# ---- Tree cache --------------------------------------------------------------
+# The tree payload is immutable per scan (jadx trees land at scan time; the
+# apktool roots land once at the on-demand decode; edits are DB diffs and
+# rebuilds copy to a pristine dir — nothing mutates the listing afterwards),
+# so it is computed once and cached per scan — the same pattern as the
+# smali_mapping.json / graph explorer.json caches. Identity = the root-name
+# set (changes when the decode lands) + the decoded manifest's mtime (the
+# decode instance); a validated ``tree_cache.json`` survives restarts.
+# Best-effort throughout: any failure recomputes, never a wrong tree.
+_TREE_CACHE: dict[str, tuple[str, list[FileTreeRoot]]] = {}
+# Bounded small on purpose: each payload is a FULL tree (multi-MB on big
+# scans) — 8 mirrors the graph explorer cache's "4 most-recent" posture
+# while tolerating a few active scans.
+_TREE_CACHE_MAX = 8
+# Bump when the stored payload shape changes so stale persisted files rebuild.
+_TREE_CACHE_VERSION = 1
+_TREE_ROOTS_ADAPTER: TypeAdapter[list[FileTreeRoot]] = TypeAdapter(list[FileTreeRoot])
 
 # Directory names never shown in the tree. graphify-out is where the graph
 # CLI writes while a build is in flight (it is relocated to data/graphs/ by
@@ -74,7 +100,10 @@ class TreeError(ValueError):
 def roots_for(scan: Scan) -> list[tuple[str, Path]]:
     """``(root_name, absolute_path)`` pairs for a scan's platform.
 
-    Android: ``sources`` (jadx Java/Kotlin) + ``resources`` when present.
+    Android: ``sources`` (jadx Java/Kotlin) + ``resources`` when present,
+    plus the M8 apktool roots **once the on-demand decode is ready**:
+    ``smali``, ``smali_classesN`` (multidex), ``res``, and the synthetic
+    ``AndroidManifest.xml`` root (whose path IS the decoded manifest file).
     iOS: the ``Payload/*.app`` bundle, named after the app dir. Empty list
     when the scan has no platform or no extracted tree yet.
     """
@@ -87,6 +116,14 @@ def roots_for(scan: Scan) -> list[tuple[str, Path]]:
         resources = main_root.parent / "resources"
         if resources.is_dir():
             roots.append(("resources", resources))
+        if apktool.is_ready(scan.id):
+            roots.extend(apktool.smali_roots(scan.id))
+            apk_root = apktool.decoded_root(scan.id)
+            res_dir = apk_root / "res"
+            if res_dir.is_dir():
+                roots.append(("res", res_dir))
+            if (apk_root / editable.MANIFEST_ROOT).is_file():
+                roots.append((editable.MANIFEST_ROOT, apk_root))
         return roots
     if scan.platform == "ios":
         return [(main_root.name, main_root)]
@@ -97,13 +134,15 @@ def list_tree(
     scan: Scan,
     *,
     max_depth: int = MAX_DEPTH,
-    max_nodes: int = MAX_NODES_PER_ROOT,
+    max_nodes: int | None = None,
 ) -> list[FileTreeRoot]:
-    """Bounded nested tree per root; ``truncated`` set when either cap hit.
+    """Nested tree per root; unbounded by default (``max_nodes=None``).
 
-    iOS: the synthetic ``analysis`` root comes first, and the app-bundle
-    walk is curated to text-readable files (raw binaries — the executable,
-    images, .car, .nib — are hidden; the count lands in
+    ``truncated`` is set only when an *explicit* cap is hit (a caller-passed
+    ``max_nodes`` or the ``max_depth`` safety guard) — the default serves the
+    full tree. iOS: the synthetic ``analysis`` root comes first, and the
+    app-bundle walk is curated to text-readable files (raw binaries — the
+    executable, images, .car, .nib — are hidden; the count lands in
     ``filtered_binaries`` so the UI can say how many were skipped).
     """
     roots: list[FileTreeRoot] = []
@@ -112,6 +151,25 @@ def list_tree(
         if analysis is not None:
             roots.append(analysis)
     for name, root_path in roots_for(scan):
+        # M8: the decoded AndroidManifest.xml is a synthetic single-file root
+        # (its path IS the manifest file) — never walk the whole apktool dir.
+        if name == editable.MANIFEST_ROOT:
+            roots.append(
+                FileTreeRoot(
+                    name=name,
+                    total_nodes=1,
+                    truncated=False,
+                    filtered_binaries=0,
+                    tree=[
+                        FileNode(
+                            name=editable.MANIFEST_ROOT,
+                            path=editable.MANIFEST_ROOT,
+                            type="file",
+                        )
+                    ],
+                )
+            )
+            continue
         counter = {"nodes": 0, "truncated": False, "filtered": 0, "filtered_paths": []}
         # iOS only: hide binary blobs that the viewer cannot render — they
         # surface as a collapsed "Binary (Mach-O)" entry instead of raw rows.
@@ -142,20 +200,124 @@ def list_tree(
     return roots
 
 
+def tree_cache_path(scan_id: int) -> Path:
+    """Per-scan cache file next to the scan's trees (``work/<scan>/``) — a
+    SIBLING of ``decompiled/`` and ``apktool/`` so the rebuild's pristine-tree
+    copy never includes it."""
+    return apktool.decoded_root(scan_id).parent / "tree_cache.json"
+
+
+def _tree_identity(scan: Scan) -> str | None:
+    """Cheap tree identity: the root names (which change the moment the
+    on-demand apktool decode lands — smali/res/manifest appear) plus the
+    decoded manifest's mtime (re-decode instance). The jadx trees are
+    immutable per scan, so nothing else can change the listing. None when the
+    scan has no roots yet (nothing to cache)."""
+    roots = roots_for(scan)
+    if not roots:
+        return None
+    # Note: the iOS synthetic ``analysis`` root is derived from DB findings
+    # INSIDE list_tree (not part of roots_for), so it isn't literally covered
+    # by this identity — it stays correct because findings are immutable per
+    # scan (the docs derive from lief/symbols rows that land before ``done``).
+    parts = [name for name, _ in roots]
+    if scan.platform == "android" and apktool.is_ready(scan.id):
+        try:
+            parts.append(
+                str(
+                    (apktool.decoded_root(scan.id) / editable.MANIFEST_ROOT)
+                    .stat()
+                    .st_mtime
+                )
+            )
+        except OSError:
+            return None
+    return "|".join(parts)
+
+
+def _remember_tree(key: str, identity: str, roots: list[FileTreeRoot]) -> None:
+    _TREE_CACHE[key] = (identity, roots)
+    while len(_TREE_CACHE) > _TREE_CACHE_MAX:
+        _TREE_CACHE.pop(next(iter(_TREE_CACHE)))
+
+
+def _store_tree(key: str, identity: str, roots: list[FileTreeRoot]) -> None:
+    """Persist a computed tree — in-memory + the on-disk cache file.
+
+    Best-effort: a failed write (read-only FS etc.) still serves this process
+    via the module cache; the next process recomputes. Atomic (tmp+rename) so
+    a torn write never becomes the cache."""
+    _remember_tree(key, identity, roots)
+    try:
+        tmp = Path(key).with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(
+                {
+                    "version": _TREE_CACHE_VERSION,
+                    "identity": identity,
+                    "roots": [r.model_dump() for r in roots],
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        tmp.replace(Path(key))
+    except OSError:
+        pass  # best-effort cache
+
+
+def cached_list_tree(scan: Scan) -> list[FileTreeRoot]:
+    """The scan's tree, served from cache when valid — the filesystem walk +
+    serialize runs ONCE per scan; later Decompiler opens (same process, or
+    across restarts via the validated ``tree_cache.json``) read the cached
+    payload. Identity-validated: a stale/torn file (pre-decode capture, shape
+    change, partial write) recomputes instead of serving garbage."""
+    identity = _tree_identity(scan)
+    if identity is None:
+        return list_tree(scan)
+    key = str(tree_cache_path(scan.id))
+    cached = _TREE_CACHE.get(key)
+    if cached is not None and cached[0] == identity:
+        return cached[1]
+    cache_path = Path(key)
+    if cache_path.is_file():
+        try:
+            data = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = None
+        if (
+            data is not None
+            and data.get("version") == _TREE_CACHE_VERSION
+            and data.get("identity") == identity
+        ):
+            try:
+                roots = _TREE_ROOTS_ADAPTER.validate_python(data.get("roots"))
+            except (ValueError, TypeError, KeyError):
+                roots = None
+            if roots is not None:
+                _remember_tree(key, identity, roots)
+                return roots
+    roots = list_tree(scan)
+    _store_tree(key, identity, roots)
+    return roots
+
+
 def _walk(
     root: Path,
     path: Path,
     *,
     depth: int,
     max_depth: int,
-    max_nodes: int,
+    max_nodes: int | None,
     counter: dict,
     keep_file: Callable[[Path], bool] | None = None,
 ) -> list[FileNode]:
-    """Bounded recursive walk. ``keep_file`` (iOS curation) drops binary
-    files from the tree, counting them in ``counter["filtered"]`` and
-    pruning directories that end up empty."""
-    if counter["nodes"] >= max_nodes:
+    """Recursive walk. Unbounded by default; ``max_nodes`` (explicit opt-in
+    cap) and ``max_depth`` (safety guard) set ``truncated`` when hit.
+    ``keep_file`` (iOS curation) drops binary files from the tree, counting
+    them in ``counter["filtered"]`` and pruning directories that end up
+    empty."""
+    if max_nodes is not None and counter["nodes"] >= max_nodes:
         counter["truncated"] = True
         return []
     if depth >= max_depth:
@@ -169,7 +331,7 @@ def _walk(
     except OSError:
         return nodes
     for entry in entries:
-        if counter["nodes"] >= max_nodes:
+        if max_nodes is not None and counter["nodes"] >= max_nodes:
             counter["truncated"] = True
             break
         if entry.is_dir() and entry.name in _IGNORED_DIRS:
@@ -225,13 +387,20 @@ def _binary_folder_node(paths: list[str]) -> FileNode:
     )
 
 
-def read_tree_file(scan: Scan, path: str) -> FileContentResponse:
+def read_tree_file(
+    scan: Scan, path: str, *, effective: bool = True
+) -> FileContentResponse:
     """Read a file as ``<root_name>/<relative path>`` with traversal guard.
 
     Binary files are refused; plists are decoded to JSON text (same rule as
     the Layer 2 tool). Content is capped at ``MAX_CONTENT_CHARS`` with a
     ``truncated`` flag so very large files stay cheap for the viewer. The
     synthetic ``analysis`` root (iOS) generates its documents on read.
+
+    M8 Phase B: ``effective=True`` (default) overlays the newest **applied**
+    edit's ``new_content`` for editable paths — the viewer shows the edited
+    content, and the edit service calls ``effective=False`` for the pristine
+    baseline. The on-disk apktool tree itself is never mutated.
     """
     root_name, sep, rel = path.partition("/")
     if not sep or not root_name or not rel:
@@ -277,6 +446,12 @@ def read_tree_file(scan: Scan, path: str) -> FileContentResponse:
             "import-table scanner for binary-level evidence)"
         )
     text = data.decode("utf-8", errors="replace")
+    if effective and scan.platform == "android":
+        edit_path = editable.edit_path_from_tree_path(root_name, rel)
+        if editable.can_edit(scan, edit_path):
+            overlaid = _applied_edit_content(scan, edit_path)
+            if overlaid is not None:
+                text = overlaid
     truncated = len(text) > MAX_CONTENT_CHARS
     return FileContentResponse(
         path=path,
@@ -285,6 +460,36 @@ def read_tree_file(scan: Scan, path: str) -> FileContentResponse:
         truncated=truncated,
         size=len(data),
     )
+
+
+def _applied_edit_content(scan: Scan, edit_path: str) -> str | None:
+    """Newest applied edit's ``new_content`` for a path, or None (baseline).
+
+    tree.py holds no DB session of its own; opens one defensively — a
+    stale/mismatched DB degrades to the baseline rather than 500 the viewer
+    (same posture as ``_scan_findings``)."""
+    from app.db import SessionLocal
+    from app.models import Edit
+
+    db = None
+    try:
+        db = SessionLocal()
+        edit = db.scalars(
+            select(Edit)
+            .where(
+                Edit.scan_id == scan.id,
+                Edit.file_path == edit_path,
+                Edit.status == "applied",
+            )
+            .order_by(Edit.id.desc())
+            .limit(1)
+        ).first()
+        return edit.new_content if edit is not None else None
+    except SQLAlchemyError:
+        return None
+    finally:
+        if db is not None:
+            db.close()
 
 
 # ---- iOS synthetic 'analysis' root ------------------------------------------

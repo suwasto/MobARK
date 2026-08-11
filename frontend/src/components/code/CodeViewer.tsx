@@ -43,7 +43,11 @@ export function CodeViewer({
 
   return (
     <div className="code-pane">
-      <div className="code-file-path sticky top-0 bg-[#111417]">
+      {/* The sticky title is defined in CSS (.code-file-path): position,
+          z-index, and the opaque pane background live there so it always
+          paints ABOVE the scrolling lines (they are position:relative and
+          would otherwise draw over the title — owner report, Aug 10). */}
+      <div className="code-file-path">
         {contentPath}
         {data?.truncated && (
           <span className="text-amber"> · truncated at 200 KB</span>

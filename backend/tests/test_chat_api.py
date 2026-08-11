@@ -96,6 +96,61 @@ def test_chat_success_with_citations(client, db_session_factory, monkeypatch):
     assert body["sources"] == ["com/app/W.java"]
 
 
+def test_chat_mentioned_files_forwarded(client, db_session_factory, monkeypatch):
+    """The dock's @-mention list reaches answer_question on BOTH chat
+    endpoints (buffered + stream)."""
+    from app.api.routes import scans as routes
+
+    captured = {}
+
+    def fake_answer(scan_id, question, **kwargs):
+        captured.update(kwargs)
+        return AgentResult(
+            answer="ok", citations=[], sources=[], tools_used=[]
+        )
+
+    monkeypatch.setattr(routes, "answer_question", fake_answer)
+    monkeypatch.setattr(routes, "check_configured", lambda: None)  # stream route
+    scan_id = _add_scan(db_session_factory)
+    mentions = ["sources/com/app/W.java", "AndroidManifest.xml/AndroidManifest.xml"]
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/chat",
+        json={"question": "@W.java what does this do?", "mentioned_files": mentions},
+    )
+    assert r.status_code == 200
+    assert captured["mentioned_files"] == mentions
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/chat/stream",
+        json={"question": "@W.java what does this do?", "mentioned_files": mentions},
+    )
+    assert r.status_code == 200
+    assert captured["mentioned_files"] == mentions
+
+
+def test_chat_mentioned_files_capped_and_cleaned(client, db_session_factory, monkeypatch):
+    """Mention list is capped + blank entries dropped by the schema, so a
+    hostile/buggy client can't attach a huge list."""
+    from app.api.routes import scans as routes
+
+    captured = {}
+
+    def fake_answer(scan_id, question, **kwargs):
+        captured.update(kwargs)
+        return AgentResult(answer="ok", citations=[], sources=[], tools_used=[])
+
+    monkeypatch.setattr(routes, "answer_question", fake_answer)
+    scan_id = _add_scan(db_session_factory)
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/chat",
+        json={"question": "hi", "mentioned_files": ["  ", "a.java"] * 20},
+    )
+    assert r.status_code == 200
+    # 10 max, blanks dropped
+    assert captured["mentioned_files"] == ["a.java"] * 10
+
+
 def test_chat_timeout_forwarded_and_504(client, db_session_factory, monkeypatch):
     from app.agent.chat import AgentTimeout
     from app.api.routes import scans as routes

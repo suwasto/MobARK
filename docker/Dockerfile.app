@@ -71,6 +71,44 @@ RUN python -m venv /opt/semgrep-venv \
     && ln -sf /opt/semgrep-venv/bin/semgrep /usr/local/bin/semgrep \
     && semgrep --version
 
+# --- apktool (M8 edit & recompile; Apache-2.0; JVM CLI) ---
+# Pinned official release jar + a tiny wrapper script — the jar runs under
+# the bundled JRE (already on PATH). The wrapper keeps the Python subprocess
+# wrapper calling a single binary, same as jadx/gitleaks. apktool bundles
+# its own aapt2, so no Android SDK is needed for `d`/`b`.
+ARG APKTOOL_VERSION=3.0.3
+RUN mkdir -p /opt/masa-tools/apktool && \
+    curl -fsSL -o /opt/masa-tools/apktool/apktool.jar \
+        "https://github.com/iBotPeaches/apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar" \
+    && printf '#!/bin/sh\nexec java -jar "$(dirname "$0")/apktool.jar" "$@"\n' \
+        > /opt/masa-tools/apktool/apktool \
+    && chmod +x /opt/masa-tools/apktool/apktool \
+    && /opt/masa-tools/apktool/apktool --version >/dev/null 2>&1
+
+# --- Android build-tools: zipalign + apksigner (M8 rebuild pipeline) ---
+# Pinned build-tools download (Apache-2.0). The zip extracts to a version
+# folder (e.g. android-15/); its contents are flattened into
+# /opt/masa-tools/build-tools/ so the apksigner launcher keeps its lib/
+# next to the script and the Python wrapper resolves a stable path.
+# zipalign runs BEFORE signing (v2+ schemes preserve alignment).
+#
+# URL scheme note (Aug 10 2026, Phase E gate): Google publishes current
+# archives under build-tools_r<version>_linux.zip (UNDERSCORE). The old
+# hyphen form (build-tools_r35.0.0-linux.zip) now 404s — and 35.0.0 was
+# never published under the underscore scheme — so the pin is 35.0.1
+# (the first 35.x with a live underscore archive; verified against
+# repository2-3.xml + HEAD).
+ARG BUILD_TOOLS_VERSION=35.0.1
+RUN curl -fsSL -o /tmp/build-tools.zip \
+        "https://dl.google.com/android/repository/build-tools_r${BUILD_TOOLS_VERSION}_linux.zip" \
+    && mkdir -p /opt/masa-tools/build-tools \
+    && unzip -q /tmp/build-tools.zip -d /tmp/build-tools \
+    && cp -r /tmp/build-tools/*/* /opt/masa-tools/build-tools/ \
+    && rm -rf /tmp/build-tools /tmp/build-tools.zip \
+    && test -x /opt/masa-tools/build-tools/zipalign \
+    && test -x /opt/masa-tools/build-tools/apksigner \
+    && /opt/masa-tools/build-tools/apksigner --version >/dev/null 2>&1
+
 COPY backend/ /app/
 
 # The built SPA lands at /frontend/dist — config default `../frontend/dist`

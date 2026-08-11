@@ -2,13 +2,12 @@
 
 **Project license: Apache-2.0** (see [LICENSE](../LICENSE)).
 
-> Updated Aug 10, 2026 (M8 kickoff) — the audit lists **only what MASA
-> actually installs and uses**. Nothing is listed on a "planned" basis.
-> M8 toolchain status after the kickoff: **apktool + apksigner/zipalign
-> (Android build-tools) are planned for M8 Phase A** — not yet installed,
-> audited when they land (both Apache-2.0); **ldid is deferred to v1.1**
-> with the iOS edit/recompile cut (owner decision, Aug 10, 2026) — not an
-> M8 item.
+> Updated Aug 10, 2026 (M8 Phase A) — the audit lists **only what MASA
+> actually installs and uses**. M8 toolchain status after Phase A:
+> **apktool (3.0.3) + Android build-tools apksigner/zipalign (35.0.1) are
+> now bundled in the app image** (both Apache-2.0 — see the CLI table);
+> **ldid is deferred to v1.1** with the iOS edit/recompile cut (owner
+> decision, Aug 10, 2026) — not an M8 item.
 
 ## Compliance posture (the non-negotiable rule)
 
@@ -132,6 +131,8 @@ typing-extensions (PSF), uvloop (MIT/Apache), watchfiles (MIT), websockets
 | jadx | Apache-2.0 | CLI (needs JVM) | 1.5.6 |
 | Gitleaks | MIT | CLI (Go) | 8.30.1 |
 | Semgrep | LGPL-2.1 | CLI (subprocess-only) | 1.172.0 (`semgrep` pip dist, OSS mode) |
+| apktool | Apache-2.0 | CLI (needs JVM; bundled aapt2) | 3.0.3 (pinned official jar + wrapper script) |
+| zipalign + apksigner (Android build-tools) | Apache-2.0 | CLI (needs JVM for apksigner) | 35.0.1 (build-tools_r35.0.1_linux.zip) |
 
 Semgrep is installed into its **own venv** (`/opt/semgrep-venv`) inside the
 image, exposed on PATH via a symlink: its dependency tree requires
@@ -142,7 +143,8 @@ across versions).
 
 `keytool` ships inside the bundled `eclipse-temurin:17-jre-jammy` OpenJDK
 (GPLv2+CE) that jadx needs — it is present in the image because the JRE is,
-not as a separate dependency. Its planned M8 use (test keystore) is future.
+not as a separate dependency. Its M8 use (the install-scoped test keystore
+for resigning, Phase C) is active as of Phase A.
 
 ## Container services (network boundary only — never imported, never vendored)
 
@@ -172,14 +174,23 @@ not as a separate dependency. Its planned M8 use (test keystore) is future.
   (BSD-3-Clause). The app image additionally bundles the
   `eclipse-temurin:17-jre-jammy` OpenJDK JRE (GPLv2+CE) for jadx and the
   semgrep venv described above.
-- **Planned for M8 (not yet installed, audited here when they land):**
-  apktool and Android build-tools `zipalign`/`apksigner` (both Apache-2.0)
-  are the M8 Phase A toolchain — absent from the image and codebase today.
-  **Deferred to v1.1:** ldid (the iOS resign CLI) — iOS edit/recompile was
-  cut from M8 at kickoff (Aug 10, 2026), so ldid is not an M8 item. The
-  deep-research / browser-automation stack planned for the original M7 was
-  dropped (owner decision, Aug 9) and its rows (gpt-researcher,
-  agent-browser) never shipped.
+- **M8 toolchain (Aug 10, 2026, Phase A):** apktool (Apache-2.0, 3.0.3) and
+  Android build-tools `zipalign`/`apksigner` (Apache-2.0, 35.0.1) are now
+  installed in the app image at `/opt/masa-tools/apktool` (jar + wrapper
+  script) and `/opt/masa-tools/build-tools` — both invoked as subprocesses
+- **Build-tools pin 35.0.0 → 35.0.1 (Aug 10, 2026, Phase E container gate):**
+  Google stopped serving the hyphen-named archive —
+  `build-tools_r35.0.0-linux.zip` now 404s, and 35.0.0 was never published
+  under the current underscore scheme (`build-tools_r<v>_linux.zip`, verified
+  against `repository2-3.xml`). The Dockerfile pin + URL scheme were updated
+  in the same change that rebuilt the images for the Phase E e2e.
+  by convention, matching jadx/gitleaks. The `keytool` row above is now
+  *in use* by M8 (test keystore generation, Phase C). **Deferred to v1.1:**
+  ldid (the iOS resign CLI) — iOS edit/recompile was cut from M8 at kickoff
+  (Aug 10, 2026), so ldid is not an M8 item. The deep-research /
+  browser-automation stack planned for the original M7 was dropped (owner
+  decision, Aug 9) and its rows (gpt-researcher, agent-browser) never
+  shipped.
 - This file is informational: the Apache-2.0 posture above is the constraint
   that governs future dependency additions — run the audit check before
   adding any new dependency.

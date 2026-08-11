@@ -632,6 +632,12 @@
     overflow: hidden;
     height: 560px;
   }
+  /* M8 follow-up: minimized annotations rail — the splitter + rail are
+     replaced by a slim restore strip (28px column) that re-expands on click.
+     The saved rail width is untouched, so a restore returns to it. */
+  .decomp-layout.rail-min {
+    grid-template-columns: var(--tree-w, 210px) 6px minmax(0, 1fr) 28px;
+  }
 
   /* Drag divider between panes (invisible until hover/active). */
   .splitter {
@@ -797,6 +803,33 @@
     opacity: 0.45;
     cursor: not-allowed;
   }
+
+  /* M8 Phase A: live Smali chip states — in-chip decode spinner (busy),
+     crimson failure (the reason lives in the title + hint-error box). */
+  .vt-chip.busy:disabled {
+    opacity: 0.8;
+  }
+  .vt-chip.failed:disabled {
+    opacity: 0.85;
+    color: var(--color-crimson);
+  }
+  .smali-spin {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    margin-right: 6px;
+    vertical-align: -1px;
+    border: 1.5px solid var(--color-bone-faint);
+    border-top-color: var(--color-steel);
+    border-radius: 50%;
+    animation: smali-spin 0.8s linear infinite;
+  }
+  @keyframes smali-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
   .toolbar-actions {
     display: flex;
     gap: 8px;
@@ -814,10 +847,20 @@
   .view-hint strong {
     color: var(--color-steel);
   }
+  /* Smali decode failure — the specific apktool reason, clearly not steel. */
+  .view-hint.hint-error strong {
+    color: var(--color-crimson);
+  }
 
   .code-pane {
     background: #111417;
-    padding: 18px 0;
+    /* NO top padding here: position:sticky is constrained to the parent's
+       CONTENT box, so a padding-top would leave a dead zone above the sticky
+       title where scrolled lines paint through (measured 18px gap, owner
+       report Aug 10). The 18px top spacer now lives INSIDE the title bar's
+       own padding (see .code-file-path) so the opaque bar covers the full
+       strip. Bottom padding stays so the last line isn't flush. */
+    padding: 0 0 18px;
     font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.9;
@@ -825,7 +868,18 @@
     min-width: 0;
   }
   .code-file-path {
-    padding: 0 18px 12px;
+    /* Sticky over the scrolling lines. The lines are position:relative, so
+       an auto z-index would let them PAINT OVER the title (DOM order — they
+       come after); z-index + the opaque pane background keep the title solid
+       while code scrolls beneath it (owner report, Aug 10). The 18px
+       padding-top is the pane's old spacer, moved IN here: the sticky bar
+       must start at the scrollport's very top (top: 0) with an opaque box,
+       or the gap above it shows code. */
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #111417;
+    padding: 18px 18px 12px;
     font-size: 11px;
     color: var(--color-bone-faint);
     border-bottom: 1px solid var(--color-line-soft);
@@ -862,26 +916,786 @@
     opacity: 0.55;
   }
 
+  /* M8 Phase B: the plaintext editor for editable paths (smali/res/manifest).
+     A line-numbered textarea — no editor dependency (hljs lacks a smali
+     grammar). The gutter is a fixed box whose content translates with the
+     textarea's scroll (identical line-height/metrics keeps them aligned). */
+  .code-editor {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    /* code-pane's 18px vertical padding would offset the editor's own
+       header/status rows inside the 100%-height flex column (review catch) */
+    padding: 0;
+  }
+  .code-editor .editor-path {
+    flex-shrink: 0;
+  }
+  /* The editor's header is a flex row in a non-scrolling column — it never
+     needs the sticky top-spacer, so keep it flush like before the Aug 10
+     viewer fix (the base .code-file-path now carries the 18px spacer). */
+  .code-editor .code-file-path {
+    padding-top: 0;
+  }
+  .edit-badge {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-steel);
+    border: 1px solid var(--color-line-soft);
+    border-radius: 2px;
+    padding: 0 5px;
+    margin-left: 8px;
+    vertical-align: 1px;
+  }
+  .editor-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .editor-gutter {
+    width: 48px;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-right: 1px solid var(--color-line-soft);
+    user-select: none;
+  }
+  .editor-gutter pre {
+    margin: 0;
+    padding: 0 8px 0 18px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.9;
+    color: var(--color-bone-faint);
+    opacity: 0.55;
+    white-space: pre;
+    will-change: transform;
+  }
+  .editor-textarea {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--color-bone);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.9;
+    padding: 0 18px;
+    white-space: pre;
+    overflow: auto;
+    tab-size: 4;
+    box-sizing: border-box;
+  }
+  .editor-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 18px;
+    border-top: 1px solid var(--color-line-soft);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    flex-shrink: 0;
+  }
+  .editor-dirty {
+    color: var(--color-amber);
+  }
+  .editor-saved-flash {
+    color: var(--color-moss);
+  }
+  .editor-clean {
+    color: var(--color-bone-faint);
+  }
+  .editor-save-error {
+    color: var(--color-crimson);
+  }
+  .editor-save-hint {
+    color: var(--color-bone-faint);
+    white-space: nowrap;
+  }
+
+  /* M8 Phase C: the Edit & recompile modal (rebuild history, live stages,
+     persistent test-build warning, download, edits restore). */
+  .recompile-modal {
+    width: 620px;
+  }
+  /* Persistent, un-dismissable resigned-test-build label (decision 10) —
+     always visible, no close affordance; amber so it can't read as steel. */
+  .recompile-warn {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border: 1px solid rgba(217, 142, 62, 0.4);
+    border-left: 3px solid var(--color-amber);
+    background: rgba(217, 142, 62, 0.08);
+    border-radius: 0 4px 4px 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--color-bone-dim);
+    margin-bottom: 14px;
+  }
+  .recompile-warn strong {
+    color: var(--color-amber);
+    white-space: nowrap;
+  }
+  .recompile-warn code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    background: var(--color-graphite);
+    padding: 1px 5px;
+    border-radius: 2px;
+    color: var(--color-bone);
+  }
+
+  .recompile-error {
+    padding: 10px 12px;
+    border: 1px solid rgba(193, 85, 74, 0.4);
+    border-left: 3px solid var(--color-crimson);
+    background: rgba(193, 85, 74, 0.08);
+    border-radius: 0 4px 4px 0;
+    font-size: 12px;
+    color: var(--color-bone-dim);
+    margin-bottom: 14px;
+  }
+  .recompile-error strong {
+    color: var(--color-crimson);
+  }
+
+  .recompile-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px;
+    border: 1px solid var(--color-line-soft);
+    border-radius: 4px;
+    background: var(--color-panel-raised);
+    margin-bottom: 14px;
+  }
+  .recompile-action-title {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--color-bone);
+  }
+  .recompile-action-sub {
+    font-size: 11px;
+    color: var(--color-bone-faint);
+    margin-top: 3px;
+    line-height: 1.5;
+  }
+  .recompile-go {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .recompile-live {
+    padding: 12px;
+    border: 1px solid var(--color-line-soft);
+    border-radius: 4px;
+    background: var(--color-graphite);
+    margin-bottom: 14px;
+  }
+  .recompile-live.failed {
+    border-color: rgba(193, 85, 74, 0.35);
+    border-left: 3px solid var(--color-crimson);
+  }
+  .recompile-live.done {
+    border-color: rgba(107, 143, 113, 0.35);
+    border-left: 3px solid var(--color-moss);
+  }
+  .recompile-live-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .recompile-stage {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--color-bone-dim);
+  }
+  .recompile-live .smali-spin {
+    margin-left: auto;
+    margin-right: 0;
+  }
+  .recompile-stages {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .recompile-stage-dot {
+    width: 26px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--color-line);
+    transition: background 0.2s ease;
+  }
+  .recompile-stage-dot.on {
+    background: var(--color-steel-dim);
+  }
+  .recompile-stage-dot.active {
+    background: var(--color-steel);
+    animation: pulse-ring 1.4s ease-in-out infinite;
+  }
+  .recompile-stage-note {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--color-bone-faint);
+    margin-left: 4px;
+  }
+  .recompile-error-detail {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-crimson);
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-soft);
+    border-radius: 3px;
+    padding: 8px;
+    margin: 10px 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 120px;
+    overflow: auto;
+  }
+  .recompile-sha {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-bone-faint);
+    margin-top: 8px;
+  }
+  .recompile-sha code {
+    background: var(--color-panel);
+    padding: 1px 5px;
+    border-radius: 2px;
+    color: var(--color-bone-dim);
+  }
+  .recompile-download {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-steel);
+    text-decoration: none;
+    border: 1px solid rgba(35, 207, 146, 0.35);
+    border-radius: 3px;
+    padding: 5px 10px;
+    transition:
+      border-color 0.15s ease,
+      color 0.15s ease,
+      background 0.15s ease;
+  }
+  .recompile-download:hover {
+    border-color: var(--color-steel-dim);
+    color: var(--color-bone);
+    background: rgba(35, 207, 146, 0.08);
+  }
+  .recompile-download.small {
+    border: none;
+    padding: 0;
+    font-size: 10.5px;
+    background: none;
+  }
+
+  .recompile-section {
+    margin-top: 4px;
+  }
+  .recompile-section .section-label {
+    margin-bottom: 8px;
+  }
+  .recompile-empty {
+    font-size: 11.5px;
+    color: var(--color-bone-faint);
+    font-style: italic;
+    line-height: 1.6;
+    padding: 8px 0 12px;
+  }
+  .recompile-rows {
+    border: 1px solid var(--color-line-soft);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .recompile-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-line-soft);
+    background: var(--color-panel);
+    min-width: 0;
+  }
+  .recompile-row:last-child {
+    border-bottom: none;
+  }
+  .recompile-row.failed,
+  .recompile-row.rejected,
+  .recompile-row.reverted {
+    opacity: 0.68;
+  }
+  .recompile-row-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .recompile-row-title {
+    font-size: 12px;
+    color: var(--color-bone);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recompile-row-title.mono {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+  .recompile-row-sub {
+    font-size: 10.5px;
+    color: var(--color-bone-faint);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recompile-row-date {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-bone-faint);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .build-chip,
+  .edit-chip {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 1.5px 5px;
+    border-radius: 2px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .build-chip.done,
+  .edit-chip.applied {
+    background: rgba(107, 143, 113, 0.15);
+    color: var(--color-moss);
+  }
+  .build-chip.running,
+  .build-chip.queued {
+    background: rgba(217, 142, 62, 0.15);
+    color: var(--color-amber);
+  }
+  .build-chip.failed,
+  .edit-chip.rejected {
+    background: rgba(193, 85, 74, 0.15);
+    color: var(--color-crimson);
+  }
+  .edit-chip.proposed {
+    background: rgba(35, 207, 146, 0.12);
+    color: var(--color-steel);
+  }
+  .edit-chip.reverted {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-bone-faint);
+  }
+
+  /* Review edits (n) — the proposed-edits badge in the decompiler toolbar
+     and the dock's persistent Review pill (both open the same modal). */
+  .review-btn {
+    border-color: rgba(35, 207, 146, 0.35);
+    color: var(--color-steel);
+  }
+  .review-btn:hover:not(:disabled) {
+    border-color: var(--color-steel-dim);
+    color: var(--color-bone);
+    background: rgba(35, 207, 146, 0.08);
+  }
+  .dock-review-pill {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 10px 12px 0;
+    padding: 7px 12px;
+    border: 1px solid rgba(35, 207, 146, 0.35);
+    border-left: 3px solid var(--color-steel-dim);
+    border-radius: 0 4px 4px 0;
+    background: rgba(35, 207, 146, 0.07);
+    color: var(--color-steel);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    cursor: pointer;
+    text-align: left;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .dock-review-pill:hover {
+    border-color: var(--color-steel-dim);
+    background: rgba(35, 207, 146, 0.12);
+    color: var(--color-bone);
+  }
+  /* M8 Phase D: the "smali decode not ready yet" hint strip in the dock —
+     points at the Decompiler's Smali chip so the edit-proposal flow is
+     discoverable on fresh Android scans (amber, like the other "action
+     needed" copy). */
+  .dock-edit-hint {
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin: 10px 12px 0;
+    padding: 7px 12px;
+    border: 1px solid rgba(217, 142, 62, 0.35);
+    border-left: 3px solid var(--color-amber);
+    border-radius: 0 4px 4px 0;
+    background: rgba(217, 142, 62, 0.07);
+    color: var(--color-bone-dim);
+    font-size: 11px;
+    line-height: 1.55;
+  }
+  .dock-edit-hint strong {
+    color: var(--color-amber);
+  }
+
+  /* M8 follow-up: the dock @-mention picker + chips. Typing `@` opens a
+     dropdown over the scan's decompiler tree (lazily fetched); the draft's
+     mention tokens render as a removable chip row above the input, and the
+     sent bubble renders them as clickable chips (open in Decompiler). */
+  .mention-pop {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 12px;
+    right: 12px;
+    max-height: 240px;
+    overflow-y: auto;
+    background: var(--color-panel-raised);
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    z-index: 30;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .mention-pop-head {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-bone-faint);
+    padding: 5px 8px 6px;
+    border-bottom: 1px solid var(--color-line);
+    margin-bottom: 2px;
+  }
+  .mention-opt {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-bone-dim);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background 0.1s ease, color 0.1s ease;
+  }
+  .mention-opt:hover,
+  .mention-opt.active {
+    background: rgba(35, 207, 146, 0.12);
+    color: var(--color-bone);
+  }
+  .mention-at {
+    color: var(--color-steel);
+    flex-shrink: 0;
+  }
+  .mention-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+  .mention-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    border: 1px solid rgba(35, 207, 146, 0.35);
+    border-radius: 3px;
+    background: rgba(35, 207, 146, 0.07);
+    overflow: hidden;
+  }
+  .mention-chip-open {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 3px 4px 3px 8px;
+    background: none;
+    border: none;
+    color: var(--color-steel);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.15s ease;
+  }
+  .mention-chip-open:hover {
+    color: var(--color-bone);
+  }
+  .mention-chip-x {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-left: 1px solid var(--color-line);
+    color: var(--color-bone-faint);
+    font-size: 12px;
+    line-height: 1;
+    padding: 3px 7px;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+  }
+  .mention-chip-x:hover {
+    color: var(--color-crimson);
+    background: rgba(224, 80, 96, 0.1);
+  }
+  /* Inline chips inside a sent user bubble (splits the message text). */
+  .mention-chip-inline {
+    display: inline-block;
+    vertical-align: baseline;
+    margin: 0 2px;
+  }
+  .msg.user .mention-chip-inline {
+    background: rgba(35, 207, 146, 0.1);
+    border-color: rgba(35, 207, 146, 0.4);
+  }
+  .msg.user .mention-chip-inline:hover {
+    background: rgba(35, 207, 146, 0.18);
+  }
+
+  /* M8 Phase D: the diff-review modal (D7) — per-file proposal cards with
+     git-style colored unified diffs and Apply/Reject per file. */
+  .proposals-modal {
+    width: 680px;
+  }
+  .proposals-intro {
+    font-size: 12px;
+    color: var(--color-bone-dim);
+    line-height: 1.6;
+    margin: 0 0 14px;
+  }
+  .proposals-intro strong {
+    color: var(--color-bone);
+  }
+  .proposal-card {
+    border: 1px solid var(--color-line);
+    border-radius: 5px;
+    background: var(--color-panel-raised);
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .proposal-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-line-soft);
+    min-width: 0;
+  }
+  .proposal-file {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-bone);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .proposal-date {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-bone-faint);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .proposal-instruction {
+    font-size: 12px;
+    color: var(--color-bone-dim);
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--color-line-soft);
+    line-height: 1.55;
+  }
+  .proposal-diff {
+    background: #101316;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.75;
+    max-height: 320px;
+    overflow: auto;
+    padding: 8px 0;
+  }
+  .proposal-diff-loading,
+  .proposal-diff-empty,
+  .proposal-diff-error {
+    padding: 8px 14px;
+    font-size: 11px;
+    color: var(--color-bone-faint);
+    font-style: italic;
+  }
+  .proposal-diff-error {
+    color: var(--color-crimson);
+  }
+  .pr-line {
+    padding: 0 14px;
+    white-space: pre;
+    min-width: max-content;
+  }
+  .pr-line.add {
+    background: rgba(30, 211, 148, 0.09);
+    color: #7fd8b6;
+  }
+  .pr-line.del {
+    background: rgba(193, 85, 74, 0.1);
+    color: #d99a92;
+  }
+  .pr-line.hunk {
+    background: rgba(35, 207, 146, 0.06);
+    color: var(--color-steel);
+  }
+  .pr-line.ctx {
+    color: var(--color-bone-dim);
+  }
+  .proposal-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--color-line-soft);
+  }
+  .proposal-hint {
+    font-size: 10.5px;
+    color: var(--color-bone-faint);
+    margin-right: auto;
+    line-height: 1.5;
+  }
+
+  /* One-scroll mirror (Aug 11): the rail shares the code pane's vertical
+     scroll — NO independent scrollbar (overflow hidden). The notes are
+     pinned to their finding's line offset (.annot-rail-notes .note,
+     absolute) and the notes column translates by the code's scrollTop via
+     --rail-scroll (set directly on the DOM by DecompilerPanel, so
+     scrolling never re-renders the panel). Wheel over the rail is forwarded
+     to the code by the parent. */
   .annot-rail {
     background: var(--color-panel);
     border-left: 1px solid var(--color-line);
-    padding: 18px 12px;
-    overflow-y: auto;
+    overflow: hidden;
     min-width: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
   }
+  /* Fixed head — the translated notes scroll beneath it, so it needs an
+     opaque background + z-index to always paint on top (same rule as the
+     code pane's sticky .code-file-path). */
   .annot-rail-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-bone-faint);
-    margin-bottom: 14px;
+    background: var(--color-panel);
+    border-bottom: 1px solid var(--color-line-soft);
+    padding: 18px 12px 12px;
+    position: relative;
+    z-index: 2;
+    flex-shrink: 0;
+  }
+  /* The translating notes column: mirrors the code pane's scrollTop.
+     Notes are absolutely positioned at their line offsets (top inline). */
+  .annot-rail-notes {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    transform: translateY(var(--rail-scroll, 0px));
+  }
+  .annot-rail-notes .note {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    /* top is set inline by the cluster layout in AnnotationRail. */
+    margin-bottom: 0;
+  }
+  .rail-min-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--color-bone-faint);
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  }
+  .rail-min-btn:hover {
+    color: var(--color-bone);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--color-line);
+  }
+  /* The collapsed rail: a slim vertical strip that restores the rail. */
+  .annot-rail-collapsed {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid var(--color-line);
+    background: var(--color-panel);
+    padding: 0 4px;
+    cursor: pointer;
+    min-width: 0;
+    transition: background 0.15s ease;
+  }
+  .annot-rail-collapsed:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+  .annot-rail-collapsed .arc-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-bone-faint);
+    white-space: nowrap;
+    user-select: none;
   }
   .no-notes {
     font-size: 11.5px;
     color: var(--color-bone-faint);
     line-height: 1.6;
     font-style: italic;
+    /* The rail no longer owns the padding (it moved to the head + notes) —
+       the empty state pads itself. */
+    padding: 6px 12px;
   }
   .note {
     background: var(--color-panel-raised);
@@ -893,6 +1707,11 @@
     color: var(--color-bone-dim);
     margin-bottom: 14px;
     position: relative;
+    /* Long unbroken tokens in finding titles (e.g. class paths like
+       com.android.insecurebankv2.LoginActivity) and AI-explanation prose
+       must wrap inside the bubble instead of overflowing the rail — same
+       overflow-wrap: anywhere rule the chat bubbles use. */
+    overflow-wrap: anywhere;
   }
   .note:last-child {
     margin-bottom: 0;
@@ -1282,6 +2101,8 @@
     border-top: 1px solid var(--color-line);
     padding: 12px;
     flex-shrink: 0;
+    /* Anchors the absolute @-mention popup above the textarea. */
+    position: relative;
   }
   .agent-input textarea {
     width: 100%;
@@ -1356,6 +2177,15 @@
     white-space: pre-wrap;
     word-wrap: break-word;
     color: var(--color-bone-dim);
+    /* M8 follow-up (Aug 11): the streaming "thinking" preview is clamped to
+       4 lines like the Freebuff CLI thinking display — the streamed tokens
+       stay live, but the block never grows unbounded while a long answer or
+       narration streams in. The FULL text lands in the finalized message
+       once the turn completes (finalizeMessage), so nothing is lost. */
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .stream-caret {
     display: inline-block;
@@ -1656,6 +2486,16 @@
   .switch.on::after {
     transform: translateX(16px);
     background: var(--color-bone);
+  }
+  /* Disabled switch (M7 follow-up, Aug 11): the Settings search-engine
+     Active radio is dimmed + not-allowed while the engine can't search
+     (unreachable SearXNG / keyless keyed engine) — the user must make the
+     engine live before activating it. The dock's 🌐 toggle dims via its own
+     .research-toggle.disabled parent; this class only applies where it is
+     set explicitly. */
+  .switch.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
   .research-toggle .switch {
     width: 28px;
@@ -1975,6 +2815,68 @@
     line-height: 1.5;
   }
 
+  /* Guided start for the bundled engine (Aug 10): the app container has no
+     Docker, so "Start engine" turns into a copy-the-command + auto-detect
+     panel — the command for the HOST terminal, a Copy button, and a live
+     "Detecting…" status that flips to a green success when the engine
+     answers (the card polls lightweight reachability every 4s). */
+  .engine-guide {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px dashed var(--color-line);
+    border-radius: 4px;
+    background: var(--color-panel-raised);
+  }
+  .engine-guide .eg-command {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .engine-guide .eg-command code {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--color-bone);
+    background: var(--color-graphite);
+    border: 1px solid var(--color-line-soft);
+    border-radius: 3px;
+    padding: 6px 8px;
+  }
+  .engine-guide .eg-note {
+    font-size: 11px;
+    color: var(--color-bone-faint);
+    line-height: 1.55;
+    margin: 8px 0 0;
+  }
+  .engine-guide .eg-note strong {
+    color: var(--color-bone-dim);
+  }
+  .engine-guide .eg-note.eg-ok {
+    color: var(--color-moss);
+  }
+  .engine-guide .eg-note.eg-raw {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-bone-faint);
+    margin-top: 6px;
+    overflow-wrap: anywhere;
+  }
+  .engine-guide .eg-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .engine-guide .eg-status {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-amber);
+  }
+
   .backend-card {
     border: 1px solid var(--color-line);
     border-radius: 5px;
@@ -2199,11 +3101,13 @@
    rail is display:none so it stops being a grid item; the two panes then
    auto-place into the 2-column template. */
 @media (max-width: 900px) {
-  .decomp-layout {
+  .decomp-layout,
+  .decomp-layout.rail-min {
     grid-template-columns: 170px minmax(0, 1fr);
   }
   .splitter,
-  .annot-rail {
+  .annot-rail,
+  .annot-rail-collapsed {
     display: none;
   }
 }
@@ -2358,4 +3262,76 @@
 }
 .animate-indeterminate {
   animation: indeterminate-slide 1.6s ease-in-out infinite;
+}
+
+/* ---- Dependencies tab: local-first inventory (M7 follow-up) ---- */
+.deps-card {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 5px;
+  background: var(--color-panel);
+  overflow: hidden;
+}
+.deps-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-line-soft);
+}
+.deps-row:last-child {
+  border-bottom: none;
+}
+.deps-row:hover {
+  background: var(--color-panel-raised);
+}
+.deps-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-bone);
+  overflow-wrap: anywhere;
+}
+.deps-pkg {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-bone-faint);
+}
+.deps-evidence {
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-bone-faint);
+  overflow-wrap: anywhere;
+}
+.deps-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-bone-dim);
+  background: var(--color-panel-raised);
+  white-space: nowrap;
+}
+.deps-chip.strong {
+  color: var(--color-bone);
+}
+.deps-chip.engine {
+  color: var(--color-emerald);
+  border-color: color-mix(in srgb, var(--color-emerald) 40%, transparent);
+}
+.deps-chip.third {
+  color: var(--color-amber);
+  border-color: color-mix(in srgb, var(--color-amber) 40%, transparent);
+}
+.deps-counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }

@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../../api/client'
 import { useFindings } from '../../hooks/useFindings'
 import { formatRelative, platformLabel } from '../../lib/format'
 import { useApp } from '../../state/AppContext'
-import type { ScanRead } from '../../types'
+import type { EditRead, ScanRead } from '../../types'
+import { ProposalsModal } from '../ProposalsModal'
 import { Splitter } from '../Splitter'
 import { TargetBar } from '../TargetBar'
 import { AgentDock } from '../agent/AgentDock'
 import { CodeMapsPanel } from '../panels/CodeMapsPanel'
 import { DecompilerPanel } from '../panels/DecompilerPanel'
+import { DependenciesPanel } from '../panels/DependenciesPanel'
 import { FindingsPanel } from '../panels/FindingsPanel'
 import { OverviewPanel } from '../panels/OverviewPanel'
 
@@ -94,6 +96,19 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
     file: string
     nonce: number
   } | null>(null)
+  // Dependencies tab -> Agent dock: the per-dependency "Check known CVEs"
+  // button pre-fills the dock draft (nonce-guarded so repeat clicks always
+  // land) — known-CVE research is the M7 web-research surface, not a column.
+  const [dockPreset, setDockPreset] = useState<{
+    text: string
+    nonce: number
+  } | null>(null)
+  const askAgent = useCallback((text: string) => {
+    setDockPreset((prev) => ({ text, nonce: (prev?.nonce ?? 0) + 1 }))
+    // Expand a collapsed dock — a preset landing in a 44px rail would be
+    // invisible (review catch, Dependencies tab wiring).
+    setDockCollapsed(false)
+  }, [])
   // Legacy scans get risk_score backfilled on GET /scans/{id} (security_score
   // derives from it) — fetch the single scan so the gauge is real even for
   // pre-Phase-A rows.
@@ -106,7 +121,74 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
 
   const consumeFileRequest = useCallback(() => setFileRequest(null), [])
 
-  const current = scan ?? scanOverride ?? activeScan
+  // The scan identity ALWAYS follows the selection (override or active
+  // scan) — never the backfill cache. `scan` is keyed to the selection's id,
+  // so the moment the selection changes it must not pin the dashboard to the
+  // previous scan (reported bug: switching scans did not refresh until a
+  // manual reload — the old `scan ?? activeScan` chain kept evaluating to
+  // the cached object because current?.id never changed, so the backfill
+  // effect never re-ran). The cache only wins while it matches the selection.
+  const selected = scanOverride ?? activeScan
+  const current = scan?.id === selected?.id ? scan : selected
+
+  // M8 Phase D (moved here Aug 11 — the dock chat is the agent edit surface
+  // now): the shared agent-edit-proposal surface. The edits list powers both
+  // the dock's "Review edits (n)" pill and the Decompiler toolbar badge; the
+  // modal is a single instance rendered at the dashboard level; `editVersion`
+  // remounts an open CodeEditor after an Apply/Reject so a manual save never
+  // overwrites a just-applied agent edit.
+  const [proposalsOpen, setProposalsOpen] = useState(false)
+  const closeProposals = useCallback(() => setProposalsOpen(false), [])
+  const [edits, setEdits] = useState<EditRead[]>([])
+  const [editVersion, setEditVersion] = useState(0)
+  // Fetch the per-scan edits list — on scan change AND after every
+  // Apply/Reject (the modal's onChanged). Best-effort: a failed fetch keeps
+  // the last list; the pill/badge are non-critical and the next refresh
+  // retries. The dock's proposal landing also triggers a refresh (see
+  // onReviewProposals).
+  const refreshEdits = useCallback(async () => {
+    if (current?.id == null) return
+    try {
+      setEdits(await api.listEdits(current.id))
+    } catch {
+      // Transient — keep the last list.
+    }
+  }, [current?.id])
+  // On scan switch: clear the previous scan's edits so the pill/badge can
+  // never show the OLD scan's count against the new scan (the refetch lands
+  // a moment later), and close any open review modal — the proposals belong
+  // to the previous scan. The dock preset is cleared too: AgentDock is
+  // keyed per scan, so a stale preset from scan A would otherwise pre-fill
+  // scan B's fresh dock on mount (review catch).
+  useEffect(() => {
+    setEdits([])
+    setProposalsOpen(false)
+    setDockPreset(null)
+    void refreshEdits()
+  }, [current?.id, refreshEdits])
+  const proposedCount = useMemo(
+    () => edits.filter((e) => e.status === 'proposed').length,
+    [edits],
+  )
+  // Auto-close the review modal once the last proposal is resolved — the
+  // apply/reject refresh lands with zero proposed and the empty state would
+  // otherwise linger.
+  useEffect(() => {
+    if (proposalsOpen && proposedCount === 0) setProposalsOpen(false)
+  }, [proposalsOpen, proposedCount])
+  // Open the review modal AFTER a fresh edits fetch so the just-landed
+  // proposal is already listed (the dock calls this the moment a
+  // propose_smali_edit step succeeds — the plan's "the returned proposal
+  // opens the diff review panel").
+  const onReviewProposals = useCallback(() => {
+    void refreshEdits().then(() => setProposalsOpen(true))
+  }, [refreshEdits])
+  // Remount an open editor after an Apply/Reject (passed down to
+  // DecompilerPanel as the CodeEditor key).
+  const onProposalsChanged = useCallback(() => {
+    void refreshEdits()
+    setEditVersion((v) => v + 1)
+  }, [refreshEdits])
 
   // Tabs keep their panels mounted (hidden, not unmounted) so switching
   // never refetches the file tree / code graph — see the panels block.
@@ -114,18 +196,32 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
     mainRef.current?.scrollTo(0, 0)
   }, [tab, current?.id])
 
-  // Keyed on the id (not the object) so the backdrop's scan rows refreshing
-  // during background polling never triggers a backfill storm.
+  // Keyed on the SELECTION's id (not the object) so the backdrop's scan rows
+  // refreshing during background polling never triggers a backfill storm.
+  // `setScan(selected)` first: the fresh selection object must land in the
+  // cache so `current` re-derives to it — the null-coalescing pin is gone.
   useEffect(() => {
-    if (!current) return
-    setScan(current)
+    if (!selected) return
+    setScan(selected)
+    const id = selected.id
     void api
-      .getScan(current.id)
-      .then(setScan)
+      .getScan(id)
+      .then((fresh) => {
+        // Guard the mid-flight race: a quick switch must never land the
+        // previous scan's backfill on the new selection.
+        setScan((prev) => (prev?.id === id ? fresh : prev))
+      })
       .catch(() => {
         // List data is already enough to render; backfill is best-effort.
       })
-  }, [current?.id])
+  }, [selected?.id])
+
+  // Code maps is Android-only: if the active tab is the hidden one (the user
+  // switched scans while on Code maps, or the tab was removed), fall back to
+  // Overview instead of rendering a blank main area with no active tab.
+  useEffect(() => {
+    if (tab === 'codemaps' && current?.platform === 'ios') setTab('overview')
+  }, [tab, current?.platform])
   const {
     findings,
     suppressed,
@@ -160,7 +256,12 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
     { key: 'findings', label: `Findings (${total})` },
     { key: 'dependencies', label: 'Dependencies' },
     { key: 'decompiler', label: 'Decompiler' },
-    { key: 'codemaps', label: 'Code maps' },
+    // Code maps is Android-only in v1 (the graph builds the decompiled Java
+    // tree; iOS has no source-like files and the backend 409s non-Android) —
+    // hide the tab on iOS scans entirely. The panel stays guarded below.
+    ...(current.platform !== 'ios'
+      ? [{ key: 'codemaps' as Tab, label: 'Code maps' }]
+      : []),
     { key: 'report', label: 'Report' },
   ]
 
@@ -212,9 +313,9 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
           {/* Panels — kept MOUNTED once first visited: visibility is toggled
               instead of unmounting, so reopening a tab is instant and never
               refetches the file tree / code graph (the wait was the remount
-              refetch, not the data). Per-scan state still resets when the
-              active scan changes (DecompilerPanel keys its fetches on
-              scanId; CodeMapsPanel is keyed below). */}
+              refetch, not the data). Per-scan state resets when the active
+              scan changes: DecompilerPanel, CodeMapsPanel and AgentDock are
+              all keyed by id below. */}
           <div className="px-7 pb-16 pt-6">
             {failed && current.error && (
               <div className="mb-6 rounded-md border border-crimson/30 bg-crimson/10 p-4 font-mono text-[11.5px] leading-relaxed text-bone-dim">
@@ -246,30 +347,42 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
               />
             </div>
             <div className={tab !== 'dependencies' ? 'hidden' : undefined}>
-              <PlaceholderPanel
-                title="Dependencies"
-                note="Dependency CVE research ships in M7. The tab is shown here as a placeholder only."
+              <DependenciesPanel
+                key={current.id}
+                scanId={current.id}
+                onAskAgent={askAgent}
               />
             </div>
             <div className={tab !== 'decompiler' ? 'hidden' : undefined}>
+              {/* Keyed per scan so the M8 per-scan state resets on switch:
+                 the ask-agent chat thread (useChat never sees scanId), the
+                 Smali decode status, and the edits list all belong to one
+                 scan. Stays mounted across TAB switches, so reopening the
+                 tab is still instant (the key only changes with the scan). */}
               <DecompilerPanel
+                key={current.id}
                 scanId={current.id}
                 findings={findings}
                 findingsLoading={loading}
                 requestFile={fileRequest}
                 onRequestConsumed={consumeFileRequest}
+                proposedCount={proposedCount}
+                editVersion={editVersion}
+                onOpenProposals={onReviewProposals}
               />
             </div>
-            <div className={tab !== 'codemaps' ? 'hidden' : undefined}>
-              {/* Keyed per scan so search/hubs/selection never leak from the
-                 previous scan (same remount pattern as AgentDock). */}
-              <CodeMapsPanel
-                key={current.id}
-                scanId={current.id}
-                platform={current.platform}
-                onOpenFile={openInDecompiler}
-              />
-            </div>
+            {current.platform !== 'ios' && (
+              <div className={tab !== 'codemaps' ? 'hidden' : undefined}>
+                {/* Keyed per scan so search/hubs/selection never leak from
+                   the previous scan (same remount pattern as AgentDock). */}
+                <CodeMapsPanel
+                  key={current.id}
+                  scanId={current.id}
+                  platform={current.platform}
+                  onOpenFile={openInDecompiler}
+                />
+              </div>
+            )}
             <div className={tab !== 'report' ? 'hidden' : undefined}>
               <PlaceholderPanel
                 title="Report"
@@ -304,8 +417,23 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
           collapsed={dockCollapsed}
           onToggleCollapsed={() => setDockCollapsed((c) => !c)}
           onOpenFile={openInDecompiler}
+          proposedCount={proposedCount}
+          onReviewProposals={onReviewProposals}
+          presetDraft={dockPreset}
         />
       </div>
+
+      {/* M8 Phase D: the shared agent-edit-proposal review modal — opened by
+          the dock's Review pill (and auto-opened when a propose step lands)
+          AND the Decompiler toolbar badge. Single instance, one edits list. */}
+      {proposalsOpen && (
+        <ProposalsModal
+          scanId={current.id}
+          proposals={edits.filter((e) => e.status === 'proposed')}
+          onClose={closeProposals}
+          onChanged={onProposalsChanged}
+        />
+      )}
     </div>
   )
 }

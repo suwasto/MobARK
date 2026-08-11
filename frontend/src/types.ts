@@ -29,7 +29,101 @@ export interface ScanRead {
   /** M7: per-scan web research opt-in (privacy gate) — the agent's web tools
    * are offered only when this is on AND an Active search engine exists. */
   web_research_enabled: boolean
+  /** M8: on-demand apktool decode state (Android only). The Smali chip uses
+   * the dedicated smali-status endpoint (filesystem-derived `ready`); these
+   * columns carry the in-flight states + failure reason. */
+  apktool_status: ApktoolStatus
+  apktool_error: string | null
   created_at: string
+}
+
+/** M8 Phase A: on-demand apktool decode lifecycle (the Smali chip). */
+export type ApktoolStatus =
+  | 'not_started'
+  | 'queued'
+  | 'decoding'
+  | 'ready'
+  | 'failed'
+
+export interface SmaliStatus {
+  status: ApktoolStatus
+  error: string | null
+}
+
+/** M8 Phase B: one edit row (the edits table — DB-diff source of truth). */
+export interface EditRead {
+  id: number
+  scan_id: number
+  /** apktool-root-relative: smali/..., res/..., AndroidManifest.xml */
+  file_path: string
+  source: 'manual' | 'agent'
+  instruction: string | null
+  /** proposed | applied | rejected | reverted */
+  status: 'proposed' | 'applied' | 'rejected' | 'reverted'
+  build_id: number | null
+  created_at: string
+  applied_at: string | null
+}
+
+export interface EditCreate {
+  file_path: string
+  content: string
+}
+
+export interface EditDiff {
+  file_path: string
+  diff: string
+}
+
+/** Java⇄Smali sibling mapping for the Decompiler view toggle. */
+export interface SmaliSibling {
+  path: string
+  /** Counterpart tree path, or null when the file has none (res/manifest). */
+  sibling: string | null
+}
+
+/** Java→Smali tree-path mapping for a scan's findings — Smali-mode dots +
+ * the annotation rail re-key jadx findings onto their apktool smali
+ * siblings (keys = jadx tree paths like `sources/com/foo/A.java`, values =
+ * smali tree paths like `smali/com/foo/A.smali`; scoped to finding-bearing
+ * paths so the payload stays bounded).
+ *
+ * `anchors` (Aug 11): smali-mode LINE anchors for line-bearing findings —
+ * `{smaliTreePath: {str(jadxLine): smaliLine}}`, each jadx line mapped to
+ * its containing method's `.method` line in the smali sibling (jadx
+ * renumbers, so only method granularity is honest). The smali rail notes
+ * pin there so they align with the smali editor's own line numbers. */
+export interface SmaliMapping {
+  mapping: Record<string, string>
+  anchors: Record<string, Record<string, number>>
+  total: number
+}
+
+/** M8 Phase C: rebuild lifecycle (the builds table — full history, D8). */
+export type BuildStatus = 'queued' | 'running' | 'done' | 'failed'
+export type BuildStage =
+  | 'queued'
+  | 'applying'
+  | 'rebuilding'
+  | 'zipping'
+  | 'signing'
+  | 'done'
+
+/** One recompile attempt — the recompile modal's poll target. */
+export interface BuildRead {
+  id: number
+  scan_id: number
+  status: BuildStatus
+  /** The failing stage is kept on a failed build so the error reads in
+   * context; a done build is at 'done'. */
+  stage: BuildStage
+  error: string | null
+  /** Applied edit ids snapshot at job start. */
+  edit_ids: number[]
+  artifact_name: string | null
+  artifact_sha256: string | null
+  created_at: string
+  finished_at: string | null
 }
 
 export interface FindingRead {
@@ -159,6 +253,9 @@ export interface ChatRequest {
   timeout_seconds?: number | null
   /** M6 Phase C: max tool-calling rounds before the context-only fallback. */
   max_tool_rounds?: number | null
+  /** M8 follow-up: tree paths the user @mentioned in the dock — the agent
+   * gets their content attached (no search round needed). */
+  mentioned_files?: string[]
 }
 
 export interface Citation {
@@ -281,4 +378,48 @@ export interface FileContentResponse {
   language: string
   truncated: boolean
   size: number
+}
+
+// ---- Dependencies tab (local-first inventory) ----
+
+/** package (Android Java/Kotlin group) · native (Android lib/*.so) ·
+ * dylib (iOS Mach-O link) · framework (iOS embedded bundle). */
+export type DependencyKind = 'package' | 'native' | 'dylib' | 'framework'
+
+export interface DependencyApp {
+  /** Android */
+  package: string | null
+  min_sdk: number | null
+  target_sdk: number | null
+  /** iOS */
+  bundle_id: string | null
+  version: string | null
+}
+
+export interface DependencyItem {
+  name: string
+  /** Human name for well-known libraries (Android packages only). */
+  label: string | null
+  kind: DependencyKind
+  evidence: string
+  file_count: number | null
+  /** Non-suppressed semgrep findings inside the package (Android only). */
+  finding_count: number
+  high_count: number
+  medium_count: number
+  /** Native libs: the ABIs the .so ships for. */
+  abis: string[]
+  /** iOS dylibs: true = Apple's own runtime, false = third-party. */
+  system: boolean | null
+}
+
+export interface DependenciesResponse {
+  platform: Platform
+  app: DependencyApp
+  /** Cross-platform engines embedded in the app (Flutter, React Native…). */
+  runtime_markers: string[]
+  dependencies: DependencyItem[]
+  total: number
+  truncated: boolean
+  generated_at: string
 }

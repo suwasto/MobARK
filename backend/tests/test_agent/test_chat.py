@@ -90,6 +90,85 @@ def test_answer_without_tool_calls_uses_findings_context(env, monkeypatch):
     assert captured["tools"]  # tool schemas offered
 
 
+def test_mentioned_files_content_attached_to_context(env, monkeypatch):
+    """M8 follow-up: the dock's @-mentions. ChatRequest.mentioned_files
+    paths get their current content attached to the system prompt (the
+    USER-MENTIONED FILES section) so the model answers about them directly —
+    no search round needed."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["messages"] = messages
+        return _resp(_msg("It is the WebView client."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+
+    result = answer_question(
+        scan_id,
+        "@com/app/W.java what does this class do?",
+        mentioned_files=["sources/com/app/W.java"],
+    )
+
+    assert result.answer == "It is the WebView client."
+    system = captured["messages"][0]["content"]
+    assert "USER-MENTIONED FILES" in system
+    assert "sources/com/app/W.java" in system
+    assert "public class W extends WebViewClient" in system  # the content
+    # The raw mention stays in the user message for the model to cite.
+    assert "@com/app/W.java" in captured["messages"][1]["content"]
+
+
+def test_mentioned_files_deduped(env, monkeypatch):
+    """The same path mentioned twice must render its content ONCE in the
+    context (a raw API caller could otherwise double the prompt spend)."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["messages"] = messages
+        return _resp(_msg("ok"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+
+    result = answer_question(
+        scan_id,
+        "@com/app/W.java what is this?",
+        mentioned_files=["sources/com/app/W.java", "sources/com/app/W.java"],
+    )
+
+    assert result.answer == "ok"
+    system = captured["messages"][0]["content"]
+    assert system.count("public class W extends WebViewClient") == 1
+
+
+def test_mentioned_files_missing_path_degrades_to_note(env, monkeypatch):
+    """A mentioned path that doesn't exist must degrade to an inline note —
+    never a crash (the model sees '[could not load ...]')."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["messages"] = messages
+        return _resp(_msg("ok"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+
+    result = answer_question(
+        scan_id,
+        "@sources/com/app/Nope.java what is this?",
+        mentioned_files=["sources/com/app/Nope.java"],
+    )
+
+    assert result.answer == "ok"
+    system = captured["messages"][0]["content"]
+    assert "could not load" in system
+    assert "sources/com/app/Nope.java" in system
+
+
 def test_answer_tool_loop_appends_tool_results(env, monkeypatch):
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -926,6 +1005,142 @@ def test_request_cancel_noop_without_in_flight_chat(env, monkeypatch):
     monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
     result = answer_question(scan_id, "what is the main risk?")
     assert result.answer == "still answers"
+
+
+def test_plan_narration_nudges_model_to_actually_call_tool(env, monkeypatch):
+    """M8 follow-up (Aug 11): a model that responds with plan narration
+    ('Let's search for login-related files… Let's read LoginActivity.java…')
+    instead of emitting a tool call must NOT have that narration accepted as
+    the final answer. The loop injects a bounded nudge and continues, so the
+    model actually runs search_code and rolls up a grounded answer."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    batches: list[list[dict]] = []
+    responses = iter(
+        [
+            # Round 1: pure plan narration — NO tool call (the bug).
+            _resp(
+                _msg(
+                    "To remove password validation we need to inspect the login "
+                    "logic. Let's search for login-related files in the codebase "
+                    "using search_code, then read the class."
+                )
+            ),
+            # Round 2 (after the nudge): the model actually calls search_code.
+            _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "password"})),
+                    ],
+                )
+            ),
+            # Round 3: the rollup — a real answer composed from the results.
+            _resp(
+                _msg(
+                    "The login flow verifies the password in "
+                    "com/android/insecurebankv2/LoginActivity.java:88."
+                )
+            ),
+        ]
+    )
+
+    def fake_chat(backend, messages, **kwargs):
+        batches.append(list(messages))
+        return next(responses)
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+
+    result = answer_question(scan_id, "disable password validation in authentication")
+
+    # The tool actually ran — the narration was NOT the answer.
+    assert result.tools_used == ["search_code"]
+    assert result.tool_mode == "tools"
+    assert "LoginActivity.java:88" in result.answer
+    assert result.citations[0].file == "com/android/insecurebankv2/LoginActivity.java"
+    # The nudge is a user message between the narration and the tool call.
+    assert "plan without a tool call is not an answer" in batches[1][-1]["content"]
+
+
+def test_plan_narration_bounded_after_max_nudges(env, monkeypatch):
+    """A model that simply cannot emit tool calls must not loop forever: after
+    _MAX_NARRATION_NUDGES nudges its narration is accepted as the answer."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls = {"n": 0}
+    narration = "I think we should search for the relevant code, then read it."
+
+    def always_narrates(backend, messages, **kwargs):
+        calls["n"] += 1
+        return _resp(_msg(narration))
+
+    monkeypatch.setattr(chat_mod, "client_chat", always_narrates)
+
+    result = answer_question(scan_id, "find the password check")
+
+    # original + _MAX_NARRATION_NUDGES nudges, then the next narration is
+    # accepted — bounded, no infinite loop.
+    assert calls["n"] == chat_mod._MAX_NARRATION_NUDGES + 1
+    assert result.answer == narration
+    assert result.tools_used == []
+
+
+def test_stale_final_text_cleared_when_nudging_then_exhausting(env, monkeypatch):
+    """Review catch (Aug 11): a round that emits narration WITH a tool call
+    sets final_text; if later rounds are nudged and the loop then EXHAUSTS
+    its round budget, the stale narration must not win — an empty final_text
+    falls through to the grounded plain-chat fallback."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    import app.config
+
+    monkeypatch.setattr(app.config.settings, "max_tool_rounds", 2)  # 3 iterations
+    calls = {"n": 0}
+
+    def scripted(backend, messages, **kwargs):
+        calls["n"] += 1
+        if "tools" not in kwargs:
+            return _resp(_msg("The WebView client is com/app/W.java:42."))
+        if calls["n"] == 1:
+            # Narration + tool call — sets final_text to the narration.
+            return _resp(
+                _msg(
+                    "Let me search the code for the WebView client.",
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        # Round 2: pure narration, no tool call -> nudge (bounded).
+        return _resp(_msg("Let's look at the relevant files to find the answer."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+
+    result = answer_question(scan_id, "where is the webview?", timeout=60.0)
+
+    # The answer is the GROUNDED fallback, not the stale round-1 narration.
+    assert "WebView client is com/app/W.java:42" in result.answer
+    assert calls["n"] >= 3  # tool round + nudge + (exhausted) fallback
+
+
+def test_plan_narration_regex_matches_real_wording(env, monkeypatch):
+    """The intent regex catches the exact phrasing seen live with a local
+    model (ollama/lm-studio narrating instead of calling)."""
+    samples = [
+        "Let's search for login-related files in the codebase using search_code.",
+        "Let's read com/android/insecurebankv2/LoginActivity.java or search for password checks.",
+        "We need to inspect the login logic and locate where password verification occurs.",
+        "I'll look at the manifest to check the exported components.",
+    ]
+    for s in samples:
+        assert chat_mod._NARRATION_INTENT_RE.search(s), s
+    # Real answers that merely cite a file must NOT be flagged as narration.
+    not_narration = [
+        "The WebView client is defined in com/app/W.java:42.",
+        "The app stores the AES key in CryptoClass.java:26.",
+    ]
+    for s in not_narration:
+        assert not chat_mod._NARRATION_INTENT_RE.search(s), s
 
 
 def json_args(args: dict) -> str:

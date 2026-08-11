@@ -68,8 +68,79 @@ SYSTEM_PROMPT = (
     "- On iOS, semgrep yields nothing by design and the graph tools are "
     "Android-only.\n"
     "- If the evidence cannot answer the question, say you don't know rather "
-    "than guessing."
+    "than guessing.\n"
+    "- NEVER describe an action you intend to take instead of taking it. If a "
+    "question needs the code, actually call search_code / read_file / "
+    "read_editable_file — a plan like \"Let's search for X\" with no tool call "
+    "is not an answer. Call the tool, then compose the final answer from its "
+    "real results."
 )
+
+# M8 Phase D: appended to the system prompt ONLY when the scan is Android
+# AND the on-demand apktool decode is ready (edit_tools_allowed — the edit
+# tools are otherwise never even offered). Explains the review contract so a
+# real model proposes instead of claiming it applied a change.
+_M8_EDIT_PROMPT = (
+    "\n\nEDIT TOOLS ARE AVAILABLE for this scan (Android, smali decode ready). "
+    "You can read and propose edits to the REBUILDABLE surface — smali files "
+    "(smali/...), resources (res/...), and the decoded AndroidManifest.xml:\n"
+    "- search_code(pattern): find the relevant code in the jadx Java tree "
+    "(e.g. 'password' or 'verify').\n"
+    "- find_smali_sibling(path): map a jadx class path from search_code or a "
+    "@mention (e.g. 'sources/com/foo/AuthManager.java') to its editable "
+    "apktool smali sibling ('smali/com/foo/AuthManager.smali').\n"
+    "- read_editable_file(path): read the CURRENT content of an editable file "
+    "(includes already-applied edits — exactly what a rebuild would compile).\n"
+    "- propose_smali_edit(path, instruction, new_content): store an edit "
+    "proposal with a generated diff.\n"
+    "IMPORTANT: propose_smali_edit NEVER applies anything — it stores a "
+    "proposed edit for the human to review and apply/reject per file in the "
+    "Review edits panel. Always read the file first and compose the FULL "
+    "edited content (byte-exact); never claim an edit was applied — say it "
+    "was PROPOSED and cite the file. For non-editable files (jadx Java, iOS "
+    "bundle) say they are read-only and explain why. When the user "
+    "@mentions a file (e.g. '@AndroidManifest.xml'), treat it as the target "
+    "of the request — the file's current content is already attached in the "
+    "USER-MENTIONED FILES section."
+)
+
+
+# M8 follow-up: user @-mentions of files in the dock. The frontend extracts
+# `@path` tokens from the draft and sends them as
+# ChatRequest.mentioned_files; this section renders each file's CURRENT
+# content (applied edits included for editable files — exactly what a rebuild
+# would compile) so the model answers / proposes edits about the mentioned
+# files directly, with no search round needed.
+_MENTION_MAX_FILES = 10
+_MENTION_FILE_CHARS = 20_000
+_MENTION_TOTAL_CHARS = 60_000
+
+
+# M8 follow-up (Aug 11): models — local ones especially — sometimes answer
+# with PLAN NARRATION instead of a tool call ("Let's search for login-related
+# files… Let's read LoginActivity.java…") and the loop would previously treat
+# that as the final answer: no search ever ran, no rollup. When a round
+# returns content that describes an intended tool action but emits no tool
+# call, inject a bounded nudge and continue the loop so the model actually
+# calls search_code / read_file and composes a grounded answer from the real
+# results.
+_NARRATION_INTENT_RE = re.compile(
+    r"\b(let'?s|let me|i'?ll|i will|i'?m going to|i am going to|"
+    r"we should|we need to|i should|i need to|i want to)"
+    r"\s+(search|look|read|check|inspect|find|scan|investigate|open|"
+    r"explore|query|examine|review|analyze)",
+    re.IGNORECASE,
+)
+# Bound the nudge: a model that simply cannot emit tool calls must not loop
+# forever — after this many nudges its narration is accepted as-is.
+_MAX_NARRATION_NUDGES = 2
+_NARRATION_NUDGE = (
+    "You described an action (search/read/check/inspect…) but did not call "
+    "any tool. Actually call the tool NOW (e.g. search_code, read_file, "
+    "read_editable_file) and answer from the real results — a plan without "
+    "a tool call is not an answer."
+)
+
 
 # M7: appended to the system prompt ONLY when the scan's web-research opt-in
 # AND an Active search engine both hold (the web tools are otherwise never
@@ -467,6 +538,64 @@ def _load_context(scan_id: int) -> FindingsContext:
         db.close()
 
 
+def _load_mentioned_files(scan_id: int, paths: list[str]) -> str:
+    """Render the USER-MENTIONED FILES section for the system prompt.
+
+    Each mentioned path is read with the same guarded content read the
+    decompiler viewer uses (``tree.read_tree_file``) — traversal-guarded,
+    binary files refused, plists decoded, and **editable files carry the
+    applied-edit overlay** so the model sees the current state a rebuild
+    would compile. Unreadable/missing paths degrade to an inline note, never
+    a crash. Capped per file + in total so a mention dump can't blow the
+    prompt budget.
+    """
+    if not paths:
+        return ""
+    from app.analysis import tree
+    from app.db import SessionLocal
+    from app.models import Scan
+
+    db = SessionLocal()
+    try:
+        scan = db.get(Scan, scan_id)
+    finally:
+        db.close()
+    if scan is None:
+        return ""
+
+    sections: list[str] = []
+    total = 0
+    # Dedup — a raw API caller could otherwise attach the same path twice and
+    # double its content in the prompt (wasting the total cap).
+    for path in list(dict.fromkeys(paths))[:_MENTION_MAX_FILES]:
+        try:
+            resp = tree.read_tree_file(scan, path)
+            content = resp.content
+        except (tree.TreeError, FileNotFoundError) as exc:
+            sections.append(f"- {path}: [could not load — {exc}]")
+            continue
+        if len(content) > _MENTION_FILE_CHARS:
+            content = content[:_MENTION_FILE_CHARS] + "\n… [truncated]"
+        room = _MENTION_TOTAL_CHARS - total
+        if room <= 0:
+            break
+        if len(content) > room:
+            content = content[:room] + "\n… [truncated]"
+        total += len(content)
+        sections.append(f"- {path}:\n{content}")
+    if not sections:
+        return ""
+    return (
+        "\n\nUSER-MENTIONED FILES — the user explicitly attached these files "
+        "to the question (via @mention in the dock). Treat them as the focus: "
+        "answer about them directly instead of searching for them. When the "
+        "question asks to change code, propose edits to the EDITABLE ones "
+        "(smali/, res/, AndroidManifest.xml) via propose_smali_edit; jadx "
+        "sources and iOS bundle files are read-only. Content follows (current "
+        "state, applied edits included):\n" + "\n".join(sections)
+    )
+
+
 def answer_question(
     scan_id: int,
     question: str,
@@ -476,6 +605,7 @@ def answer_question(
     timeout: float | None = None,
     stream: bool = False,
     on_event: Callable[[AgentEvent], None] | None = None,
+    mentioned_files: list[str] | None = None,
 ) -> AgentResult:
     """Answer a question over Layers 1-3 (findings context + tools).
 
@@ -517,7 +647,7 @@ def answer_question(
 
     on_token = (lambda delta: _emit(on_event, "token", {"delta": delta})) if on_event else None
 
-    from app.agent.tools import execute_tool, web_tools_allowed
+    from app.agent.tools import edit_tools_allowed, execute_tool, web_tools_allowed
     from app.config import settings
 
     context = _load_context(scan_id)
@@ -537,10 +667,22 @@ def answer_question(
     # engine. When they hold, the web tools are offered (and the system
     # prompt tells the model when to use them + to cite URLs).
     web_allowed = web_tools_allowed(scan_id)
+    # M8 Phase D: edit tools only when the scan is Android AND the on-demand
+    # apktool decode is ready — same never-even-offered rule (the model gets
+    # the review contract explained when they ARE available).
+    edit_allowed = edit_tools_allowed(scan_id)
     system_prompt = SYSTEM_PROMPT + (_WEB_PROMPT if web_allowed else "")
+    if edit_allowed:
+        system_prompt += _M8_EDIT_PROMPT
+    # M8 follow-up: user @-mentions — the mentioned files' content is attached
+    # so the model answers/proposes about them directly (no search round).
+    mentioned_section = _load_mentioned_files(scan_id, mentioned_files or [])
 
     messages: list[dict] = [
-        {"role": "system", "content": system_prompt + "\n\n" + context.rendered},
+        {
+            "role": "system",
+            "content": system_prompt + "\n\n" + context.rendered + mentioned_section,
+        },
         {"role": "user", "content": question},
     ]
     # The original 2-turn prompt — used by the exhaustion fallback so the
@@ -549,11 +691,17 @@ def answer_question(
     prompt = list(messages)
     # M6 Phase B: offer only the tools that exist for this scan's platform
     # (iOS never sees get_decompiled_class). M7: plus the web tools when the
-    # two gates hold.
-    tools = schemas_for_platform(context.platform, web_research_enabled=web_allowed)
+    # two gates hold. M8: plus the edit tools when the scan is Android AND
+    # decode-ready.
+    tools = schemas_for_platform(
+        context.platform,
+        web_research_enabled=web_allowed,
+        edit_tools_enabled=edit_allowed,
+    )
     tools_used: list[str] = []
     tool_runs: list[ToolRun] = []
     final_text = ""
+    narration_nudges = 0
 
     cancel = _register_cancel(scan_id)
     try:
@@ -603,6 +751,32 @@ def answer_question(
             tool_calls = list(getattr(message, "tool_calls", None) or [])
 
             if not tool_calls:
+                # M8 follow-up (Aug 11): plan narration must not be the final
+                # answer. When the content describes an intended tool action
+                # but emitted no call, nudge (bounded) and continue — the
+                # assistant message is still recorded so the follow-up prompt
+                # stays coherent, and the model's next round can actually run
+                # the search/read and roll up a grounded answer. Guard: a
+                # content that already cites `file:line` is a real answer, not
+                # narration ("…com/app/W.java:42. Let's also check the
+                # manifest." must not be re-opened).
+                if (
+                    narration_nudges < _MAX_NARRATION_NUDGES
+                    and content
+                    and not _CITE_RE.search(content)
+                    and _NARRATION_INTENT_RE.search(content)
+                ):
+                    narration_nudges += 1
+                    messages.append({"role": "assistant", "content": content or None})
+                    messages.append({"role": "user", "content": _NARRATION_NUDGE})
+                    # Clear any earlier round's `final_text` (e.g. narration
+                    # that accompanied a tool call). If the loop then exhausts
+                    # its round budget instead of breaking with a real answer,
+                    # an empty final_text falls through to the grounded
+                    # plain-chat fallback rather than returning stale
+                    # plan-narration (review catch, Aug 11).
+                    final_text = ""
+                    continue
                 final_text = content
                 break
 

@@ -1,8 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ScanRead } from '../../types'
+import { api } from '../../api/client'
+import type { FileNode, FileTreeRoot, ScanRead } from '../../types'
 import { useChat, type ChatMessage, type ToolStep } from '../../hooks/useChat'
 import { useApp } from '../../state/AppContext'
 import { Markdown } from '../Markdown'
+
+/** M8 follow-up: @-mention of a file in the dock. The user types `@` to
+ * open a picker over the scan's decompiler tree; selecting inserts a
+ * `@path` token (tree path, e.g. `@sources/com/foo/AuthManager.java`) into
+ * the draft. On send the tokens are extracted into `mentioned_files` — the
+ * backend attaches the files' current content to the agent context, so the
+ * model answers / proposes edits about them directly (no search round).
+ * Mentions render as removable chips above the input and clickable chips in
+ * the sent bubble (open in Decompiler).
+ *
+ * Every real tree path is `<root>/<rel>` — it ALWAYS contains a `/` — so
+ * requiring one here keeps ordinary prose like `user@example.com` from
+ * becoming a bogus chip (review catch). */
+const MENTION_RE = /@([A-Za-z0-9_./-]+\/[A-Za-z0-9_./-]+\.[a-z0-9]+)/g
+
+/** Flatten the decompiler tree into full tree paths (root-prefixed) for the
+ * mention picker — files only, binary blobs (iOS) excluded (they can't be
+ * read anyway). */
+function flattenFilePaths(roots: FileTreeRoot[]): string[] {
+  const out: string[] = []
+  const walk = (nodes: FileNode[], root: string) => {
+    for (const n of nodes) {
+      if (n.type === 'file' && !n.binary) out.push(`${root}/${n.path}`)
+      if (n.children && n.children.length > 0) walk(n.children, root)
+    }
+  }
+  for (const r of roots) walk(r.tree, r.name)
+  return out
+}
+
+/** Extract the @-mentioned tree paths from a draft/message (deduped). */
+function mentionedFrom(text: string): string[] {
+  const out: string[] = []
+  for (const m of text.matchAll(MENTION_RE)) {
+    if (!out.includes(m[1])) out.push(m[1])
+  }
+  return out
+}
 
 interface AgentDockProps {
   scan: ScanRead
@@ -12,6 +51,20 @@ interface AgentDockProps {
   onToggleCollapsed: () => void
   /** A citation was clicked — jump the Decompiler tab to that file. */
   onOpenFile: (file: string) => void
+  /** M8 Phase D (moved here Aug 11 — the dock chat is the agent edit
+   * surface): the agent can propose edits (search_code ->
+   * find_smali_sibling -> read_editable_file -> propose_smali_edit). The
+   * shared review modal lives in DashboardView; this dock shows a
+   * "Review edits (n)" pill when proposals await, and auto-opens the modal
+   * the moment a propose_smali_edit step succeeds (the plan's "the returned
+   * proposal opens the diff review panel"). */
+  proposedCount: number
+  onReviewProposals: () => void
+  /** Dependencies tab "Check known CVEs" -> pre-fill the draft (nonce so
+   * every click lands, even for the same dependency twice). Known-CVE
+   * research is the M7 web-research surface — the agent searches when the
+   * scan's 🌐 Web toggle is on, else it answers from local context. */
+  presetDraft?: { text: string; nonce: number } | null
 }
 
 /** Compact args summary for a step row (first 2 keys, values truncated). */
@@ -147,6 +200,49 @@ function Steps({ steps, onOpenFile }: { steps: ToolStep[]; onOpenFile: (file: st
   )
 }
 
+/** M8 follow-up: render a user message with @-mentions as clickable chips
+ * (jump the Decompiler), splitting the content around each mention token. */
+function UserBubble({
+  message,
+  onOpenFile,
+}: {
+  message: ChatMessage
+  onOpenFile: (file: string) => void
+}) {
+  const parts = useMemo(() => {
+    const text = message.content
+    const out: Array<{ kind: 'text' | 'mention'; value: string }> = []
+    let last = 0
+    for (const m of text.matchAll(MENTION_RE)) {
+      const idx = m.index ?? 0
+      if (idx > last) out.push({ kind: 'text', value: text.slice(last, idx) })
+      out.push({ kind: 'mention', value: m[1] })
+      last = idx + m[0].length
+    }
+    if (last < text.length) out.push({ kind: 'text', value: text.slice(last) })
+    return out
+  }, [message.content])
+  return (
+    <div className="msg user">
+      {parts.map((p, i) =>
+        p.kind === 'mention' ? (
+          <button
+            key={i}
+            type="button"
+            className="src-chip mention-chip-inline"
+            title={`${p.value} — open in Decompiler`}
+            onClick={() => onOpenFile(p.value)}
+          >
+            @{shortenPath(p.value)}
+          </button>
+        ) : (
+          <span key={i}>{p.value}</span>
+        ),
+      )}
+    </div>
+  )
+}
+
 function AgentMessage({
   message,
   onRetry,
@@ -157,7 +253,7 @@ function AgentMessage({
   onOpenFile: (file: string) => void
 }) {
   if (message.role === 'user') {
-    return <div className="msg user">{message.content}</div>
+    return <UserBubble message={message} onOpenFile={onOpenFile} />
   }
   return (
     <div className={`msg ai${message.errorKind ? ' error' : ''}`}>
@@ -219,11 +315,98 @@ export function AgentDock({
   collapsed,
   onToggleCollapsed,
   onOpenFile,
+  proposedCount,
+  onReviewProposals,
+  presetDraft,
 }: AgentDockProps) {
   const { messages, pending, sending, send, stop } = useChat(scan.id)
   const { backends, searchBackends, actions } = useApp()
   const [draft, setDraft] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
+  // M8 follow-up: the @-mention file picker. Typing `@` opens a dropdown
+  // over the scan's decompiler tree (flattened once, lazily — the payload is
+  // the full multi-MB tree, so it's fetched only on the first mention);
+  // selecting inserts a `@path` token at the `@` position.
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionIdx, setMentionIdx] = useState(0)
+  const mentionStartRef = useRef(0) // draft index of the '@' being typed
+  const [filePaths, setFilePaths] = useState<string[] | null>(null)
+  const filePathsLoaded = useRef(false)
+  // M8 Phase D: the edit tools are only offered once the on-demand apktool
+  // decode is ready (edit_tools_allowed) — on a fresh Android scan the dock
+  // shows a small hint pointing at the Decompiler's Smali chip, so the
+  // headline "disable password validation in authentication" flow is
+  // discoverable. Best-effort fetch; a failure just hides the hint.
+  const [decodeReady, setDecodeReady] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    setDecodeReady(null)
+    if (scan.platform !== 'android') return
+    api
+      .smaliStatus(scan.id)
+      .then((s) => {
+        if (!cancelled) setDecodeReady(s.status === 'ready')
+      })
+      .catch(() => {
+        // Transient — hide the hint until a status lands.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [scan.id, scan.platform])
+  // M8 follow-up: lazily load the flattened file tree on the first mention
+  // (the full tree payload is heavy — never fetched at mount).
+  useEffect(() => {
+    if (!mentionOpen || filePathsLoaded.current) return
+    filePathsLoaded.current = true
+    let cancelled = false
+    api
+      .getFiles(scan.id)
+      .then((res) => {
+        if (!cancelled) setFilePaths(flattenFilePaths(res.roots))
+      })
+      .catch(() => {
+        if (!cancelled) setFilePaths([]) // picker just finds nothing
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [mentionOpen, scan.id])
+
+  // Filtered mention candidates (substring, capped for the dropdown).
+  const mentionMatches = useMemo(() => {
+    if (!filePaths) return []
+    const q = mentionQuery.toLowerCase()
+    const hits = q ? filePaths.filter((p) => p.toLowerCase().includes(q)) : filePaths
+    return hits.slice(0, 40)
+  }, [filePaths, mentionQuery])
+
+  // Selection resets when the query changes (keeps the arrow keys sane).
+  useEffect(() => {
+    setMentionIdx(0)
+  }, [mentionQuery])
+
+  // The mention tokens currently in the draft — the removable chip row above
+  // the input + the `mentioned_files` sent with the question.
+  const draftMentions = useMemo(() => mentionedFrom(draft), [draft])
+
+  // M8 Phase D: auto-open the shared review modal the moment a turn lands a
+  // successful propose_smali_edit step (guarded per message id so a re-render
+  // never re-opens — the dashboard's onReviewProposals already refreshes the
+  // edits list before opening, so the fresh proposal is listed).
+  const handledProposalMsg = useRef<number | null>(null)
+  useEffect(() => {
+    const last = messages[messages.length - 1]
+    if (!last || last.role !== 'agent' || last.id === handledProposalMsg.current) return
+    const proposed = last.steps?.some(
+      (s) => s.name === 'propose_smali_edit' && s.status === 'ok',
+    )
+    if (!proposed) return
+    handledProposalMsg.current = last.id
+    onReviewProposals()
+  }, [messages, onReviewProposals])
 
   // M7 web research — two layers, per the plan: an Active search engine in
   // Settings (the radio list; the dock toggle NEVER selects an engine) AND
@@ -234,6 +417,17 @@ export function AgentDock({
     () => searchBackends.some((b) => b.enabled),
     [searchBackends],
   )
+  // M7 follow-up (Aug 11): the toggle also needs the Active engine to be
+  // LIVE — the list route probes enabled backends on every list, so an
+  // enabled-but-dead engine (e.g. the SearXNG container stopped) reports
+  // health.reachable=false and must not enable web research (every search
+  // would fail). The mirror of the Settings radio gate: dead engines can't
+  // be activated there either. An active KEYED engine's health comes from a
+  // real query (validates the key), so a rejected key locks the toggle too.
+  const liveEngine = useMemo(
+    () => searchBackends.some((b) => b.enabled && b.health?.reachable),
+    [searchBackends],
+  )
   // A chat is only possible when some backend is enabled WITH a model — the
   // exact mirror of backend `pick_chat_backend` (and the ModelPicker's
   // active lookup). Without one the send button is disabled and the hint
@@ -242,10 +436,6 @@ export function AgentDock({
     () => backends.some((b) => b.enabled && b.model),
     [backends],
   )
-  // Web 🌐 toggle lock: it needs BOTH an Active engine AND a connected chat
-  // model — web research is meaningless with no agent to run it, so the
-  // switch is inert (greyed, click does nothing) while either is missing.
-  const webLocked = !activeEngine || !modelConnected
   const [webResearch, setWebResearch] = useState(scan.web_research_enabled)
   const [webBusy, setWebBusy] = useState(false)
   // Reset per scan — the prop may be stale until the next scan-list refresh.
@@ -253,9 +443,18 @@ export function AgentDock({
     setWebResearch(scan.web_research_enabled)
   }, [scan.id, scan.web_research_enabled])
 
+  // Web 🌐 toggle lock (review catch, Aug 11): a dead engine must not be
+  // able to ENABLE web research, but an opt-in that was already ON (turned
+  // on while the engine was live) stays toggleable so the user can turn it
+  // OFF — the mirror of the Settings radio, which also preserves the off
+  // direction (radioDisabled only gates activating). Without a chat model
+  // the toggle stays fully inert (pre-existing no-model gate).
+  const webLocked = !modelConnected || (!liveEngine && !webResearch)
+
   const toggleWebResearch = async () => {
-    // Inert while locked (no Active engine OR no chat model) — the switch
-    // must not be flippable in that state, even by a stray click.
+    // Inert while locked (no chat model, OR no live engine AND the opt-in is
+    // off — a dead engine can't be enabled) — the switch must not be
+    // flippable in that state, even by a stray click.
     if (webLocked || webBusy) return
     setWebBusy(true)
     try {
@@ -269,13 +468,26 @@ export function AgentDock({
   }
 
   // Per-scan welcome message. Rebuilt on every render so the counts update
-  // once findings finish loading (they start at 0); cheap string work.
+  // once findings finish loading (they start at 0); cheap string work. M8
+  // Phase D: on Android scans with the smali decode ready, the agent can
+  // PROPOSE EDITS — say "disable password validation in authentication"
+  // and it searches the code, maps the class to its editable smali, reads
+  // the current content, and stores a proposal for review (never applied
+  // automatically). Proposals may exist from earlier turns in this dock.
   const welcome: ChatMessage = {
     id: -1,
     role: 'agent',
     content: `Scan complete for ${scan.filename}. ${greeting.total} findings, ${
       greeting.high
-    } high-severity. Ask me anything about the decompiled code — try "where is certificate pinning handled?"`,
+    } high-severity. Ask me anything about the decompiled code — try "where is certificate pinning handled?", or type **@** to mention a file and have me work on it directly (e.g. "@AndroidManifest.xml disable debuggable").${
+      proposedCount > 0
+        ? ` — and ${proposedCount} agent edit proposal${
+            proposedCount === 1 ? '' : 's'
+          } ${
+            proposedCount === 1 ? 'is' : 'are'
+          } awaiting your review.`
+        : ''
+    }`,
   }
 
   // Keep the newest message in view.
@@ -284,10 +496,48 @@ export function AgentDock({
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, pending, sending])
 
+  // Dependencies tab -> pre-fill the draft with a prepared question (the
+  // per-dependency "Check known CVEs" button). Nonce-guarded: the same text
+  // with a new nonce still lands (repeat clicks), and the picker is closed
+  // so a half-typed @mention can't swallow the preset.
+  useEffect(() => {
+    if (!presetDraft) return
+    setDraft(presetDraft.text)
+    setMentionOpen(false)
+    requestAnimationFrame(() => textareaRef.current?.focus())
+  }, [presetDraft?.nonce])
+
+  // Insert a picked file into the draft at the '@' position (replacing the
+  // partial query the user typed), then refocus + place the caret after it.
+  const insertMention = (path: string) => {
+    const start = mentionStartRef.current
+    const before = draft.slice(0, start)
+    const after = draft.slice(start + 1 + mentionQuery.length)
+    const next = `${before}@${path} ${after}`
+    setDraft(next)
+    setMentionOpen(false)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (el) {
+        el.focus()
+        const caret = before.length + path.length + 2
+        el.setSelectionRange(caret, caret)
+      }
+    })
+  }
+
+  // Remove a mention token from the draft (its × chip).
+  const removeMention = (path: string) => {
+    setDraft((v) => v.replace(`@${path}`, '').replace(/\s{2,}/g, ' ').trimStart())
+    setMentionOpen(false)
+  }
+
   const submit = () => {
     if (!draft.trim() || sending || !modelConnected) return
-    send(draft)
+    const mentions = mentionedFrom(draft)
+    send(draft, mentions.length > 0 ? mentions : undefined)
     setDraft('')
+    setMentionOpen(false)
   }
 
   // The in-flight turn: streamed text + live steps, or the thinking dots
@@ -331,9 +581,13 @@ export function AgentDock({
             title={
               !modelConnected
                 ? 'No model connected — pick one in the top bar or Settings'
-                : activeEngine
-                  ? 'Allow the agent to search the web for this scan (per-scan opt-in — queries leave this machine)'
-                  : 'Web research needs an Active search engine — enable one in Settings → Search & research'
+                : !activeEngine
+                  ? 'Web research needs an Active search engine — enable one in Settings → Search & research'
+                  : !liveEngine
+                    ? webResearch
+                      ? 'The Active search engine is unreachable — turn web research off, or start/Test it in Settings → Search & research'
+                      : 'The Active search engine is unreachable — start or Test it in Settings → Search & research'
+                    : 'Allow the agent to search the web for this scan (per-scan opt-in — queries leave this machine)'
             }
             onClick={() => void toggleWebResearch()}
           >
@@ -351,6 +605,35 @@ export function AgentDock({
         </div>
       </div>
 
+      {/* M8 Phase D: two dock strips under the header. (1) On Android scans
+          where the smali decode is NOT ready yet, a hint that the agent can
+          propose edits once it is (the Decompiler's Smali chip triggers the
+          on-demand decode) — makes the headline "disable password
+          validation in authentication" flow discoverable. (2) A persistent
+          Review edits (n) pill when proposals await — also auto-opened the
+          moment a proposal lands. Hidden when there is nothing to show. */}
+      {!collapsed && scan.platform === 'android' && decodeReady === false && (
+        <div className="dock-edit-hint" role="status">
+          <span aria-hidden="true">✏️</span>
+          <span>
+            Edit tools are off until the smali decode is ready — open{' '}
+            <strong>Decompiler → Smali</strong> to trigger it, then ask me to
+            change code (e.g. “disable password validation”).
+          </span>
+        </div>
+      )}
+      {proposedCount > 0 && !collapsed && (
+        <button
+          type="button"
+          className="dock-review-pill"
+          onClick={onReviewProposals}
+          title={`${proposedCount} agent edit proposal${proposedCount === 1 ? '' : 's'} awaiting your review — apply or reject per file`}
+        >
+          <span aria-hidden="true">📝</span>
+          Review edits ({proposedCount})
+        </button>
+      )}
+
       <div className="agent-body" ref={bodyRef}>
         <AgentMessage
           message={welcome}
@@ -361,7 +644,7 @@ export function AgentDock({
           <AgentMessage
             key={m.id}
             message={m}
-            onRetry={() => m.retryQuestion && send(m.retryQuestion)}
+            onRetry={() => m.retryQuestion && send(m.retryQuestion, m.mentionedFiles)}
             onOpenFile={onOpenFile}
           />
         ))}
@@ -369,13 +652,108 @@ export function AgentDock({
       </div>
 
       <div className="agent-input">
+        {/* M8 follow-up: the @-mention dropdown — floats above the input,
+            listing files from the scan's decompiler tree (lazily fetched).
+            Arrow keys navigate, Enter/Tab selects, Escape closes. */}
+        {mentionOpen && mentionMatches.length > 0 && (
+          <div className="mention-pop" role="listbox" aria-label="Mention a file">
+            <div className="mention-pop-head">
+              @ mention a file{mentionQuery ? ` — “${mentionQuery}”` : ''}
+            </div>
+            {mentionMatches.map((p, i) => (
+              <button
+                key={p}
+                type="button"
+                role="option"
+                aria-selected={i === mentionIdx}
+                className={`mention-opt${i === mentionIdx ? ' active' : ''}`}
+                onMouseEnter={() => setMentionIdx(i)}
+                onClick={() => insertMention(p)}
+              >
+                <span className="mention-at" aria-hidden="true">@</span>
+                {shortenPath(p, 64)}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* M8 follow-up: the removable mention-chip row (the draft's @paths). */}
+        {draftMentions.length > 0 && !sending && (
+          <div className="mention-chips">
+            {draftMentions.map((p) => (
+              <span key={p} className="mention-chip">
+                <button
+                  type="button"
+                  className="mention-chip-open"
+                  title={`${p} — open in Decompiler`}
+                  onClick={() => onOpenFile(p)}
+                >
+                  @{shortenPath(p, 44)}
+                </button>
+                <button
+                  type="button"
+                  className="mention-chip-x"
+                  title="Remove mention"
+                  aria-label={`Remove mention ${p}`}
+                  onClick={() => removeMention(p)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
+          ref={textareaRef}
           aria-label="Ask about this scan"
-          placeholder='Ask about this scan, e.g. "explain the WebView bridge risk"'
+          placeholder='Ask about this scan — type "@" to mention a file (e.g. "disable password validation in authentication" to have the agent search the code and propose an edit)'
           value={draft}
           disabled={sending}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value
+            const caret = e.target.selectionStart ?? v.length
+            setDraft(v)
+            // Detect a `@query` token being typed at the caret: open the
+            // picker when the last `@` has no whitespace before it.
+            const before = v.slice(0, caret)
+            const at = before.lastIndexOf('@')
+            const ws = Math.max(
+              before.lastIndexOf(' '),
+              before.lastIndexOf('\n'),
+              before.lastIndexOf('\t'),
+            )
+            if (at > ws) {
+              mentionStartRef.current = at
+              setMentionQuery(before.slice(at + 1))
+              setMentionOpen(true)
+            } else {
+              setMentionOpen(false)
+            }
+          }}
           onKeyDown={(e) => {
+            if (mentionOpen && mentionMatches.length > 0) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setMentionIdx((i) => (i + 1) % mentionMatches.length)
+                return
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setMentionIdx(
+                  (i) => (i - 1 + mentionMatches.length) % mentionMatches.length,
+                )
+                return
+              }
+              if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault()
+                insertMention(mentionMatches[mentionIdx])
+                return
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setMentionOpen(false)
+                return
+              }
+            }
             // Ignore Enter while an IME composition is in flight so
             // CJK input isn't submitted mid-composition.
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -387,9 +765,13 @@ export function AgentDock({
         <div className="row">
           <span className={`hint${modelConnected ? '' : ' warn'}`}>
             {modelConnected
-              ? webResearch
-                ? '⏎ to send · 🌐 web on'
-                : '⏎ to send'
+              ? !liveEngine
+                ? webResearch
+                  ? '⏎ to send · 🌐 on — engine unreachable (Settings → Search & research)'
+                  : '⏎ to send · 🌐 off — no live search engine (Settings → Search & research)'
+                : webResearch
+                  ? '⏎ to send · 🌐 web on · @ to mention a file'
+                  : '⏎ to send · @ to mention a file'
               : 'No model connected — pick one in the top bar or Settings'}
           </span>
           {sending ? (

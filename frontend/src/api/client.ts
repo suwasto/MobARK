@@ -6,8 +6,12 @@
  * `ApiError` with the FastAPI `detail` message so the UI can render them.
  */
 import type {
+  BuildRead,
   ChatRequest,
   ChatResponse,
+  EditCreate,
+  EditDiff,
+  EditRead,
   ExplainResponse,
   FileContentResponse,
   FileTreeResponse,
@@ -22,11 +26,15 @@ import type {
   ModelBackendUpsert,
   ScanGraphState,
   ScanRead,
+  DependenciesResponse,
   SearchBackendCreate,
   SearchBackendRead,
   SearchBackendUpsert,
   SearchProviderRead,
   Severity,
+  SmaliMapping,
+  SmaliSibling,
+  SmaliStatus,
   SummaryResponse,
 } from '../types'
 
@@ -147,6 +155,69 @@ export const api = {
     request<FileContentResponse>(
       `/scans/${scanId}/files/content?path=${encodeURIComponent(path)}`,
     ),
+  /** Dependencies tab inventory — derived on demand, nothing leaves the
+   * machine. Known-CVE research is the agent's web-research use case (the
+   * panel's "Check known CVEs" button pre-fills the dock question). */
+  listDependencies: (scanId: number) =>
+    request<DependenciesResponse>(`/scans/${scanId}/dependencies`),
+
+  // ---- M8 Phase A: on-demand apktool decode (Smali view) ----
+  /** Trigger the on-demand apktool decode (202 queued; 409 already
+   * decoding/ready, non-Android, or not analyzed). */
+  triggerSmali: (scanId: number) =>
+    request<SmaliStatus>(`/scans/${scanId}/smali`, { method: 'POST' }),
+  /** Current decode state — `ready` is filesystem-derived server-side, so a
+   * worker crash mid-decode can never report a phantom ready. */
+  smaliStatus: (scanId: number) =>
+    request<SmaliStatus>(`/scans/${scanId}/smali-status`),
+
+  // ---- M8 Phase B: edits (DB-diff source of truth) ----
+  /** All edit rows for a scan, newest first (full history). */
+  listEdits: (scanId: number) => request<EditRead[]>(`/scans/${scanId}/edits`),
+  /** Manual edit from the editor (Ctrl/Cmd+S) — created as `applied`. */
+  createEdit: (scanId: number, payload: EditCreate) =>
+    request<EditRead>(`/scans/${scanId}/edits`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** The stored unified diff for one edit (the review surface). */
+  editDiff: (scanId: number, editId: number) =>
+    request<EditDiff>(`/scans/${scanId}/edits/${editId}/diff`),
+  /** proposed -> applied (agent proposals; human-owned). */
+  applyEdit: (scanId: number, editId: number) =>
+    request<EditRead>(`/scans/${scanId}/edits/${editId}/apply`, { method: 'POST' }),
+  /** proposed -> rejected. */
+  rejectEdit: (scanId: number, editId: number) =>
+    request<EditRead>(`/scans/${scanId}/edits/${editId}/reject`, { method: 'POST' }),
+  /** applied -> reverted (restore-original: pops to the prior state). */
+  revertEdit: (scanId: number, editId: number) =>
+    request<EditRead>(`/scans/${scanId}/edits/${editId}/revert`, { method: 'POST' }),
+  /** Java⇄Smali counterpart of a tree path (the view-toggle jump). */
+  smaliSibling: (scanId: number, path: string) =>
+    request<SmaliSibling>(
+      `/scans/${scanId}/files/smali-sibling?path=${encodeURIComponent(path)}`,
+    ),
+  /** Java→Smali tree-path mapping for the scan's findings — Smali-mode
+   * dots + the annotation rail re-key jadx findings onto their apktool
+   * smali siblings (Android only; empty mapping before the decode). */
+  smaliMapping: (scanId: number) =>
+    request<SmaliMapping>(`/scans/${scanId}/smali-mapping`),
+
+  // ---- M8 Phase C: rebuild pipeline (recompile + resign) ----
+  /** Enqueue a recompile (202 queued; 409 not analyzed / iOS / decode not
+   * ready / another build in flight). */
+  triggerRebuild: (scanId: number) =>
+    request<BuildRead>(`/scans/${scanId}/rebuild`, { method: 'POST' }),
+  /** Full rebuild history, newest first. */
+  listBuilds: (scanId: number) => request<BuildRead[]>(`/scans/${scanId}/builds`),
+  /** One build — the recompile modal's poll target for live stages. */
+  getBuild: (scanId: number, buildId: number) =>
+    request<BuildRead>(`/scans/${scanId}/builds/${buildId}`),
+  /** Download URL of a done build's resigned TEST APK. Same-origin, so a
+   * plain anchor works — the backend sets the attachment name (which carries
+   * the `-resigned-test-` label) + the X-Resigned-Test-Build header. */
+  buildDownloadUrl: (scanId: number, buildId: number) =>
+    `${API_BASE}/scans/${scanId}/builds/${buildId}/download`,
 
   // ---- M4 agent layer ----
   chat: (
@@ -156,9 +227,12 @@ export const api = {
     /** AbortSignal from the Stop button — aborting makes the fetch reject
      * with AbortError (re-thrown untouched by `request`). */
     signal?: AbortSignal,
+    /** M8 follow-up: tree paths the user @mentioned in the dock. */
+    mentionedFiles?: string[],
   ) => {
     const body: ChatRequest = { question }
     if (timeoutSeconds != null) body.timeout_seconds = timeoutSeconds
+    if (mentionedFiles && mentionedFiles.length > 0) body.mentioned_files = mentionedFiles
     return request<ChatResponse>(`/scans/${scanId}/chat`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -170,11 +244,22 @@ export const api = {
    * decodes events (pre-stream HTTP errors — 400 no-model, 409 not analyzed —
    * still surface as ApiError here; in-stream failures arrive as SSE
    * `error` frames). */
-  chatStream: (scanId: number, question: string, signal?: AbortSignal) =>
+  chatStream: (
+    scanId: number,
+    question: string,
+    signal?: AbortSignal,
+    /** M8 follow-up: tree paths the user @mentioned in the dock. */
+    mentionedFiles?: string[],
+  ) =>
     fetch(`${API_BASE}/scans/${scanId}/chat/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({
+        question,
+        ...(mentionedFiles && mentionedFiles.length > 0
+          ? { mentioned_files: mentionedFiles }
+          : {}),
+      }),
       signal,
     }).then(async (res) => {
       if (!res.ok) throw await toApiError(res)

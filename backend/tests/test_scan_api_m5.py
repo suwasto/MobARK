@@ -6,6 +6,7 @@ insights module itself has its own mocked unit tests (test_agent/).
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 
 from app.agent.insights import InsightError
@@ -747,6 +748,90 @@ def test_files_tree_caps_set_truncated(db_session_factory, monkeypatch, tmp_path
         roots = tree.list_tree(scan, max_depth=1, max_nodes=2)
     assert len(roots) == 2
     assert roots[0].truncated is True
+
+
+def test_files_tree_unbounded_by_default(db_session_factory, monkeypatch, tmp_path):
+    """The per-root node cap was removed (owner decision, Aug 10): a tree
+    with thousands of nodes serves in FULL with default caps — the old 1500
+    cap truncated real trees mid-branch, hiding app code behind library
+    subtrees. An explicit ``max_nodes`` still caps (the test above)."""
+    import app.config
+
+    scan_id = _scan_with_findings(db_session_factory)
+    monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
+    work = tmp_path / "work" / str(scan_id)
+    java = work / "decompiled" / "sources" / "com" / "foo"
+    java.mkdir(parents=True)
+    for i in range(2000):
+        (java / f"F{i:04d}.java").write_text("class F {}\n")
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        roots = tree.list_tree(scan)
+    sources = next(r for r in roots if r.name == "sources")
+    assert sources.truncated is False
+    # com + foo dirs + all 2000 files — nothing cut off
+    assert sources.total_nodes == 2002
+
+
+def test_tree_cache_serves_second_call_without_walk(
+    db_session_factory, monkeypatch, tmp_path
+):
+    """The tree is computed once per scan; a second call is served from the
+    module cache without re-walking the filesystem (owner, Aug 10 — repeated
+    Decompiler opens shouldn't re-walk)."""
+    scan_id = _scan_with_findings(db_session_factory)
+    _make_android_tree(scan_id, tmp_path, monkeypatch)
+    calls = {"n": 0}
+    real_walk = tree._walk
+
+    def counting_walk(*args, **kwargs):
+        calls["n"] += 1
+        return real_walk(*args, **kwargs)
+
+    monkeypatch.setattr(tree, "_walk", counting_walk)
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        r1 = tree.cached_list_tree(scan)
+    assert calls["n"] > 0  # the first call computed (walks recurse per dir)
+    first = calls["n"]
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        r2 = tree.cached_list_tree(scan)
+    assert calls["n"] == first  # the second call added ZERO walks — cache-served
+    assert [r.name for r in r1] == [r.name for r in r2]
+    assert r1[0].total_nodes == r2[0].total_nodes
+
+
+def test_tree_cache_disk_survives_and_invalidates(
+    db_session_factory, monkeypatch, tmp_path
+):
+    """The persisted tree_cache.json serves across processes (module cache
+    cleared), and a stale identity file recomputes instead of serving
+    garbage."""
+    scan_id = _scan_with_findings(db_session_factory)
+    _make_android_tree(scan_id, tmp_path, monkeypatch)
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        tree.cached_list_tree(scan)
+    cache_path = tree.tree_cache_path(scan_id)
+    assert cache_path.is_file()
+
+    # Module cache cleared -> the disk file is the only source.
+    tree._TREE_CACHE.clear()
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        roots = tree.cached_list_tree(scan)
+    assert [r.name for r in roots] == ["sources", "resources"]
+
+    # A stale identity (e.g. a pre-decode capture) must recompute, not serve.
+    data = json.loads(cache_path.read_text())
+    data["identity"] = "stale|identity"
+    cache_path.write_text(json.dumps(data))
+    tree._TREE_CACHE.clear()
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        roots = tree.cached_list_tree(scan)
+    assert [r.name for r in roots] == ["sources", "resources"]
 
 
 # ---- risk backfill ----------------------------------------------------------

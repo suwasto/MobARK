@@ -76,11 +76,29 @@ def _find(store: SearchStore, backend_id: str) -> SearchBackend:
 @router.get("/backends", response_model=list[SearchBackendRead])
 def list_search_backends() -> list[SearchBackendRead]:
     """All configured search engines with lightweight reachability (base URL
-    HTTP check only — the real search probe lives in POST /test)."""
+    HTTP check only — the real search probe lives in POST /test).
+
+    SearXNG-style engines (bundled + custom) are probed even when INACTIVE:
+    their lightweight check is a cheap base-URL HTTP GET, and the Settings
+    radio needs it to keep the Active toggle disabled until the engine is
+    actually reachable (owner follow-up, Aug 11 — a dead engine can't be
+    activated, and the Agent dock 🌐 toggle needs the same liveness signal
+    for the Active engine). Keyed engines keep the enabled-only rule: their
+    honest health check IS a real query (it validates the key — the base URL
+    has no meaningful root endpoint), so an inactive keyed engine is never
+    probed on the list route. Cost note: a list call blocks up to the 3s
+    lightweight timeout per dead searxng-style backend — fine for the bundled
+    engine; a large fleet of dead custom instances could stack (accepted at
+    this scale, and the UI poll is 4s)."""
     store = get_search_store()
     backends = store.read()
     return [
-        _to_read(b, check_backend(b, probe=False) if b.enabled else None)
+        _to_read(
+            b,
+            check_backend(b, probe=False)
+            if b.enabled or b.provider.query_style == "searxng"
+            else None,
+        )
         for b in backends
     ]
 

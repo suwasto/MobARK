@@ -41,6 +41,15 @@ class Scan(Base):
     # search engine exists (SearchStore.active()). Default off; controlled by
     # the dock 🌐 toggle + Settings -> Search & research.
     web_research_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # M8: on-demand apktool decode state (Android only; the Smali view +
+    # edit/recompile feature). not_started | queued | decoding | ready | failed
+    # — ``ready`` is also filesystem-derived via analysis/apktool.py::is_ready
+    # (the column tracks in-flight states; the tree on disk is the truth).
+    # ``apktool_error`` carries the specific decode failure for the UI.
+    apktool_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="not_started"
+    )
+    apktool_error: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
@@ -58,6 +67,77 @@ class Scan(Base):
     findings: Mapped[list[Finding]] = relationship(
         back_populates="scan", cascade="all, delete-orphan"
     )
+
+
+class Edit(Base):
+    """One file edit (M8 edit & recompile, Android only) — DB-diff source
+    of truth. Full-file rows: ``original_content`` (the effective baseline at
+    creation) + ``new_content`` + the generated ``unified_diff``. The on-disk
+    apktool tree stays pristine; the rebuild job overlays applied edits onto
+    a fresh copy. ``status``: proposed | applied | rejected | reverted —
+    manual edits are created applied; agent proposals (Phase D) start
+    proposed and the human applies. ``build_id`` is filled when a rebuild
+    consumes the edit (Phase C).
+    """
+
+    __tablename__ = "edits"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scan_id: Mapped[int] = mapped_column(
+        ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # apktool-root-relative: smali/com/foo/A.smali, res/values/strings.xml,
+    # AndroidManifest.xml
+    file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    original_content: Mapped[str] = mapped_column(Text, nullable=False)
+    new_content: Mapped[str] = mapped_column(Text, nullable=False)
+    unified_diff: Mapped[str] = mapped_column(Text, nullable=False)
+    # manual | agent
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual")
+    # the agent's natural-language ask, for attribution (agent edits only)
+    instruction: Mapped[str | None] = mapped_column(Text)
+    # proposed | applied | rejected | reverted
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="proposed")
+    # which build consumed this edit (nullable until a rebuild runs)
+    build_id: Mapped[int | None] = mapped_column(
+        ForeignKey("builds.id", ondelete="SET NULL"), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Build(Base):
+    """One recompile attempt (M8 Phase C) — full rebuild history per scan
+    (decision 8). The pipeline snapshots the applied edits at job start
+    (``edits_json``), so edits accepted mid-build never mutate the build tree;
+    a done build's artifact is re-downloadable at any time.
+    """
+
+    __tablename__ = "builds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scan_id: Mapped[int] = mapped_column(
+        ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # queued | running | done | failed
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    # applying | rebuilding | zipping | signing | done (queued before the job)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    # specific failure: the failing stage's stderr excerpt — never a silent break
+    error: Mapped[str | None] = mapped_column(Text)
+    # JSON list of applied edit ids at snapshot time
+    edits_json: Mapped[str | None] = mapped_column(Text)
+    artifact_name: Mapped[str | None] = mapped_column(String(512))
+    artifact_path: Mapped[str | None] = mapped_column(String(1024))
+    artifact_sha256: Mapped[str | None] = mapped_column(String(64))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Finding(Base):

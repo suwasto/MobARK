@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
@@ -39,16 +39,21 @@ from app.agent.chat import (
     check_configured,
     request_cancel,
 )
-from app.analysis import tree
+from app.analysis import apktool, dependencies, editable, edits, rebuild, smali_map, tree
 from app.analysis.risk import SEVERITY_ORDER, compute_risk_score, security_from_risk
 from app.config import settings
 from app.db import get_db
 from app.graph import graphify
 from app.model.selection import NoModelConfigured
-from app.models import Finding, Scan, utcnow
+from app.models import Build, Edit, Finding, Scan, utcnow
 from app.schemas import (
+    BuildRead,
     ChatRequest,
     ChatResponse,
+    DependenciesResponse,
+    EditCreate,
+    EditDiffResponse,
+    EditRead,
     ExplainResponse,
     FileContentResponse,
     FileTreeResponse,
@@ -58,10 +63,17 @@ from app.schemas import (
     GraphSearchResponse,
     ScanGraphState,
     ScanRead,
+    SmaliMappingResponse,
+    SmaliSiblingResponse,
+    SmaliStatusResponse,
     SummaryResponse,
     WebResearchUpdate,
 )
-from app.workers.jobs import enqueue_scan
+from app.workers.jobs import (
+    enqueue_apktool_decode,
+    enqueue_rebuild,
+    enqueue_scan,
+)
 
 router = APIRouter(prefix="/scans", tags=["scans"])
 
@@ -396,7 +408,11 @@ def scan_file_tree(scan_id: int, db: DbSession) -> FileTreeResponse:
     _require_analyzed(scan)
     return FileTreeResponse(
         platform=scan.platform or "unknown",
-        roots=tree.list_tree(scan),
+        # M5 Phase A: the tree is immutable per scan, so it is computed once
+        # and cache-served afterwards (the same smali_mapping.json / graph
+        # explorer.json pattern) — repeated Decompiler opens don't re-walk the
+        # filesystem (owner, Aug 10).
+        roots=tree.cached_list_tree(scan),
     )
 
 
@@ -417,6 +433,453 @@ def file_content(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{scan_id}/dependencies", response_model=DependenciesResponse)
+def scan_dependencies(scan_id: int, db: DbSession) -> DependenciesResponse:
+    """Dependencies tab inventory (local-first, derived on demand, cached).
+
+    Android: third-party Java/Kotlin package groups from the jadx sources
+    tree (the app's own package excluded) + native ``lib/*.so`` from the APK
+    + runtime engine markers. iOS: linked dylibs from the persisted LIEF
+    binary profile (system vs third-party) + embedded frameworks. 404 unknown
+    scan · 409 not analyzed. Suppressed findings never count toward the
+    per-dependency tallies (the risk/summary convention).
+
+    Computed once per scan and cache-served afterwards (a validated
+    ``dependencies_cache.json`` beside the scan's trees; identity includes a
+    findings fingerprint, so a suppress/restore toggle recomputes). Known-CVE
+    research is the agent's web-research use case (M7) — the UI's "Check
+    known CVEs" button pre-fills the dock question; nothing here leaves the
+    machine.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    findings = list(
+        db.scalars(
+            select(Finding).where(
+                Finding.scan_id == scan_id,
+                Finding.suppressed == False,  # noqa: E712
+            )
+        ).all()
+    )
+    # Cache-first: the inventory is immutable per scan except for finding
+    # suppression, and the identity fingerprint includes the (non-suppressed)
+    # findings set — so a suppress/restore toggle recomputes, and repeated
+    # tab opens skip the source-tree walk + APK zip read entirely (the
+    # tree_cache.json / smali_mapping.json pattern).
+    data = dependencies.cached_inventory(scan, findings)
+    if data is None:
+        data = dependencies.inventory(scan, findings)
+        dependencies.store_inventory(scan, findings, data)
+    return DependenciesResponse(**data, generated_at=utcnow())
+
+
+
+# ---- M8 Phase A: on-demand apktool decode (Smali view) ----------------------
+
+
+@router.post("/{scan_id}/smali", response_model=SmaliStatusResponse, status_code=202)
+def trigger_apktool_decode(scan_id: int, db: DbSession) -> SmaliStatusResponse:
+    """On-demand apktool decode — the Smali chip's trigger (Android only).
+
+    404 unknown scan · 409 not analyzed / iOS (Android-only) / decode
+    already queued-decoding / already ready. ``not_started`` and ``failed``
+    (retry) both enqueue. Response is the 202 queued state; poll
+    ``GET /scans/{id}/smali-status`` for the outcome.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    if scan.platform != "android":
+        raise HTTPException(
+            status_code=409,
+            detail="apktool decode is Android-only — iOS keeps the read-only "
+            "bundle view (M8 decision 5)",
+        )
+    # Filesystem first: a stale column must never re-decode an existing tree.
+    if apktool.is_ready(scan.id):
+        scan.apktool_status = "ready"
+        scan.apktool_error = None
+        db.commit()
+        raise HTTPException(
+            status_code=409, detail="apktool already decoded for this scan"
+        )
+    if scan.apktool_status in {"queued", "decoding"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"apktool decode already in progress (status={scan.apktool_status})",
+        )
+    if scan.apktool_status == "ready":
+        raise HTTPException(
+            status_code=409, detail="apktool already decoded for this scan"
+        )
+    scan.apktool_status = "queued"
+    scan.apktool_error = None
+    db.commit()
+    try:
+        enqueue_apktool_decode(scan_id)
+    except Exception as exc:  # noqa: BLE001 - Redis down; never leave a phantom queue row
+        scan.apktool_status = "failed"
+        scan.apktool_error = f"decode job enqueue failed: {exc}"
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"decode could not be enqueued: {exc}",
+        ) from exc
+    return SmaliStatusResponse(status="queued")
+
+
+@router.get("/{scan_id}/smali-status", response_model=SmaliStatusResponse)
+def smali_status(scan_id: int, db: DbSession) -> SmaliStatusResponse:
+    """Current decode state for the Smali chip.
+
+    ``ready`` is filesystem-derived (``apktool/AndroidManifest.xml``
+    exists) — the same derive-don't-trust-the-column rule as the graph — so
+    a crash mid-decode can never leave a phantom ready state; everything
+    else reflects the status column (in-flight states + the specific
+    failure reason).
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    if apktool.is_ready(scan.id):
+        return SmaliStatusResponse(status="ready")
+    return SmaliStatusResponse(status=scan.apktool_status, error=scan.apktool_error)
+
+
+# ---- M8 Phase B: edits (DB-diff source of truth) ---------------------------
+
+
+def _get_edit_or_404(db: DbSession, scan_id: int, edit_id: int) -> Edit:
+    edit = db.get(Edit, edit_id)
+    if edit is None or edit.scan_id != scan_id:
+        raise HTTPException(status_code=404, detail="edit not found")
+    return edit
+
+
+def _require_decode_ready(scan: Scan) -> None:
+    """409 until the on-demand apktool decode is ready — edits (and the
+    Smali view they depend on) need the decoded tree on disk."""
+    if not apktool.is_ready(scan.id):
+        raise HTTPException(
+            status_code=409,
+            detail="apktool decode not ready — open the Smali view first "
+            "(the decode runs once and is cached per scan)",
+        )
+
+
+@router.get("/{scan_id}/edits", response_model=list[EditRead])
+def list_edits(scan_id: int, db: DbSession) -> list[Edit]:
+    """All edit rows for a scan, newest first (full history — D8)."""
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    return list(
+        db.scalars(
+            select(Edit).where(Edit.scan_id == scan_id).order_by(Edit.id.desc())
+        ).all()
+    )
+
+
+@router.post("/{scan_id}/edits", response_model=EditRead, status_code=201)
+def create_edit(scan_id: int, payload: EditCreate, db: DbSession) -> Edit:
+    """Create a **manual** edit (the editor's Ctrl/Cmd+S).
+
+    Guards: 404 unknown scan · 409 not analyzed / non-Android / decode not
+    ready · 400 not an editable path (can_edit) · 413 over the content cap ·
+    400 unchanged content / unreadable baseline. Created as ``applied`` — the
+    human authored it in the editor, no review step (unlike agent proposals,
+    Phase D). Stored as a DB diff; the on-disk apktool tree never changes.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    if scan.platform != "android":
+        raise HTTPException(
+            status_code=409,
+            detail="edits are Android-only — iOS keeps the read-only bundle view "
+            "(M8 decision 5)",
+        )
+    _require_decode_ready(scan)
+    if not editable.can_edit(scan, payload.file_path):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{payload.file_path!r} is not editable — only smali, res/, and "
+            "the decoded AndroidManifest.xml can be edited",
+        )
+    if len(payload.content) > editable.MAX_EDIT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"edit exceeds the {editable.MAX_EDIT_CHARS} character cap",
+        )
+    try:
+        return edits.create_manual_edit(db, scan, payload.file_path, payload.content)
+    except edits.EditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except tree.TreeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{scan_id}/edits/{edit_id}/diff", response_model=EditDiffResponse)
+def edit_diff(scan_id: int, edit_id: int, db: DbSession) -> EditDiffResponse:
+    """The stored unified diff for one edit (the review surface)."""
+    edit = _get_edit_or_404(db, scan_id, edit_id)
+    return EditDiffResponse(file_path=edit.file_path, diff=edit.unified_diff)
+
+
+@router.post("/{scan_id}/edits/{edit_id}/apply", response_model=EditRead)
+def apply_edit(scan_id: int, edit_id: int, db: DbSession) -> Edit:
+    """proposed -> applied (agent proposals; the human owns application)."""
+    edit = _get_edit_or_404(db, scan_id, edit_id)
+    try:
+        return edits.apply_edit(db, edit)
+    except edits.EditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{scan_id}/edits/{edit_id}/reject", response_model=EditRead)
+def reject_edit(scan_id: int, edit_id: int, db: DbSession) -> Edit:
+    """proposed -> rejected."""
+    edit = _get_edit_or_404(db, scan_id, edit_id)
+    try:
+        return edits.reject_edit(db, edit)
+    except edits.EditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/{scan_id}/edits/{edit_id}/revert", response_model=EditRead)
+def revert_edit(scan_id: int, edit_id: int, db: DbSession) -> Edit:
+    """applied -> reverted: effective content falls back to the previous
+    applied edit (if any) or the baseline (restore-original)."""
+    edit = _get_edit_or_404(db, scan_id, edit_id)
+    try:
+        return edits.revert_edit(db, edit)
+    except edits.EditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{scan_id}/files/smali-sibling", response_model=SmaliSiblingResponse)
+def smali_sibling(
+    scan_id: int, db: DbSession, path: str = Query(min_length=1)
+) -> SmaliSiblingResponse:
+    """Java⇄Smali counterpart of a tree path (the view-toggle jump).
+
+    Sources -> smali (multidex-aware, first-found) and back; null sibling
+    for res/manifest files and classes without a decoded smali counterpart.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    sibling = smali_map.java_to_smali(scan, path) or smali_map.smali_to_java(scan, path)
+    return SmaliSiblingResponse(path=path, sibling=sibling)
+
+
+@router.get("/{scan_id}/smali-mapping", response_model=SmaliMappingResponse)
+def smali_mapping(scan_id: int, db: DbSession) -> SmaliMappingResponse:
+    """Finding→apktool tree-path mapping for the scan's findings — powers
+    the Smali-mode tree dots + annotation rail (findings live on jadx
+    ``sources/...`` paths; their apktool siblings annotate too).
+
+    Scoped to finding-bearing paths (bounded payload — the dots only exist
+    where findings exist):
+    - ``sources/...`` -> ``smali{,classesN}/...`` (java/kt findings,
+      multidex first-found via ``smali_map.java_to_smali``);
+    - ``res/...`` -> ITSELF — the apktool ``res`` root serves the same
+      relative paths as the jadx resources tree (identity mapping; the
+      frontend strips the root prefix to re-key dots/rail);
+    - ``AndroidManifest.xml`` -> ``AndroidManifest.xml/AndroidManifest.xml``
+      (the synthetic apktool root's single file).
+
+    404 unknown scan · 409 not analyzed / Android-only. An undecoded scan
+    returns an empty mapping (no apktool tree — the identity entries must
+    not leak before the decode exists); the frontend fetches only once the
+    decode is ready.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    if scan.platform != "android":
+        raise HTTPException(
+            status_code=409,
+            detail="smali mapping is Android-only — iOS keeps the read-only bundle view",
+        )
+    if not apktool.is_ready(scan.id):
+        return SmaliMappingResponse(mapping={}, total=0)
+    # Cache-first: the mapping (+ line anchors) is immutable per scan
+    # (findings immutable per scan id, the decoded tree never mutates), so
+    # repeated Decompiler opens skip the findings query + per-path filesystem
+    # walk entirely. On a miss the mapping is computed from the scan's
+    # distinct finding file_paths (ROOT-RELATIVE — the ``sources/`` prefix is
+    # implied) and the line anchors from the distinct (path, line) pairs, then
+    # both are persisted together.
+    cached = smali_map.cached_mapping(scan.id)
+    if cached is not None:
+        mapping, anchors = cached
+        return SmaliMappingResponse(mapping=mapping, anchors=anchors, total=len(mapping))
+    rows = db.execute(
+        select(Finding.file_path, Finding.line_number)
+        .where(Finding.scan_id == scan_id, Finding.file_path.isnot(None))
+        .distinct()
+    ).all()
+    paths = [r[0] for r in rows]
+    finding_lines: dict[str, list[int]] = {}
+    for fp, line in rows:
+        if fp and line is not None:
+            finding_lines.setdefault(fp, []).append(line)
+    mapping = smali_map.compute_mapping(scan, paths)
+    anchors = smali_map.compute_anchors(scan, mapping, finding_lines)
+    smali_map.store_mapping(scan.id, mapping, anchors)
+    return SmaliMappingResponse(mapping=mapping, anchors=anchors, total=len(mapping))
+
+
+# ---- M8 Phase C: rebuild pipeline (recompile + resign) ---------------------
+
+
+def _get_build_or_404(db: DbSession, scan_id: int, build_id: int) -> Build:
+    build = db.get(Build, build_id)
+    if build is None or build.scan_id != scan_id:
+        raise HTTPException(status_code=404, detail="build not found")
+    return build
+
+
+# A worker crash mid-build leaves its row in ``queued`` (never picked up) or
+# ``running`` (killed before the per-step timeout could fail it) forever — the
+# one-in-flight guard would then block every future rebuild with no recourse.
+# These ages mark such rows failed so the next trigger can proceed (the build
+# pipeline's per-step timeouts mean a live build always settles well within
+# the running threshold).
+_QUEUED_STALE_MINUTES = 5
+_RUNNING_STALE_MINUTES = 45
+
+
+def _reap_stale_builds(db: DbSession, scan_id: int) -> None:
+    """Fail queued/running builds whose worker clearly never finished them."""
+    from datetime import UTC, datetime
+
+    def _age_minutes(created) -> float:
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)  # SQLite drops tzinfo
+        return (datetime.now(UTC) - created).total_seconds() / 60
+
+    for build in db.scalars(
+        select(Build).where(
+            Build.scan_id == scan_id, Build.status.in_(["queued", "running"])
+        )
+    ).all():
+        threshold = (
+            _QUEUED_STALE_MINUTES if build.status == "queued" else _RUNNING_STALE_MINUTES
+        )
+        if _age_minutes(build.created_at) > threshold:
+            build.status = "failed"
+            build.stage = build.stage or "queued"
+            build.error = (
+                f"stale build (no worker finished it within "
+                f"{threshold} min) — re-run the rebuild"
+            )
+            build.finished_at = utcnow()
+    db.commit()
+
+
+@router.post("/{scan_id}/rebuild", response_model=BuildRead, status_code=202)
+def trigger_rebuild(scan_id: int, db: DbSession) -> Build:
+    """Enqueue a recompile: snapshot applied edits -> apktool b -> zipalign
+    -> apksigner sign (install-scoped TEST keystore) -> verify gate.
+
+    404 unknown scan · 409 not analyzed / iOS (Android-only) / decode not
+    ready / a rebuild already in flight (one per scan — Phase E hardens the
+    concurrency edges) · 500 enqueue failure (the build row is marked failed
+    with the reason). Zero applied edits is allowed — a default rebuild of
+    the pristine tree. The artifact's filename carries the ``-resigned-
+    test-`` label (decision 9).
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    if scan.platform != "android":
+        raise HTTPException(
+            status_code=409,
+            detail="rebuild is Android-only — iOS keeps the read-only bundle "
+            "view (M8 decision 5)",
+        )
+    _require_decode_ready(scan)
+    # A crashed worker can leave a build stuck in queued/running — fail those
+    # stale rows first so the guard below can't lock the scan out forever.
+    _reap_stale_builds(db, scan_id)
+    in_flight = db.scalars(
+        select(Build)
+        .where(Build.scan_id == scan_id, Build.status.in_(["queued", "running"]))
+        .limit(1)
+    ).first()
+    if in_flight is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"a rebuild is already in progress "
+            f"(build {in_flight.id}, status={in_flight.status})",
+        )
+    build = Build(scan_id=scan_id, status="queued", stage="queued")
+    db.add(build)
+    db.commit()
+    try:
+        enqueue_rebuild(scan_id, build.id)
+    except Exception as exc:  # noqa: BLE001 - Redis down; never leave a phantom queued row
+        build.status = "failed"
+        build.stage = "queued"
+        build.error = f"rebuild enqueue failed: {exc}"
+        build.finished_at = utcnow()
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"rebuild could not be enqueued: {exc}",
+        ) from exc
+    return build
+
+
+@router.get("/{scan_id}/builds", response_model=list[BuildRead])
+def list_builds(scan_id: int, db: DbSession) -> list[Build]:
+    """Full rebuild history for a scan, newest first (D8)."""
+    _get_scan_or_404(db, scan_id)
+    return list(
+        db.scalars(
+            select(Build).where(Build.scan_id == scan_id).order_by(Build.id.desc())
+        ).all()
+    )
+
+
+@router.get("/{scan_id}/builds/{build_id}", response_model=BuildRead)
+def get_build(scan_id: int, build_id: int, db: DbSession) -> Build:
+    """One build — the recompile modal's poll target for live stage updates."""
+    return _get_build_or_404(db, scan_id, build_id)
+
+
+@router.get("/{scan_id}/builds/{build_id}/download")
+def download_build(scan_id: int, build_id: int, db: DbSession) -> FileResponse:
+    """Download a done build's resigned TEST APK (decision 8: re-downloadable
+    at any time).
+
+    404 unknown build / artifact missing on disk · 409 build not done. The
+    attachment filename carries the ``-resigned-test-`` label and the
+    ``X-Resigned-Test-Build`` header marks the response — the persistent
+    test-build label (decision 10) travels with the file, not just the UI.
+    """
+    build = _get_build_or_404(db, scan_id, build_id)
+    if build.status != "done" or not build.artifact_path:
+        raise HTTPException(
+            status_code=409,
+            detail=f"build {build_id} has no downloadable artifact "
+            f"(status={build.status})",
+        )
+    path = Path(build.artifact_path)
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404, detail="artifact file missing on disk — re-run the build"
+        )
+    # The artifact_path is server-written, but a stale/edited DB must never
+    # stream an arbitrary file — constrain it to the scan's artifact dir.
+    if not path.resolve().is_relative_to(rebuild.artifact_dir(scan_id).resolve()):
+        raise HTTPException(
+            status_code=404, detail="artifact path escapes the scan's artifact dir"
+        )
+    return FileResponse(
+        path,
+        media_type="application/vnd.android.package-archive",
+        filename=build.artifact_name or path.name,
+        headers={"X-Resigned-Test-Build": "true"},
+    )
 
 
 @router.put("/{scan_id}/web-research", response_model=ScanRead)
@@ -534,6 +997,7 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
             payload.question,
             timeout=payload.timeout_seconds,
             max_tool_rounds=payload.max_tool_rounds,
+            mentioned_files=payload.mentioned_files,
         )
     except ChatNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -597,6 +1061,7 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
                     max_tool_rounds=payload.max_tool_rounds,
                     stream=True,
                     on_event=on_event,
+                    mentioned_files=payload.mentioned_files,
                 )
                 frames.put(_sse_frame("answer", _chat_payload(result)))
             except ChatNotConfigured as exc:

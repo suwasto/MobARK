@@ -38,6 +38,9 @@ export interface ChatMessage {
    * a Retry affordance that re-sends the original question. */
   errorKind?: ChatErrorKind
   retryQuestion?: string
+  /** M8 follow-up: tree paths the user @mentioned in this message — kept
+   * so a Retry re-sends them and the bubble can render clickable chips. */
+  mentionedFiles?: string[]
 }
 
 /** The in-flight streamed turn (not yet a finalized ChatMessage). */
@@ -169,7 +172,7 @@ export function useChat(scanId: number) {
   }, [scanId])
 
   const send = useCallback(
-    (question: string) => {
+    (question: string, mentionedFiles?: string[]) => {
       const trimmed = question.trim()
       if (!trimmed || sending) return
       const id = ++requestIdRef.current
@@ -180,6 +183,7 @@ export function useChat(scanId: number) {
         id: nextMessageId++,
         role: 'user',
         content: trimmed,
+        mentionedFiles,
       }
       setMessages((prev) => [...prev, userMsg])
       pendingRef.current = { text: '', steps: [] }
@@ -202,7 +206,7 @@ export function useChat(scanId: number) {
       }
 
       api
-        .chatStream(scanId, trimmed, controller.signal)
+        .chatStream(scanId, trimmed, controller.signal, mentionedFiles)
         .then(async (res) => {
           const reader = res.body?.getReader()
           if (!reader) throw new Error('No response body in chat stream')

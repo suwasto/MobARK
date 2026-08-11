@@ -323,6 +323,64 @@ def test_alembic_0008_defaults_off_and_downgrades(tmp_path, monkeypatch):
     engine.dispose()
 
 
+def test_alembic_0009_apktool_columns(tmp_path, monkeypatch):
+    """M8 migration 0009 (Phase A + B): scans.apktool_status/error + the
+    edits table (DB-diff source of truth)."""
+    db_url = f"sqlite:///{tmp_path / 'apktool.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    from sqlalchemy import text
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO scans (id, filename, platform, status, created_at) "
+                "VALUES (1, 'a.apk', 'android', 'done', '2026-08-10T00:00:00')"
+            )
+        )
+        # server_default: existing scans start not_started (nothing decodes
+        # until the user triggers the Smali view — the on-demand posture)
+        default = conn.execute(
+            text("SELECT apktool_status FROM scans WHERE id = 1")
+        ).scalar()
+        assert default == "not_started"
+    engine.dispose()
+
+    inspector = inspect(engine)
+    edit_columns = {c["name"] for c in inspector.get_columns("edits")}
+    assert {
+        "id", "scan_id", "file_path", "original_content", "new_content",
+        "unified_diff", "source", "instruction", "status", "build_id",
+        "created_at", "applied_at",
+    } <= edit_columns
+    assert "ix_edits_scan_id" in {ix["name"] for ix in inspector.get_indexes("edits")}
+
+    # Phase C: the builds table (full rebuild history) + edits.build_id FK
+    build_columns = {c["name"] for c in inspector.get_columns("builds")}
+    assert {
+        "id", "scan_id", "status", "stage", "error", "edits_json",
+        "artifact_name", "artifact_path", "artifact_sha256",
+        "created_at", "finished_at",
+    } <= build_columns
+    assert "ix_builds_scan_id" in {ix["name"] for ix in inspector.get_indexes("builds")}
+    edit_fks = {fk["constrained_columns"][0] for fk in inspector.get_foreign_keys("edits")}
+    assert "build_id" in edit_fks  # edits.build_id FK -> builds.id
+    engine.dispose()
+
+    command.downgrade(cfg, "0008")
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "edits" not in inspector.get_table_names()
+    assert "builds" not in inspector.get_table_names()
+    scan_columns = {c["name"] for c in inspector.get_columns("scans")}
+    assert "apktool_status" not in scan_columns
+    assert "apktool_error" not in scan_columns
+    engine.dispose()
+
+
 def test_alembic_0005_downgrade_removes_suppression_columns(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'suppress-down.db'}"
     monkeypatch.setenv("MASA_DATABASE_URL", db_url)

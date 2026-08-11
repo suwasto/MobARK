@@ -2,9 +2,9 @@
 
 Findings:
 - ATS config (``NSAppTransportSecurity``): arbitrary loads, in-web-content,
-  broad exception domains — MASVS-NETWORK-1/2.
+  broad exception domains - MASVS-NETWORK-1/2.
 - Empty usage-description strings for sensitive APIs the app declares
-  (best-effort, informational — missing keys can't be detected statically).
+  (best-effort, informational - missing keys can't be detected statically).
 - Bundle metadata (MinimumOSVersion, background modes, identifiers) goes into
   ``meta``, not findings.
 """
@@ -153,7 +153,7 @@ def _analyze_usage_strings(plist: dict, result: StageResult) -> None:
                 tool=TOOL_PLIST,
                 title="Empty usage-description strings for sensitive APIs",
                 # Owner calibration (Aug 7): a privacy/transparency issue, not
-                # a direct security control — low, not medium.
+                # a direct security control - low, not medium.
                 severity="low",
                 category="MASVS-PLATFORM-2",
                 detail={

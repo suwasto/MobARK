@@ -8,8 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Allowed severity values — kept in sync with the findings table.
-# Owner decision (Aug 8, 2026): no critical band — high is the top severity.
+# Allowed severity values - kept in sync with the findings table.
+# Owner decision (Aug 8, 2026): no critical band - high is the top severity.
 SEVERITIES = ("high", "medium", "low", "info")
 
 # Tools that produce findings in M1.

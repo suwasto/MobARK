@@ -1,6 +1,6 @@
 """IPA unpack pipeline: ``.ipa`` -> ``Payload/*.app`` tree.
 
-Pure ``zipfile`` — no external tooling. Mirrors M1's preflight policy:
+Pure ``zipfile`` - no external tooling. Mirrors M1's preflight policy:
 malformed archives abort the scan with a specific ``ScanAborted`` reason.
 """
 from __future__ import annotations
@@ -57,7 +57,7 @@ def find_app_dir(archive: zipfile.ZipFile) -> str:
             candidates.append(parts[1])
     if not candidates:
         raise IpaError(
-            "no Payload/*.app directory found — not a valid iOS IPA"
+            "no Payload/*.app directory found - not a valid iOS IPA"
         )
     return candidates[0]
 

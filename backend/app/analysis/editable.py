@@ -1,9 +1,9 @@
 """M8 edit & recompile: the editability predicate + path mapping (Phase B).
 
 **Only** the apktool-decoded, rebuildable surface is editable: ``smali*``\u200b/,
-``res/``, and the decoded ``AndroidManifest.xml``. Everything else — the
+``res/``, and the decoded ``AndroidManifest.xml``. Everything else - the
 entire jadx ``sources/`` root (a one-way decompiler; the PRD's explicit
-non-goal), ``original/``, ``unknown/``, and the whole iOS bundle — stays
+non-goal), ``original/``, ``unknown/``, and the whole iOS bundle - stays
 read-only. Enforced **server-side** here (the edit API, and in Phase C the
 rebuild apply step, in Phase D the agent tool), never just in the UI.
 
@@ -27,7 +27,7 @@ MAX_EDIT_CHARS = 200_000
 def can_edit(scan, path: str) -> bool:
     """True only for apktool-root-relative editable paths (``path`` uses the
     edits-table convention). Never true for jadx ``sources/``, iOS bundles,
-    or non-Android scans — enforced in the edit API + rebuild apply step."""
+    or non-Android scans - enforced in the edit API + rebuild apply step."""
     if scan is None or getattr(scan, "platform", None) != "android":
         return False
     if not path:

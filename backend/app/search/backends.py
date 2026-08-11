@@ -1,16 +1,16 @@
-"""M7 search backend config store — env-seeded, runtime-editable JSON.
+"""M7 search backend config store - env-seeded, runtime-editable JSON.
 
 Mirrors ``model/backends.py`` (M3) in shape and semantics:
 ``search_backends.json`` in data_dir with ``0600`` perms, env-seeded from
 ``MASA_SEARXNG_BASE_URL``, runtime-editable.
 
-**One Active engine (radio)** — owner decision, Aug 9: exactly one search
+**One Active engine (radio)** - owner decision, Aug 9: exactly one search
 backend may be Active at a time. ``enable_only`` persists that invariant
-server-side so no client (UI or raw API) can ever leave two engines Active —
+server-side so no client (UI or raw API) can ever leave two engines Active -
 the same determinism ``pick_chat_backend`` gives the model layer. ``active()``
 is the single enabled backend (``None`` when all are off); the agent's web
 tools are gated on it. ``order`` is reserved for a future priority fallback
-chain (SearXNG down → Brave) — a resolver-only change, no migration.
+chain (SearXNG down → Brave) - a resolver-only change, no migration.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ CONFIG_MODE = 0o600
 
 _SEARXNG_URL_FIELD = "searxng_base_url"
 # Settings field per KEYED provider: the env var that seeds its API key
-# (MASA_BRAVE_API_KEY etc. — pydantic-settings derives the names from the
+# (MASA_BRAVE_API_KEY etc. - pydantic-settings derives the names from the
 # field names). Keyed providers seed only when a real key is set; the
 # Settings form is the runtime path.
 _KEYED_KEY_FIELD = {
@@ -47,7 +47,7 @@ class SearchBackend:
     base_url: str
     # Active/Inactive (the radio): exactly one backend enabled at a time.
     enabled: bool = True
-    # Reserved for a future priority fallback chain — unused in v1.
+    # Reserved for a future priority fallback chain - unused in v1.
     order: int = 0
     # Future keyed engines (Brave/Serper/Mojeek). Never returned by the API
     # (only ``has_api_key``), same honesty rule as model backends.
@@ -63,12 +63,12 @@ class SearchBackend:
 
 def _seed_backends(cfg: Settings) -> list[SearchBackend]:
     """The initial store: the bundled SearXNG backend, seeded **enabled**
-    (mirroring local model backends — it is the bundled default; the user can
+    (mirroring local model backends - it is the bundled default; the user can
     turn it off), plus any KEYED provider (Brave/Serper/Mojeek) whose API key
-    is set via env/Settings — seeded **disabled** so the radio keeps the
+    is set via env/Settings - seeded **disabled** so the radio keeps the
     bundled engine Active by default (mirroring the model BYOK rule: no
     unusable keyless entry is ever seeded; the Settings form is the runtime
-    path). Custom instances are never seeded — user-created via the API,
+    path). Custom instances are never seeded - user-created via the API,
     exactly like model ``custom`` backends."""
     seeded = [
         SearchBackend(
@@ -86,7 +86,7 @@ def _seed_backends(cfg: Settings) -> list[SearchBackend]:
             continue
         api_key = getattr(cfg, _KEYED_KEY_FIELD.get(provider_id, ""), "") or None
         if api_key is None:
-            continue  # no real key configured — add via the Settings form
+            continue  # no real key configured - add via the Settings form
         seeded.append(
             SearchBackend(
                 id=provider_id,
@@ -148,12 +148,12 @@ class SearchStore:
     # ---- radio semantics ---------------------------------------------------
 
     def active(self) -> SearchBackend | None:
-        """The one enabled backend — the engine the agent searches with
+        """The one enabled backend - the engine the agent searches with
         (``None`` when all backends are off)."""
         return next((b for b in self.read() if b.enabled), None)
 
     def enable_only(self, backend_id: str) -> SearchBackend:
-        """Enable exactly ``backend_id`` and disable every other backend —
+        """Enable exactly ``backend_id`` and disable every other backend -
         the radio invariant, persisted. Raises KeyError for unknown ids.
 
         Delegates to ``upsert(enabled=True)`` so the radio has ONE
@@ -197,7 +197,7 @@ class SearchStore:
         """Append a new backend and persist. The radio invariant holds on add
         too: a newly-added enabled backend disables everything else.
 
-        Raises ValueError when the id already exists — the API maps it to
+        Raises ValueError when the id already exists - the API maps it to
         409 so the caller can switch to PUT/upsert semantics.
         """
         backends = self.read()
@@ -241,6 +241,6 @@ def _backend_fields() -> set[str]:
 
 
 def get_search_store() -> SearchStore:
-    """Store over the app's data dir — used by API routes, the agent tools,
+    """Store over the app's data dir - used by API routes, the agent tools,
     and chat gating."""
     return SearchStore(settings.data_dir, settings)

@@ -1,4 +1,4 @@
-"""Scan API — M0 list/get + M4 chat/graph + M5 dashboard surface.
+"""Scan API - M0 list/get + M4 chat/graph + M5 dashboard surface.
 
 M5 Phase A endpoints (see docs/progress/M5.md):
 - ``POST /scans``                 multipart upload -> Scan(queued) + RQ job
@@ -12,7 +12,7 @@ LLM error contract (shared by chat/explain/summary): 400 no chat model
 configured (NoModelConfigured) · 502 upstream LLM failure (InsightError /
 ChatUpstreamError) · 504 agent-loop deadline exceeded (AgentTimeout) ·
 409 scan not analyzed (or the user interrupted the chat via the Stop
-button — ChatInterrupted).
+button - ChatInterrupted).
 """
 from __future__ import annotations
 
@@ -117,13 +117,13 @@ def _require_graph(scan: Scan) -> Path:
     if scan.platform != "android":
         raise HTTPException(
             status_code=409,
-            detail="graph is Android-only — iOS has no decompiled source tree",
+            detail="graph is Android-only - iOS has no decompiled source tree",
         )
     graph_path = graphify.graph_path_for(scan.id)
     if not graph_path.is_file():
         raise HTTPException(
             status_code=409,
-            detail="graph not built yet — the graph build job is chained after "
+            detail="graph not built yet - the graph build job is chained after "
             "analysis for Android scans",
         )
     return graph_path
@@ -166,7 +166,7 @@ def _recompute_risk(db: Session, scan: Scan) -> None:
 
     Called after a suppress/unsuppress toggle so the posture reflects the
     non-suppressed set immediately (``compute_risk_score`` skips rows with
-    ``suppressed=True``). The cached AI summary is invalidated too — it may
+    ``suppressed=True``). The cached AI summary is invalidated too - it may
     cite a finding that was just suppressed/restored, and stale cache would
     mislead the Overview.
     """
@@ -190,7 +190,7 @@ async def create_scan(db: DbSession, file: ArtifactFile) -> Scan:
 
     Error semantics: 400 unsupported extension or not-a-zip (the scan row is
     rolled back so nothing phantom appears in the queue) · 413 over
-    ``MASA_MAX_UPLOAD_MB`` · 500 the RQ enqueue failed (Redis down) — the
+    ``MASA_MAX_UPLOAD_MB`` · 500 the RQ enqueue failed (Redis down) - the
     saved artifact stays but the scan is marked ``failed`` with the reason
     rather than sitting in ``queued`` forever.
     """
@@ -341,7 +341,7 @@ def scan_summary(
 ) -> SummaryResponse:
     """AI overview summary (severity counts + top findings), cached on the row.
 
-    A cached summary returns immediately with ``cached: true`` — no LLM call.
+    A cached summary returns immediately with ``cached: true`` - no LLM call.
     Pass ``regenerate=true`` to bypass the cache and re-run the model (the
     UI's Regenerate button; explicit user opt-in that spends cost).
     """
@@ -384,7 +384,7 @@ def explain_finding(
     Grounded in the finding's detail + surrounding source lines; cached in
     ``findings.explanation`` so repeat requests return it free (no LLM call).
     Pass ``regenerate=true`` to bypass the cache (the UI's Regenerate button
-    — an explicit user opt-in that spends cost; default is cache-first).
+    - an explicit user opt-in that spends cost; default is cache-first).
     """
     scan = _get_scan_or_404(db, scan_id)
     finding = db.get(Finding, finding_id)
@@ -403,14 +403,14 @@ def explain_finding(
 
 @router.get("/{scan_id}/files", response_model=FileTreeResponse)
 def scan_file_tree(scan_id: int, db: DbSession) -> FileTreeResponse:
-    """Bounded decompiler tree — Android: sources + resources; iOS: *.app."""
+    """Bounded decompiler tree - Android: sources + resources; iOS: *.app."""
     scan = _get_scan_or_404(db, scan_id)
     _require_analyzed(scan)
     return FileTreeResponse(
         platform=scan.platform or "unknown",
         # M5 Phase A: the tree is immutable per scan, so it is computed once
         # and cache-served afterwards (the same smali_mapping.json / graph
-        # explorer.json pattern) — repeated Decompiler opens don't re-walk the
+        # explorer.json pattern) - repeated Decompiler opens don't re-walk the
         # filesystem (owner, Aug 10).
         roots=tree.cached_list_tree(scan),
     )
@@ -449,7 +449,7 @@ def scan_dependencies(scan_id: int, db: DbSession) -> DependenciesResponse:
     Computed once per scan and cache-served afterwards (a validated
     ``dependencies_cache.json`` beside the scan's trees; identity includes a
     findings fingerprint, so a suppress/restore toggle recomputes). Known-CVE
-    research is the agent's web-research use case (M7) — the UI's "Check
+    research is the agent's web-research use case (M7) - the UI's "Check
     known CVEs" button pre-fills the dock question; nothing here leaves the
     machine.
     """
@@ -465,7 +465,7 @@ def scan_dependencies(scan_id: int, db: DbSession) -> DependenciesResponse:
     )
     # Cache-first: the inventory is immutable per scan except for finding
     # suppression, and the identity fingerprint includes the (non-suppressed)
-    # findings set — so a suppress/restore toggle recomputes, and repeated
+    # findings set - so a suppress/restore toggle recomputes, and repeated
     # tab opens skip the source-tree walk + APK zip read entirely (the
     # tree_cache.json / smali_mapping.json pattern).
     data = dependencies.cached_inventory(scan, findings)
@@ -481,7 +481,7 @@ def scan_dependencies(scan_id: int, db: DbSession) -> DependenciesResponse:
 
 @router.post("/{scan_id}/smali", response_model=SmaliStatusResponse, status_code=202)
 def trigger_apktool_decode(scan_id: int, db: DbSession) -> SmaliStatusResponse:
-    """On-demand apktool decode — the Smali chip's trigger (Android only).
+    """On-demand apktool decode - the Smali chip's trigger (Android only).
 
     404 unknown scan · 409 not analyzed / iOS (Android-only) / decode
     already queued-decoding / already ready. ``not_started`` and ``failed``
@@ -493,7 +493,7 @@ def trigger_apktool_decode(scan_id: int, db: DbSession) -> SmaliStatusResponse:
     if scan.platform != "android":
         raise HTTPException(
             status_code=409,
-            detail="apktool decode is Android-only — iOS keeps the read-only "
+            detail="apktool decode is Android-only - iOS keeps the read-only "
             "bundle view (M8 decision 5)",
         )
     # Filesystem first: a stale column must never re-decode an existing tree.
@@ -534,7 +534,7 @@ def smali_status(scan_id: int, db: DbSession) -> SmaliStatusResponse:
     """Current decode state for the Smali chip.
 
     ``ready`` is filesystem-derived (``apktool/AndroidManifest.xml``
-    exists) — the same derive-don't-trust-the-column rule as the graph — so
+    exists) - the same derive-don't-trust-the-column rule as the graph - so
     a crash mid-decode can never leave a phantom ready state; everything
     else reflects the status column (in-flight states + the specific
     failure reason).
@@ -556,19 +556,19 @@ def _get_edit_or_404(db: DbSession, scan_id: int, edit_id: int) -> Edit:
 
 
 def _require_decode_ready(scan: Scan) -> None:
-    """409 until the on-demand apktool decode is ready — edits (and the
+    """409 until the on-demand apktool decode is ready - edits (and the
     Smali view they depend on) need the decoded tree on disk."""
     if not apktool.is_ready(scan.id):
         raise HTTPException(
             status_code=409,
-            detail="apktool decode not ready — open the Smali view first "
+            detail="apktool decode not ready - open the Smali view first "
             "(the decode runs once and is cached per scan)",
         )
 
 
 @router.get("/{scan_id}/edits", response_model=list[EditRead])
 def list_edits(scan_id: int, db: DbSession) -> list[Edit]:
-    """All edit rows for a scan, newest first (full history — D8)."""
+    """All edit rows for a scan, newest first (full history - D8)."""
     scan = _get_scan_or_404(db, scan_id)
     _require_analyzed(scan)
     return list(
@@ -584,7 +584,7 @@ def create_edit(scan_id: int, payload: EditCreate, db: DbSession) -> Edit:
 
     Guards: 404 unknown scan · 409 not analyzed / non-Android / decode not
     ready · 400 not an editable path (can_edit) · 413 over the content cap ·
-    400 unchanged content / unreadable baseline. Created as ``applied`` — the
+    400 unchanged content / unreadable baseline. Created as ``applied`` - the
     human authored it in the editor, no review step (unlike agent proposals,
     Phase D). Stored as a DB diff; the on-disk apktool tree never changes.
     """
@@ -593,14 +593,14 @@ def create_edit(scan_id: int, payload: EditCreate, db: DbSession) -> Edit:
     if scan.platform != "android":
         raise HTTPException(
             status_code=409,
-            detail="edits are Android-only — iOS keeps the read-only bundle view "
+            detail="edits are Android-only - iOS keeps the read-only bundle view "
             "(M8 decision 5)",
         )
     _require_decode_ready(scan)
     if not editable.can_edit(scan, payload.file_path):
         raise HTTPException(
             status_code=400,
-            detail=f"{payload.file_path!r} is not editable — only smali, res/, and "
+            detail=f"{payload.file_path!r} is not editable - only smali, res/, and "
             "the decoded AndroidManifest.xml can be edited",
         )
     if len(payload.content) > editable.MAX_EDIT_CHARS:
@@ -673,22 +673,22 @@ def smali_sibling(
 
 @router.get("/{scan_id}/smali-mapping", response_model=SmaliMappingResponse)
 def smali_mapping(scan_id: int, db: DbSession) -> SmaliMappingResponse:
-    """Finding→apktool tree-path mapping for the scan's findings — powers
+    """Finding→apktool tree-path mapping for the scan's findings - powers
     the Smali-mode tree dots + annotation rail (findings live on jadx
     ``sources/...`` paths; their apktool siblings annotate too).
 
-    Scoped to finding-bearing paths (bounded payload — the dots only exist
+    Scoped to finding-bearing paths (bounded payload - the dots only exist
     where findings exist):
     - ``sources/...`` -> ``smali{,classesN}/...`` (java/kt findings,
       multidex first-found via ``smali_map.java_to_smali``);
-    - ``res/...`` -> ITSELF — the apktool ``res`` root serves the same
+    - ``res/...`` -> ITSELF - the apktool ``res`` root serves the same
       relative paths as the jadx resources tree (identity mapping; the
       frontend strips the root prefix to re-key dots/rail);
     - ``AndroidManifest.xml`` -> ``AndroidManifest.xml/AndroidManifest.xml``
       (the synthetic apktool root's single file).
 
     404 unknown scan · 409 not analyzed / Android-only. An undecoded scan
-    returns an empty mapping (no apktool tree — the identity entries must
+    returns an empty mapping (no apktool tree - the identity entries must
     not leak before the decode exists); the frontend fetches only once the
     decode is ready.
     """
@@ -697,7 +697,7 @@ def smali_mapping(scan_id: int, db: DbSession) -> SmaliMappingResponse:
     if scan.platform != "android":
         raise HTTPException(
             status_code=409,
-            detail="smali mapping is Android-only — iOS keeps the read-only bundle view",
+            detail="smali mapping is Android-only - iOS keeps the read-only bundle view",
         )
     if not apktool.is_ready(scan.id):
         return SmaliMappingResponse(mapping={}, total=0)
@@ -705,7 +705,7 @@ def smali_mapping(scan_id: int, db: DbSession) -> SmaliMappingResponse:
     # (findings immutable per scan id, the decoded tree never mutates), so
     # repeated Decompiler opens skip the findings query + per-path filesystem
     # walk entirely. On a miss the mapping is computed from the scan's
-    # distinct finding file_paths (ROOT-RELATIVE — the ``sources/`` prefix is
+    # distinct finding file_paths (ROOT-RELATIVE - the ``sources/`` prefix is
     # implied) and the line anchors from the distinct (path, line) pairs, then
     # both are persisted together.
     cached = smali_map.cached_mapping(scan.id)
@@ -739,7 +739,7 @@ def _get_build_or_404(db: DbSession, scan_id: int, build_id: int) -> Build:
 
 
 # A worker crash mid-build leaves its row in ``queued`` (never picked up) or
-# ``running`` (killed before the per-step timeout could fail it) forever — the
+# ``running`` (killed before the per-step timeout could fail it) forever - the
 # one-in-flight guard would then block every future rebuild with no recourse.
 # These ages mark such rows failed so the next trigger can proceed (the build
 # pipeline's per-step timeouts mean a live build always settles well within
@@ -770,7 +770,7 @@ def _reap_stale_builds(db: DbSession, scan_id: int) -> None:
             build.stage = build.stage or "queued"
             build.error = (
                 f"stale build (no worker finished it within "
-                f"{threshold} min) — re-run the rebuild"
+                f"{threshold} min) - re-run the rebuild"
             )
             build.finished_at = utcnow()
     db.commit()
@@ -782,9 +782,9 @@ def trigger_rebuild(scan_id: int, db: DbSession) -> Build:
     -> apksigner sign (install-scoped TEST keystore) -> verify gate.
 
     404 unknown scan · 409 not analyzed / iOS (Android-only) / decode not
-    ready / a rebuild already in flight (one per scan — Phase E hardens the
+    ready / a rebuild already in flight (one per scan - Phase E hardens the
     concurrency edges) · 500 enqueue failure (the build row is marked failed
-    with the reason). Zero applied edits is allowed — a default rebuild of
+    with the reason). Zero applied edits is allowed - a default rebuild of
     the pristine tree. The artifact's filename carries the ``-resigned-
     test-`` label (decision 9).
     """
@@ -793,11 +793,11 @@ def trigger_rebuild(scan_id: int, db: DbSession) -> Build:
     if scan.platform != "android":
         raise HTTPException(
             status_code=409,
-            detail="rebuild is Android-only — iOS keeps the read-only bundle "
+            detail="rebuild is Android-only - iOS keeps the read-only bundle "
             "view (M8 decision 5)",
         )
     _require_decode_ready(scan)
-    # A crashed worker can leave a build stuck in queued/running — fail those
+    # A crashed worker can leave a build stuck in queued/running - fail those
     # stale rows first so the guard below can't lock the scan out forever.
     _reap_stale_builds(db, scan_id)
     in_flight = db.scalars(
@@ -842,7 +842,7 @@ def list_builds(scan_id: int, db: DbSession) -> list[Build]:
 
 @router.get("/{scan_id}/builds/{build_id}", response_model=BuildRead)
 def get_build(scan_id: int, build_id: int, db: DbSession) -> Build:
-    """One build — the recompile modal's poll target for live stage updates."""
+    """One build - the recompile modal's poll target for live stage updates."""
     return _get_build_or_404(db, scan_id, build_id)
 
 
@@ -853,7 +853,7 @@ def download_build(scan_id: int, build_id: int, db: DbSession) -> FileResponse:
 
     404 unknown build / artifact missing on disk · 409 build not done. The
     attachment filename carries the ``-resigned-test-`` label and the
-    ``X-Resigned-Test-Build`` header marks the response — the persistent
+    ``X-Resigned-Test-Build`` header marks the response - the persistent
     test-build label (decision 10) travels with the file, not just the UI.
     """
     build = _get_build_or_404(db, scan_id, build_id)
@@ -866,10 +866,10 @@ def download_build(scan_id: int, build_id: int, db: DbSession) -> FileResponse:
     path = Path(build.artifact_path)
     if not path.is_file():
         raise HTTPException(
-            status_code=404, detail="artifact file missing on disk — re-run the build"
+            status_code=404, detail="artifact file missing on disk - re-run the build"
         )
     # The artifact_path is server-written, but a stale/edited DB must never
-    # stream an arbitrary file — constrain it to the scan's artifact dir.
+    # stream an arbitrary file - constrain it to the scan's artifact dir.
     if not path.resolve().is_relative_to(rebuild.artifact_dir(scan_id).resolve()):
         raise HTTPException(
             status_code=404, detail="artifact path escapes the scan's artifact dir"
@@ -886,7 +886,7 @@ def download_build(scan_id: int, build_id: int, db: DbSession) -> FileResponse:
 def set_web_research(scan_id: int, payload: WebResearchUpdate, db: DbSession) -> Scan:
     """M7: per-scan web research opt-in (the dock 🌐 toggle / Settings).
 
-    This is the privacy gate ONLY — engine-agnostic: it permits the agent's
+    This is the privacy gate ONLY - engine-agnostic: it permits the agent's
     web tools for this scan; which engine (if any) is Active is a Settings
     concern (``SearchStore``). The chat layer enforces both gates per call.
     """
@@ -901,20 +901,20 @@ def set_web_research(scan_id: int, payload: WebResearchUpdate, db: DbSession) ->
 def scan_graph_state(scan_id: int, db: DbSession) -> ScanGraphState:
     """M4 Layer 3: per-scan Graphify graph state (filesystem-derived).
 
-    No DB columns — "built" means ``graphs/<scan_id>/graphify-out/graph.json``
+    No DB columns - "built" means ``graphs/<scan_id>/graphify-out/graph.json``
     exists; node/edge counts are streamed from the JSON. Android only.
     """
     scan = _get_scan_or_404(db, scan_id)
     if scan.platform != "android":
         return ScanGraphState(
             built=False,
-            reason="graph is Android-only — iOS has no decompiled source tree",
+            reason="graph is Android-only - iOS has no decompiled source tree",
         )
     graph_path = graphify.graph_path_for(scan_id)
     if not graph_path.is_file():
         return ScanGraphState(
             built=False,
-            reason="graph not built yet — the graph build job is chained after analysis "
+            reason="graph not built yet - the graph build job is chained after analysis "
             "for Android scans",
         )
     nodes, edges = graphify.count_graph(graph_path)
@@ -951,7 +951,7 @@ def graph_hubs(
     db: DbSession,
     limit: int = Query(default=25, ge=1, le=100),
 ) -> GraphHubsResponse:
-    """Code maps: most-connected nodes by link degree — the initial view."""
+    """Code maps: most-connected nodes by link degree - the initial view."""
     scan = _get_scan_or_404(db, scan_id)
     graph_path = _require_graph(scan)
     return GraphHubsResponse(hubs=graphify.hubs(graph_path, limit=limit))
@@ -976,19 +976,19 @@ def graph_node(scan_id: int, node_id: str, db: DbSession) -> GraphNodeDetail:
 def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse:
     """M4: grounded agent answer over Layers 1-3 (findings context + tools).
 
-    Zero embeddings — the RAG/vector path was removed from v1. 404 unknown
+    Zero embeddings - the RAG/vector path was removed from v1. 404 unknown
     scan · 409 scan not analyzed · 400 no chat model configured · 502 the
-    upstream LLM backend failed (model not loadable, connection error — the
+    upstream LLM backend failed (model not loadable, connection error - the
     detail carries the upstream message) · 504 the agent loop exceeded its
     overall deadline (hung LLM call, hard-capped by
     ``payload.timeout_seconds`` / ``settings.chat_timeout_seconds``). The
-    chat model comes from the M3 backend store — no new config surface.
+    chat model comes from the M3 backend store - no new config surface.
     """
     scan = _get_scan_or_404(db, scan_id)
     if scan.status != "done":
         raise HTTPException(
             status_code=409,
-            detail=f"scan {scan_id} is not analyzed yet (status={scan.status}) — "
+            detail=f"scan {scan_id} is not analyzed yet (status={scan.status}) - "
             "run the scan job first",
         )
     try:
@@ -1002,20 +1002,20 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
     except ChatNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ChatInterrupted as exc:
-        # The user hit Stop — the client already aborted and reads nothing,
+        # The user hit Stop - the client already aborted and reads nothing,
         # but a curl/test caller must never mistake the 409 for an answer.
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AgentTimeout as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except ChatUpstreamError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    # Shared with the SSE stream's final answer frame — one payload shape.
+    # Shared with the SSE stream's final answer frame - one payload shape.
     return ChatResponse(**_chat_payload(result))
 
 
 @router.post("/{scan_id}/chat/stream")
 def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> StreamingResponse:
-    """M6 follow-up: SSE stream of one agent turn — live tool steps + tokens.
+    """M6 follow-up: SSE stream of one agent turn - live tool steps + tokens.
 
     The buffered ``/chat`` returns only the final answer; this streams the
     agent loop as it runs: ``token`` frames (answer text as it is generated),
@@ -1023,7 +1023,7 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
     frame carrying the canonical ChatResponse-shaped payload (including the
     persistent ``tool_runs`` trace). Errors arrive as an ``error`` frame with
     a kind + detail (the same contract the buffered endpoint encodes as HTTP
-    codes: no-model / upstream / timeout / interrupted) — the client
+    codes: no-model / upstream / timeout / interrupted) - the client
     classifies them into the existing error-bubble copy.
 
     The ``answer_question`` call runs on a worker thread pushing frames
@@ -1036,7 +1036,7 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
     if scan.status != "done":
         raise HTTPException(
             status_code=409,
-            detail=f"scan {scan_id} is not analyzed yet (status={scan.status}) — "
+            detail=f"scan {scan_id} is not analyzed yet (status={scan.status}) - "
             "run the scan job first",
         )
     # A missing model is a clean pre-stream HTTP 400 (nothing sent yet);
@@ -1075,7 +1075,7 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
             except Exception as exc:  # noqa: BLE001 - stream must terminate cleanly
                 frames.put(_sse_frame("error", {"kind": "error", "detail": str(exc)}))
             finally:
-                frames.put(None)  # sentinel — end the stream
+                frames.put(None)  # sentinel - end the stream
 
         threading.Thread(target=run, daemon=True).start()
         while True:
@@ -1083,7 +1083,7 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
                 frame = frames.get(timeout=15)
             except queue.Empty:
                 # Long-running tool call (e.g. run_secrets_scan): keep the
-                # connection alive — SSE comments are ignored by clients.
+                # connection alive - SSE comments are ignored by clients.
                 yield ": keepalive\n\n"
                 continue
             if frame is None:
@@ -1103,7 +1103,7 @@ def cancel_chat(scan_id: int, db: DbSession) -> dict:
 
     Sets the in-process cancel flag that ``answer_question`` polls at every
     agent-loop boundary, so the LLM stops at the next round instead of
-    burning the whole budget. No-op when nothing is running — the flag only
+    burning the whole budget. No-op when nothing is running - the flag only
     exists while a request is in flight. The aborted chat request itself
     comes back 409 (``ChatInterrupted``).
     """

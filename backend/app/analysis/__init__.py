@@ -1,4 +1,4 @@
-"""M1 — Android analysis core.
+"""M1 - Android analysis core.
 
 Stages: jadx (decompile), androguard (manifest/cert), semgrep (code
 patterns), gitleaks (secrets). All external CLIs are invoked strictly as

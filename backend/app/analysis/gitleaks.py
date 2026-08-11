@@ -1,6 +1,6 @@
 """Gitleaks subprocess wrapper + JSON report normalizer.
 
-Invoked as ``gitleaks dir`` (file/dir scan, not git history — we scan the
+Invoked as ``gitleaks dir`` (file/dir scan, not git history - we scan the
 decompiled tree). ``--exit-code 0`` is important: gitleaks exits 1 when
 leaks are *found*, which for us is a normal scan result, not a failure.
 """
@@ -35,7 +35,7 @@ def scan_directory(
     """Run gitleaks over ``target`` and write a JSON report to ``report_path``.
 
     ``config`` (optional) points at a custom TOML ruleset passed via
-    ``--config`` — e.g. the iOS keychain-accessibility rules
+    ``--config`` - e.g. the iOS keychain-accessibility rules
     (``app/analysis/resources/gitleaks_ios.toml``, M4 Layer 1).
     """
     result = StageResult()

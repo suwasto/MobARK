@@ -127,7 +127,7 @@ export function OverviewPanel({
             <button
               type="button"
               className="link-btn"
-              title="Re-run the model — bypasses the cached summary (costs one generation)"
+              title="Re-run the model - bypasses the cached summary (costs one generation)"
               onClick={() => void fetchSummary(true)}
             >
               Regenerate
@@ -138,7 +138,7 @@ export function OverviewPanel({
       {summary.kind === 'no-model' && (
         <div className="mb-6 flex items-start justify-between gap-4 rounded border border-dashed border-line bg-panel p-4 text-[12.5px] leading-relaxed text-bone-dim">
           <p>
-            No model connected yet — pick a backend and model in Settings
+            No model connected yet - pick a backend and model in Settings
             (top-right ⚙) and the AI overview will appear here. Everything else
             on this page is fully local.
           </p>

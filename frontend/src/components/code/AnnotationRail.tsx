@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { useExplain } from '../../hooks/useExplain'
 import type { FindingRead } from '../../types'
@@ -14,20 +14,28 @@ interface AnnotationRailProps {
    * control; the parent owns the state + persistence). */
   onMinimize?: () => void
   /** One-scroll mirror (Aug 11): the rail shares the code pane's vertical
-   * scroll — each note is placed at its finding's line offset and the notes
+   * scroll - each note is placed at its finding's line offset and the notes
    * column translates by the code's scrollTop (a ``--rail-scroll`` CSS var
    * the parent sets directly on the DOM, so scrolling never re-renders the
    * panel). ``lineHeight`` = px per code line, ``compensation`` = code-title
-   * height minus rail-head height — together they pin every note exactly
+   * height minus rail-head height - together they pin every note exactly
    * beside its line; ``contentHeight`` = the code pane's full scroll height
-   * (guards the last clustered note from being pushed beyond the reachable
-   * scroll range). All measured by the parent (0 until measured). */
+   * (the reachability bound: when the note stack is taller than it, the
+   * rail switches to its own scrollbar - see onOverflowChange). All
+   * measured by the parent (0 until measured). */
   lineHeight: number
   compensation: number
   contentHeight: number
   /** Attaches to the rail root (the parent measures the head and forwards
    * wheel events to the code scroll source). */
   railRef?: Ref<HTMLDivElement>
+  /** M8 follow-up (owner request, Aug 11): reports whether the note stack is
+   * TALLER than the code's content (dense findings on a short file). In that
+   * case the rail cannot mirror the code scroll (bottom notes would be
+   * clipped) - the parent freezes the code mirror at ``--rail-scroll: 0``
+   * and stops forwarding wheel events, and this rail scrolls on its own.
+   * Called only when the value changes. */
+  onOverflowChange?: (overflow: boolean) => void
 }
 
 const SEV_LABEL: Record<string, string> = {
@@ -93,7 +101,7 @@ const NOTE_GAP = 10
 /**
  * Right rail: findings on the open file, ordered by line (mockup notes).
  *
- * One-scroll mirror (Aug 11): the rail has NO scrollbar of its own — the
+ * One-scroll mirror (Aug 11): the rail has NO scrollbar of its own - the
  * notes are positioned absolutely at their finding's line offset (clustered
  * so overlapping cards stack below each other) inside a column that
  * translates by the code pane's ``scrollTop`` (``--rail-scroll``). Scrolling
@@ -109,6 +117,7 @@ export function AnnotationRail({
   compensation,
   contentHeight,
   railRef,
+  onOverflowChange,
 }: AnnotationRailProps) {
   const notesWrapRef = useRef<HTMLDivElement | null>(null)
   const noteRefs = useRef(new Map<number, HTMLDivElement>())
@@ -118,6 +127,11 @@ export function AnnotationRail({
   // card when the card is taller than the gap. Notes without a line (smali
   // aliases, res) simply stack after the last line-anchored note.
   const [tops, setTops] = useState<number[]>([])
+  // Whether the note stack exceeds the code's content height - the rail
+  // then scrolls on its own (see onOverflowChange). Ref-guarded so the
+  // parent is only notified on an actual change, never per layout pass.
+  const [overflow, setOverflow] = useState(false)
+  const lastOverflowRef = useRef(false)
 
   useLayoutEffect(() => {
     const apply = () => {
@@ -132,19 +146,32 @@ export function AnnotationRail({
             ? (f.line_number - 1) * lineHeight + compensation
             : cursor
         const top = Math.max(desired, cursor)
-        // Review guard (Aug 11): the LAST note's cluster position must stay
-        // within the code's scroll range (the code pane is the scroll
-        // source — anything beyond it is clipped and unreachable). In the
-        // pathological case (dense findings whose cards stack past the
-        // code's bottom) the tail note sits at its line instead, possibly
-        // overlapping the card above — reachable beats unreachable.
-        const clamped =
-          i === findings.length - 1 && contentHeight > 0
-            ? Math.min(top, contentHeight - heights[i] - NOTE_GAP)
-            : top
-        out.push(clamped)
-        cursor = clamped + heights[i] + NOTE_GAP
+        out.push(top)
+        cursor = top + heights[i] + NOTE_GAP
       })
+      // One-scroll reachability (owner report, Aug 11): the rail can only
+      // translate as far as the code can scroll (contentHeight) - notes
+      // beyond that bound were clipped and unreachable. When the note stack
+      // is TALLER than the code, the rail switches to its own scrollbar
+      // (.rail-overflow - the parent freezes the code mirror at 0 and stops
+      // forwarding wheel events), so every note is reachable. The old
+      // last-note clamp is obsolete: in the fits case it was a no-op, and in
+      // the dense case the scrollbar replaces it.
+      const lastBottom =
+        out.length > 0 ? out[out.length - 1] + heights[heights.length - 1] : 0
+      // Reachability bound: contentHeight when measured (the code's scroll
+      // range ≈ the rail's reachable note range). If the geometry never
+      // measured (contentHeight 0), fall back to the rail's own viewport so
+      // dense notes still become scrollable instead of clipping (review
+      // catch, Aug 11 - a failed measurement must not re-introduce the bug).
+      const railH = notesWrapRef.current?.clientHeight ?? 0
+      const nextOverflow =
+        contentHeight > 0 ? lastBottom > contentHeight : lastBottom > railH
+      if (nextOverflow !== lastOverflowRef.current) {
+        lastOverflowRef.current = nextOverflow
+        setOverflow(nextOverflow)
+        onOverflowChange?.(nextOverflow)
+      }
       setTops(out)
     }
     // First pass measures the DOM just committed (heights are independent of
@@ -160,9 +187,27 @@ export function AnnotationRail({
     return () => ro.disconnect()
   }, [findings, lineHeight, compensation, contentHeight])
 
+  // A flagged code line was clicked - bring its note into view in the rail's
+  // OWN scroll (overflow mode only; in normal mode the parent already
+  // scrolls the code pane and the mirror follows). Notes are absolutely
+  // positioned inside the notes wrap, so offsetTop is the wrap-relative
+  // top; centering keeps the note fully visible. No-op when the wrap is not
+  // scrollable (scrollHeight <= clientHeight).
+  useEffect(() => {
+    if (activeNoteId == null) return
+    const wrap = notesWrapRef.current
+    const el = noteRefs.current.get(activeNoteId)
+    if (!wrap || !el) return
+    if (wrap.scrollHeight <= wrap.clientHeight) return
+    wrap.scrollTop = Math.max(
+      0,
+      el.offsetTop - wrap.clientHeight / 2 + el.clientHeight / 2,
+    )
+  }, [activeNoteId])
+
   return (
     <div className="annot-rail" ref={railRef}>
-      {/* Fixed head — the notes translate beneath it (it has an opaque
+      {/* Fixed head - the notes translate beneath it (it has an opaque
           background + z-index so scrolled cards never paint over it). */}
       <div className="annot-rail-label">
         <span>Annotations ({findings.length})</span>
@@ -183,7 +228,10 @@ export function AnnotationRail({
           No findings in this file. Notes for flagged lines land here.
         </p>
       ) : (
-        <div className="annot-rail-notes" ref={notesWrapRef}>
+        <div
+          className={`annot-rail-notes${overflow ? ' rail-overflow' : ''}`}
+          ref={notesWrapRef}
+        >
           {findings.map((f, i) => (
             <RailNote
               key={f.id}

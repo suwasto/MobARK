@@ -1,4 +1,4 @@
-"""M7 web research — the two-gate gating + the flagship CVE case, mocked.
+"""M7 web research - the two-gate gating + the flagship CVE case, mocked.
 
 No network, no real LLM (Ollama off): the search client is httpx-mocked and
 extraction is trafilatura-mocked; the agent loop runs against the dev-only
@@ -129,7 +129,7 @@ def test_web_tools_hidden_when_scan_optin_off(monkeypatch, db_session_factory, t
 
 def test_web_tools_hidden_when_no_active_engine(env, monkeypatch):
     """Gate 2 off: opt-in on but every engine Inactive (Settings radio all
-    off) — no web schemas, no prompt section."""
+    off) - no web schemas, no prompt section."""
     scan_id = env
     # The env fixture pointed settings.data_dir at tmp_path; write the store
     # file there with the bundled engine disabled so SearchStore.active() is
@@ -156,7 +156,7 @@ def test_web_tools_hidden_when_no_active_engine(env, monkeypatch):
 
 
 def test_web_tools_offered_on_ios_when_gates_hold(monkeypatch, db_session_factory, tmp_path):
-    """iOS gets the web tools too (they are platform-agnostic) — while still
+    """iOS gets the web tools too (they are platform-agnostic) - while still
     never seeing the Android-only class tool."""
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
     monkeypatch.setattr("app.db.SessionLocal", db_session_factory)

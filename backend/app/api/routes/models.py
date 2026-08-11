@@ -1,4 +1,4 @@
-"""M3/M5 API surface for model backends — what the Settings modal consumes.
+"""M3/M5 API surface for model backends - what the Settings modal consumes.
 
     GET    /api/v1/model/backends            config + lightweight reachability
     POST   /api/v1/model/backends            create/activate BYOK or custom (M5)
@@ -7,7 +7,7 @@
     GET    /api/v1/model/backends/{id}/models
     PUT    /api/v1/model/backends/{id}       upsert base_url/model/api_key/enabled
 
-API keys are never returned — only ``has_api_key``.
+API keys are never returned - only ``has_api_key``.
 """
 from __future__ import annotations
 
@@ -69,7 +69,7 @@ def _find(store: BackendStore, backend_id: str):
 @router.get("/backends", response_model=list[ModelBackendRead])
 def list_backends() -> list[ModelBackendRead]:
     """All configured backends with a lightweight reachability state
-    (model listing only — no completion probe; the probe lives in POST /test)."""
+    (model listing only - no completion probe; the probe lives in POST /test)."""
     store = get_store()
     backends = store.read()
     with ThreadPoolExecutor(max_workers=max(len(backends), 1)) as pool:
@@ -82,11 +82,11 @@ def create_backend(payload: ModelBackendCreate) -> ModelBackendRead:
     """Create/activate a BYOK or custom backend (Settings -> BYOK tab).
 
     - BYOK (openai/anthropic/deepseek/openrouter/gemini): requires an API
-      key (BYOK backends are no longer seeded keyless — owner decision, Aug
-      8 2026 — so this is the only way in); upserts the existing entry if
+      key (BYOK backends are no longer seeded keyless - owner decision, Aug
+      8 2026 - so this is the only way in); upserts the existing entry if
       present (re-activates a deleted or disabled one), otherwise creates it.
     - ``custom``: requires a base URL; id ``custom`` (one custom endpoint).
-    - Local backends are pre-configured — edit them via PUT, not here.
+    - Local backends are pre-configured - edit them via PUT, not here.
 
     API keys are stored but never returned (only ``has_api_key``).
     """
@@ -101,7 +101,7 @@ def create_backend(payload: ModelBackendCreate) -> ModelBackendRead:
     if provider.kind == "local":
         raise HTTPException(
             status_code=400,
-            detail=f"{provider.name} is a local backend — edit it via "
+            detail=f"{provider.name} is a local backend - edit it via "
             "PUT /api/v1/model/backends/{id}",
         )
 
@@ -132,7 +132,7 @@ def create_backend(payload: ModelBackendCreate) -> ModelBackendRead:
             api_key=payload.api_key,
             enabled=True,
         )
-    else:  # custom — requires a base URL
+    else:  # custom - requires a base URL
         if not payload.base_url:
             raise HTTPException(
                 status_code=400,
@@ -159,7 +159,7 @@ def create_backend(payload: ModelBackendCreate) -> ModelBackendRead:
 def delete_backend(backend_id: str) -> Response:
     """Remove a backend from the store.
 
-    Local backends are protected (400) — removing the only local option is a
+    Local backends are protected (400) - removing the only local option is a
     footgun; disable them via PUT ``enabled: false`` instead. BYOK/custom
     can be re-added any time with POST /backends.
     """
@@ -170,7 +170,7 @@ def delete_backend(backend_id: str) -> Response:
     if backend.kind == "local":
         raise HTTPException(
             status_code=400,
-            detail="local backends cannot be removed — disable via PUT enabled=false",
+            detail="local backends cannot be removed - disable via PUT enabled=false",
         )
     store.remove(backend_id)
     return Response(status_code=204)

@@ -7,7 +7,7 @@ from app.analysis import editable
 
 
 def _scan(platform="android"):
-    # class bodies don't close over function locals — set it explicitly
+    # class bodies don't close over function locals - set it explicitly
     class _S:
         pass
 

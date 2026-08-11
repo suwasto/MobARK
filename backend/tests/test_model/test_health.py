@@ -1,4 +1,4 @@
-"""health.check_backend / list_models — httpx + litellm monkeypatched, no network."""
+"""health.check_backend / list_models - httpx + litellm monkeypatched, no network."""
 
 import httpx
 
@@ -75,7 +75,7 @@ def test_list_models_does_not_send_dummy_key_header_to_local(monkeypatch):
 
 def test_list_models_anthropic_live(monkeypatch):
     """Anthropic's List Models is live-fetched: OpenAI-shaped `data[].id`
-    parse, but with its own auth headers — x-api-key + anthropic-version, no
+    parse, but with its own auth headers - x-api-key + anthropic-version, no
     Bearer."""
     seen = {}
 
@@ -103,7 +103,7 @@ def test_list_models_anthropic_live(monkeypatch):
 
 def test_list_models_anthropic_falls_back_to_suggested_on_error(monkeypatch):
     """A failed live fetch must degrade to the curated list (source
-    'suggested'), never [] — the app keeps working on key errors / offline."""
+    'suggested'), never [] - the app keeps working on key errors / offline."""
     monkeypatch.setattr(
         "app.model.health.httpx.get", _fake_get(exc=httpx.ConnectError("no network"))
     )
@@ -114,7 +114,7 @@ def test_list_models_anthropic_falls_back_to_suggested_on_error(monkeypatch):
 
 
 def test_list_models_anthropic_requires_key():
-    """No key configured — skip the network entirely and degrade to the
+    """No key configured - skip the network entirely and degrade to the
     curated fallback with a self-explanatory reason."""
     models, source, error = list_models(_backend("anthropic"))
     assert source == "suggested"
@@ -157,14 +157,14 @@ def test_list_models_gemini_live(monkeypatch):
     assert source == "live"
     assert error is None
     assert models == ["gemini-3.5-flash", "gemini-3.5-flash-lite"]
-    # Gemini auth rides the query string — never an OpenAI-style Bearer header.
+    # Gemini auth rides the query string - never an OpenAI-style Bearer header.
     assert seen.get("params") == {"key": "AIza-x"}
     assert not seen.get("headers")
 
 
 def test_list_models_gemini_falls_back_to_suggested_on_error(monkeypatch):
     """A failed or empty live fetch must degrade to the curated list (source
-    'suggested'), never [] — the app keeps working on key errors / offline,
+    'suggested'), never [] - the app keeps working on key errors / offline,
     and the completion probe surfaces the connectivity problem."""
     monkeypatch.setattr(
         "app.model.health.httpx.get", _fake_get(exc=httpx.ConnectError("no network"))
@@ -177,7 +177,7 @@ def test_list_models_gemini_falls_back_to_suggested_on_error(monkeypatch):
 
 def test_check_gemini_lightweight_surfaces_listing_failure(monkeypatch):
     """GET /backends runs probe=False. A failed Gemini live listing must not
-    claim the provider has 'no live listing endpoint' (it does — the fetch
+    claim the provider has 'no live listing endpoint' (it does - the fetch
     failed); the real reason is surfaced instead."""
     monkeypatch.setattr(
         "app.model.health.httpx.get", _fake_get(exc=httpx.ConnectError("key rejected"))
@@ -192,7 +192,7 @@ def test_check_gemini_lightweight_surfaces_listing_failure(monkeypatch):
 
 def test_check_gemini_live_probes_first_served_model(monkeypatch):
     """With a live listing, check_backend probes the first actually-served
-    model — no stale curated walk needed because the list IS current."""
+    model - no stale curated walk needed because the list IS current."""
     monkeypatch.setattr(
         "app.model.health.httpx.get",
         _fake_get(
@@ -217,7 +217,7 @@ def test_check_gemini_live_probes_first_served_model(monkeypatch):
 
 def test_check_gemini_live_walks_curated_when_first_is_deprecated(monkeypatch):
     """Google's models.list still lists deprecated IDs (gemini-2.5-flash 404s
-    on use for new keys) — often FIRST. With no model configured, the probe
+    on use for new keys) - often FIRST. With no model configured, the probe
     must skip the raw first entry and walk the curated ∩ live candidates, so
     a fresh BYOK setup shows Connected instead of a bogus probe failure."""
     attempts: list[str] = []
@@ -302,7 +302,7 @@ def test_check_live_but_probe_failed(monkeypatch):
     assert h.reachable is True  # server answered; the model is the problem
     assert h.status == "ok"
     assert h.probe_ok is False
-    # The probe must carry the *upstream* reason, not a bare false — the
+    # The probe must carry the *upstream* reason, not a bare false - the
     # Settings UI renders this verbatim.
     assert "probe failed" in (h.error or "")
     assert "model not found" in (h.error or "")
@@ -354,7 +354,7 @@ def test_check_anthropic_probe_ok(monkeypatch):
 
 
 def test_check_anthropic_probe_failed(monkeypatch):
-    # Live listing works but the completion probe fails — same contract as
+    # Live listing works but the completion probe fails - same contract as
     # any live backend: reachable, probe_ok False, error carries the reason.
     monkeypatch.setattr(
         "app.model.health.httpx.get",
@@ -375,7 +375,7 @@ def test_check_anthropic_probe_failed(monkeypatch):
 
 
 def test_check_anthropic_no_model_prefers_curated_live(monkeypatch):
-    # No model configured — the probe targets the first CURATED ∩ live model
+    # No model configured - the probe targets the first CURATED ∩ live model
     # (the curated list is the known-current seed), not the raw first entry.
     monkeypatch.setattr(
         "app.model.health.httpx.get",
@@ -397,7 +397,7 @@ def test_check_anthropic_no_model_prefers_curated_live(monkeypatch):
 
 def test_check_suggested_walks_models_when_first_is_deprecated(monkeypatch):
     """Google 404s retired model IDs for new API keys (the gemini-2.5-flash
-    case). With no model configured, the probe must walk the curated list — a
+    case). With no model configured, the probe must walk the curated list - a
     stale first entry must not mark the whole backend unreachable. (The
     listing fails too, so the backend degrades to the curated fallback.)"""
     attempts: list[str] = []
@@ -422,7 +422,7 @@ def test_check_suggested_walks_models_when_first_is_deprecated(monkeypatch):
 
 
 def test_check_suggested_configured_model_probed_as_is(monkeypatch):
-    """A user-picked model is probed exactly — the walk only applies when no
+    """A user-picked model is probed exactly - the walk only applies when no
     model is configured (so a broken choice fails loudly, not silently)."""
     attempts: list[str] = []
 
@@ -458,7 +458,7 @@ def test_check_suggested_deprecated_all_fail_carries_hint(monkeypatch):
 
 def test_check_anthropic_lightweight_verifies_via_live_listing(monkeypatch):
     # probe=False on a live-listing provider (Anthropic now) verifies via the
-    # listing alone — no completion round-trip, but genuinely reachable.
+    # listing alone - no completion round-trip, but genuinely reachable.
     seen = {"probe": False}
 
     def failing_probe(**kwargs):

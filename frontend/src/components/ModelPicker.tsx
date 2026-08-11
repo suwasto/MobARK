@@ -3,13 +3,13 @@ import { useApp } from '../state/AppContext'
 import type { ModelBackendRead, ModelBackendUpsert } from '../types'
 
 /**
- * Top-bar model selection (owner redesign, Aug 8 2026) — TWO searchable
+ * Top-bar model selection (owner redesign, Aug 8 2026) - TWO searchable
  * dropdowns instead of the single model pill:
  *
- *   1. **Provider** — every configured backend (local + cloud) plus
+ *   1. **Provider** - every configured backend (local + cloud) plus
  *      **None (no AI)**. Picking a provider loads its served models into the
  *      model dropdown.
- *   2. **Model** — the models the selected provider actually serves (from the
+ *   2. **Model** - the models the selected provider actually serves (from the
  *      lightweight reachability check already attached to each backend,
  *      `health.models`) plus **None**. Picking a model makes it the default
  *      (PUT model + enabled).
@@ -18,7 +18,7 @@ import type { ModelBackendRead, ModelBackendUpsert } from '../types'
  * (every enabled-with-model backend is disabled + cleared), which auto-sets
  * the model to None; selecting None on the model does the same on the active
  * provider, which auto-sets the provider to None. Either way the result is
- * "no AI at all" — matching `pick_chat_backend`'s contract (needs an enabled
+ * "no AI at all" - matching `pick_chat_backend`'s contract (needs an enabled
  * backend WITH a model).
  *
  * Served models come from `health.models`, so opening the dropdowns costs
@@ -37,7 +37,7 @@ export function ModelPicker() {
   const queryRef = useRef('')
 
   // Active chat model = first enabled backend with a model (mirror of
-  // backend `pick_chat_backend` — one rule everywhere).
+  // backend `pick_chat_backend` - one rule everywhere).
   const active = useMemo(
     () => backends.find((b) => b.enabled && b.model) ?? null,
     [backends],
@@ -108,7 +108,7 @@ export function ModelPicker() {
           // Activate this provider deterministically (same batch-clear as
           // pickModel): keep its configured model if it has one, and clear
           // every OTHER enabled-with-model backend so `pick_chat_backend`
-          // resolves to the picked provider — the pill label and the actual
+          // resolves to the picked provider - the pill label and the actual
           // chat provider must never diverge.
           const entries: { id: string; payload: ModelBackendUpsert }[] = backends
             .filter((b) => b.id !== id && b.enabled && b.model)
@@ -180,7 +180,7 @@ export function ModelPicker() {
     (m) => !mq || m.toLowerCase().includes(mq),
   )
   // An enabled backend with an EMPTY model string (e.g. the seed default
-  // when no MASA_DEFAULT_CHAT_MODEL is set) is the same as None — the
+  // when no MASA_DEFAULT_CHAT_MODEL is set) is the same as None - the
   // `?? 'Model: None'` label and the None-row active state must treat it as
   // no model.
   const currentModel =
@@ -232,7 +232,7 @@ export function ModelPicker() {
             {providerBlocks}
             {backends.length === 0 && (
               <div className="model-opt-empty">
-                No providers configured — add one in Settings.
+                No providers configured - add one in Settings.
               </div>
             )}
           </div>
@@ -241,7 +241,7 @@ export function ModelPicker() {
 
       {/* Model dropdown */}
       <div className="relative">
-        {/* The closed pill truncates by necessity — the hover title always
+        {/* The closed pill truncates by necessity - the hover title always
             carries the full id so the active model is never unreadable
             (owner follow-up, Aug 9). */}
         <button
@@ -296,7 +296,7 @@ export function ModelPicker() {
                       : providerBackend.enabled
                         ? providerBackend.local
                           ? 'No models listed (is the server running?)'
-                          : 'No models listed — check the provider key in Settings.'
+                          : 'No models listed - check the provider key in Settings.'
                         : 'This provider is disabled.'}
                   </div>
                 ) : (
@@ -327,7 +327,7 @@ export function ModelPicker() {
               </Fragment>
             ) : (
               <div className="model-opt-empty">
-                Pick a provider first — or leave both at None to run without AI.
+                Pick a provider first - or leave both at None to run without AI.
               </div>
             )}
           </div>

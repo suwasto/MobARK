@@ -1,13 +1,13 @@
-"""M5: dashboard columns — findings.explanation, scans.ai_summary, scans.stage
+"""M5: dashboard columns - findings.explanation, scans.ai_summary, scans.stage
 
 Revision ID: 0004
 Revises: 0003
 Create Date: 2026-08-06
 
 All three are nullable caches/state for the M5 dashboard:
-- ``findings.explanation`` — cached AI explanation (POST .../explain)
-- ``scans.ai_summary`` — cached AI overview summary (POST .../summary)
-- ``scans.stage`` — human-readable pipeline stage for the progress screen
+- ``findings.explanation`` - cached AI explanation (POST .../explain)
+- ``scans.ai_summary`` - cached AI overview summary (POST .../summary)
+- ``scans.stage`` - human-readable pipeline stage for the progress screen
 
 """
 import sqlalchemy as sa

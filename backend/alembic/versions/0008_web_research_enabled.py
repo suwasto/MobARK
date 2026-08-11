@@ -5,11 +5,11 @@ Revises: 0007
 Create Date: 2026-08-09
 
 Owner decisions (Aug 9, 2026): web research is two on-demand agent tools
-(``web_search`` / ``web_fetch``), gated by **two layers** — the per-scan
+(``web_search`` / ``web_fetch``), gated by **two layers** - the per-scan
 opt-in on ``scans.web_research_enabled`` (default **off**; the Agent dock
 🌐 toggle + Settings control it) AND an Active search engine
 (``SearchStore.active()``, the Settings radio list). This column is the
-per-scan privacy gate only — it is engine-agnostic and never starts a
+per-scan privacy gate only - it is engine-agnostic and never starts a
 search engine.
 
 Data-only column add with a server default; no rewrite pass needed (every

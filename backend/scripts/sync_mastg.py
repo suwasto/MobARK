@@ -122,7 +122,7 @@ def main() -> int:
                 tests.update(parsed)
 
     if not tests and not rules:
-        print(f"nothing extracted for ref {args.ref!r} — check the ref", file=sys.stderr)
+        print(f"nothing extracted for ref {args.ref!r} - check the ref", file=sys.stderr)
         return 1
 
     mapping = {

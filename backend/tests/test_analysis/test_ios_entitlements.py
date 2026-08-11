@@ -88,7 +88,7 @@ def test_carve_from_cms_signed_attributes():
 
 
 def test_carve_from_cms_with_indefinite_length_ber():
-    """Apple CMS uses BER indefinite-length SEQUENCEs — the walker must cope."""
+    """Apple CMS uses BER indefinite-length SEQUENCEs - the walker must cope."""
     from app.analysis.ios.entitlements import ENTITLEMENTS_OID
 
     ent = plistlib.dumps({"key": "value"}, fmt=plistlib.FMT_BINARY)

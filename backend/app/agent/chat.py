@@ -1,21 +1,21 @@
-"""M4 Layers 1-3 agent chat — findings context + grep/read/graph tools.
+"""M4 Layers 1-3 agent chat - findings context + grep/read/graph tools.
 
 Orchestration: assemble the Layer 1 findings context (full set,
 precision-tagged), then run a bounded tool-calling loop over the Layer 2/3
-tools. Zero embeddings — the old RAG chat (vector/chat.py) was deleted with
+tools. Zero embeddings - the old RAG chat (vector/chat.py) was deleted with
 the pipeline; this is its non-embedding replacement.
 
-The chat model comes from the M3 backend store — no new config surface, and
+The chat model comes from the M3 backend store - no new config surface, and
 the M3 \"no hard default model\" decision holds (a blank config raises
 ``ChatNotConfigured``, surfaced as a clear 400 by the API). Models that do
-not emit tool calls get a context-only answer — the documented graceful
+not emit tool calls get a context-only answer - the documented graceful
 fallback (techstack: not every local model reliably follows structured
 tool-call output).
 
 The whole loop runs under a hard overall deadline (``AgentTimeout``,
 ``settings.chat_timeout_seconds`` by default): each round hands the model
-client only the *remaining* budget, so a hung LLM call — including the
-no-tools fallback retry — can never block the API worker beyond it.
+client only the *remaining* budget, so a hung LLM call - including the
+no-tools fallback retry - can never block the API worker beyond it.
 
 The Stop button's server side: each in-flight chat registers a cancel flag
 keyed by scan id (``_CANCEL_FLAGS``) and polls it at every round boundary
@@ -41,27 +41,27 @@ SYSTEM_PROMPT = (
     "You are MASA, a mobile application security assistant answering "
     "questions about a scanned app (Android APK or iOS IPA).\n\n"
     "Evidence available to you:\n"
-    "1. FINDINGS CONTEXT below — the complete static-analysis findings set. "
+    "1. FINDINGS CONTEXT below - the complete static-analysis findings set. "
     "Every finding is tagged with its precision:\n"
     "   [file/line] findings have a concrete source location (file, and "
     "line when shown).\n"
     "   [binary-level presence only, no specific location] findings prove "
     "the evidence exists in the binary/bundle but have NO source location "
-    "— never invent one for them.\n"
+    "- never invent one for them.\n"
     "2. Tools: search_code (regex grep over the decompiled/extracted tree), "
     "read_file (read a file, optionally a line range), read_manifest "
     "(manifest/Info.plist summary), get_permissions (requested permissions "
     "/ usage strings), search_strings (grep over resources only), "
     "run_secrets_scan (on-demand gitleaks re-run over a targeted path), "
-    "get_decompiled_class (Android only — read one decompiled class by name), "
+    "get_decompiled_class (Android only - read one decompiled class by name), "
     "and for Android scans only, graph_query / graph_path / graph_explain "
     "(code call/import/inheritance graph). iOS never gets "
-    "get_decompiled_class — there is no decompiled Swift/ObjC source in v1.\n\n"
+    "get_decompiled_class - there is no decompiled Swift/ObjC source in v1.\n\n"
     "Rules:\n"
     "- Answer ONLY from the findings context and tool results. Never invent "
     "findings, files, lines, entitlements, symbols, or graph nodes.\n"
     "- Cite exact file paths inline, e.g. `com/app/MyWebViewClient.java:42`. "
-    "For [binary] evidence, say so explicitly (\"binary-level presence — no "
+    "For [binary] evidence, say so explicitly (\"binary-level presence - no "
     "specific source location\").\n"
     "- For structural questions (\"where is X\", \"what calls Y\") on "
     "Android, prefer the graph tools, then confirm details with read_file.\n"
@@ -71,18 +71,18 @@ SYSTEM_PROMPT = (
     "than guessing.\n"
     "- NEVER describe an action you intend to take instead of taking it. If a "
     "question needs the code, actually call search_code / read_file / "
-    "read_editable_file — a plan like \"Let's search for X\" with no tool call "
+    "read_editable_file - a plan like \"Let's search for X\" with no tool call "
     "is not an answer. Call the tool, then compose the final answer from its "
     "real results."
 )
 
 # M8 Phase D: appended to the system prompt ONLY when the scan is Android
-# AND the on-demand apktool decode is ready (edit_tools_allowed — the edit
+# AND the on-demand apktool decode is ready (edit_tools_allowed - the edit
 # tools are otherwise never even offered). Explains the review contract so a
 # real model proposes instead of claiming it applied a change.
 _M8_EDIT_PROMPT = (
     "\n\nEDIT TOOLS ARE AVAILABLE for this scan (Android, smali decode ready). "
-    "You can read and propose edits to the REBUILDABLE surface — smali files "
+    "You can read and propose edits to the REBUILDABLE surface - smali files "
     "(smali/...), resources (res/...), and the decoded AndroidManifest.xml:\n"
     "- search_code(pattern): find the relevant code in the jadx Java tree "
     "(e.g. 'password' or 'verify').\n"
@@ -90,17 +90,17 @@ _M8_EDIT_PROMPT = (
     "@mention (e.g. 'sources/com/foo/AuthManager.java') to its editable "
     "apktool smali sibling ('smali/com/foo/AuthManager.smali').\n"
     "- read_editable_file(path): read the CURRENT content of an editable file "
-    "(includes already-applied edits — exactly what a rebuild would compile).\n"
+    "(includes already-applied edits - exactly what a rebuild would compile).\n"
     "- propose_smali_edit(path, instruction, new_content): store an edit "
     "proposal with a generated diff.\n"
-    "IMPORTANT: propose_smali_edit NEVER applies anything — it stores a "
+    "IMPORTANT: propose_smali_edit NEVER applies anything - it stores a "
     "proposed edit for the human to review and apply/reject per file in the "
     "Review edits panel. Always read the file first and compose the FULL "
-    "edited content (byte-exact); never claim an edit was applied — say it "
+    "edited content (byte-exact); never claim an edit was applied - say it "
     "was PROPOSED and cite the file. For non-editable files (jadx Java, iOS "
     "bundle) say they are read-only and explain why. When the user "
     "@mentions a file (e.g. '@AndroidManifest.xml'), treat it as the target "
-    "of the request — the file's current content is already attached in the "
+    "of the request - the file's current content is already attached in the "
     "USER-MENTIONED FILES section."
 )
 
@@ -108,7 +108,7 @@ _M8_EDIT_PROMPT = (
 # M8 follow-up: user @-mentions of files in the dock. The frontend extracts
 # `@path` tokens from the draft and sends them as
 # ChatRequest.mentioned_files; this section renders each file's CURRENT
-# content (applied edits included for editable files — exactly what a rebuild
+# content (applied edits included for editable files - exactly what a rebuild
 # would compile) so the model answers / proposes edits about the mentioned
 # files directly, with no search round needed.
 _MENTION_MAX_FILES = 10
@@ -116,7 +116,7 @@ _MENTION_FILE_CHARS = 20_000
 _MENTION_TOTAL_CHARS = 60_000
 
 
-# M8 follow-up (Aug 11): models — local ones especially — sometimes answer
+# M8 follow-up (Aug 11): models - local ones especially - sometimes answer
 # with PLAN NARRATION instead of a tool call ("Let's search for login-related
 # files… Let's read LoginActivity.java…") and the loop would previously treat
 # that as the final answer: no search ever ran, no rollup. When a round
@@ -132,19 +132,19 @@ _NARRATION_INTENT_RE = re.compile(
     re.IGNORECASE,
 )
 # Bound the nudge: a model that simply cannot emit tool calls must not loop
-# forever — after this many nudges its narration is accepted as-is.
+# forever - after this many nudges its narration is accepted as-is.
 _MAX_NARRATION_NUDGES = 2
 _NARRATION_NUDGE = (
     "You described an action (search/read/check/inspect…) but did not call "
     "any tool. Actually call the tool NOW (e.g. search_code, read_file, "
-    "read_editable_file) and answer from the real results — a plan without "
+    "read_editable_file) and answer from the real results - a plan without "
     "a tool call is not an answer."
 )
 
 
 # M7: appended to the system prompt ONLY when the scan's web-research opt-in
 # AND an Active search engine both hold (the web tools are otherwise never
-# even offered — see schemas_for_platform).
+# even offered - see schemas_for_platform).
 _WEB_PROMPT = (
     "\n\nWEB RESEARCH IS ENABLED for this scan (the per-scan opt-in is on and "
     "a search engine is Active). You have two extra tools:\n"
@@ -153,7 +153,7 @@ _WEB_PROMPT = (
     "EXTERNAL information the scan data cannot answer.\n"
     "- web_fetch(url): read one page (static content only) from a search "
     "result, e.g. a CVE advisory, then cite its final URL in your answer.\n"
-    "Use these SPARINGLY — only when the question genuinely needs external "
+    "Use these SPARINGLY - only when the question genuinely needs external "
     "facts; never search for information already in the findings context. "
     "Queries leave this machine by design (the scan opted in). Always cite "
     "the source URLs you actually used."
@@ -177,7 +177,7 @@ class AgentTimeout(RuntimeError):
     """The agent loop exceeded its overall deadline (hung LLM call).
 
     Raised when the model has not produced an answer within the configured
-    budget — the API maps it to HTTP 504 so a hung upstream never blocks the
+    budget - the API maps it to HTTP 504 so a hung upstream never blocks the
     worker forever.
     """
 
@@ -187,7 +187,7 @@ class AgentTimeout(RuntimeError):
 _GREETING_RE = re.compile(r"^(hi+|hello+|hey+|yo+|howdy|hola)[!. ]*$", re.IGNORECASE)
 _GREETING_ANSWER = (
     "Hello! I'm MASA, the security agent for this scan. Ask me anything about "
-    "the findings, the decompiled code, or the app's security posture — try "
+    "the findings, the decompiled code, or the app's security posture - try "
     "\"where is certificate pinning handled?\" or \"explain the WebView risk.\""
 )
 
@@ -196,7 +196,7 @@ class ChatInterrupted(RuntimeError):
     """The user asked to stop this chat (Stop button -> cancel endpoint).
 
     Raised at the next agent-loop boundary after :func:`request_cancel` fires
-    for the scan — the API maps it to HTTP 409 so a cancelled request never
+    for the scan - the API maps it to HTTP 409 so a cancelled request never
     looks like a real answer. The registry entry is cleared in a ``finally``.
     """
 
@@ -205,7 +205,7 @@ TOOL_MODE_TOOLS = "tools"
 TOOL_MODE_CONTEXT = "context-only"
 
 # Cap for the result preview carried on tool_end events + the final trace
-# (the full result is still passed to the model — this is UI-only truncation).
+# (the full result is still passed to the model - this is UI-only truncation).
 _TOOL_RESULT_PREVIEW_MAX = 200
 
 
@@ -213,10 +213,10 @@ _TOOL_RESULT_PREVIEW_MAX = 200
 class AgentEvent:
     """One observable event from the agent loop while a turn runs.
 
-    Kinds: ``token`` (``{"delta"}`` — streamed answer text), ``tool_start``
+    Kinds: ``token`` (``{"delta"}`` - streamed answer text), ``tool_start``
     (``{"id", "name", "args"}``), ``tool_end`` (``{"id", "name",
     "status", "duration_ms", "result_preview", "error", "count"}``). The
-    final answer is the return value (AgentResult), not an event — the
+    final answer is the return value (AgentResult), not an event - the
     stream route emits the ``answer`` frame itself.
     """
 
@@ -226,7 +226,7 @@ class AgentEvent:
 
 @dataclasses.dataclass(frozen=True)
 class ToolRun:
-    """One executed tool call — the persistent trace on AgentResult / the
+    """One executed tool call - the persistent trace on AgentResult / the
     chat response, so the dock can render a collapsible per-tool record even
     after the live events are gone."""
 
@@ -256,7 +256,7 @@ _CANCEL_FLAGS: dict[int, threading.Event] = {}
 def request_cancel(scan_id: int) -> None:
     """Ask any in-flight chat for ``scan_id`` to stop as soon as possible.
 
-    No-op when nothing is running — the event only exists while a request is
+    No-op when nothing is running - the event only exists while a request is
     in flight, so cancelling before/after a chat changes nothing. Thread-safe:
     the cancel endpoint sets the flag while the chat loop reads it.
     """
@@ -302,7 +302,7 @@ class AgentResult:
     # turn, "context-only" when it answered from the findings context alone.
     tool_mode: str = TOOL_MODE_CONTEXT
     # M6 follow-up: the persistent per-tool trace (args, status, duration,
-    # capped result preview) — powers the dock's collapsible "Tools (n)".
+    # capped result preview) - powers the dock's collapsible "Tools (n)".
     tool_runs: list[ToolRun] = dataclasses.field(default_factory=list)
 
 
@@ -310,7 +310,7 @@ def _deadline_remaining(deadline: float, scan_id: int, timeout: float) -> float:
     """Remaining budget in seconds, raising ``AgentTimeout`` when exhausted.
 
     Used at every round start and before/after each model call so a hung LLM
-    call — including the no-tools fallback retry — can never extend the block
+    call - including the no-tools fallback retry - can never extend the block
     past the overall deadline.
     """
     remaining = deadline - time.monotonic()
@@ -325,7 +325,7 @@ def _pick_chat_backend():
     """First enabled backend with a configured model (M3 store, no default).
 
     Delegates to the shared rule (app.model.selection) so chat, per-finding
-    explain, and overview summary resolve the model identically — the M5
+    explain, and overview summary resolve the model identically - the M5
     plan's single-selection decision.
     """
     from app.model.selection import NoModelConfigured
@@ -357,7 +357,7 @@ def _emit(
 
 
 def _get(obj, key: str, default=None):
-    """Attribute-or-dict access — litellm chunk deltas may be pydantic models
+    """Attribute-or-dict access - litellm chunk deltas may be pydantic models
     OR plain dicts depending on provider/version."""
     if isinstance(obj, dict):
         return obj.get(key, default)
@@ -372,7 +372,7 @@ def _accumulate_tool_call_deltas(calls: dict, order: list, deltas) -> None:
     identifies the call, ``id``/``function.name`` arrive on the first delta
     for that index, and ``function.arguments`` is a partial JSON string
     concatenated across chunks. Local servers occasionally omit the index or
-    split arguments awkwardly — this is defensive against both.
+    split arguments awkwardly - this is defensive against both.
     """
     for raw in deltas:
         if raw is None:
@@ -383,7 +383,7 @@ def _accumulate_tool_call_deltas(calls: dict, order: list, deltas) -> None:
         name = _get(fn, "name")
         args = _get(fn, "arguments")
         if idx is None:
-            # Malformed servers omit the index — fall back to the call id,
+            # Malformed servers omit the index - fall back to the call id,
             # then to first-seen position.
             idx = cid if cid else len(order)
         if idx not in calls:
@@ -438,7 +438,7 @@ def _stream_round(
     """
     from types import SimpleNamespace
 
-    # Omit the tools kwarg entirely when None — some providers reject an
+    # Omit the tools kwarg entirely when None - some providers reject an
     # explicit null and the fallback call must look like a plain chat.
     stream_kwargs = {"temperature": temperature, "timeout": timeout}
     if tools is not None:
@@ -486,7 +486,7 @@ def _model_round(
     on_token: Callable[[str], None] | None,
 ):
     """One model round: streaming (deltas accumulated + tokens forwarded)
-    or buffered — the loop calls this uniformly so both paths share the
+    or buffered - the loop calls this uniformly so both paths share the
     same fallback logic."""
     if stream:
         return _stream_round(
@@ -510,7 +510,7 @@ def _classify_tool_result(result: str) -> tuple[str, str, str | None, int | None
 
     ``error`` is set when the result carries the ToolError shape; ``count``
     is the length when the result is a list (search hits, secrets rows, …).
-    The preview is capped — the full result still reaches the model.
+    The preview is capped - the full result still reaches the model.
     """
     try:
         parsed = json.loads(result)
@@ -542,7 +542,7 @@ def _load_mentioned_files(scan_id: int, paths: list[str]) -> str:
     """Render the USER-MENTIONED FILES section for the system prompt.
 
     Each mentioned path is read with the same guarded content read the
-    decompiler viewer uses (``tree.read_tree_file``) — traversal-guarded,
+    decompiler viewer uses (``tree.read_tree_file``) - traversal-guarded,
     binary files refused, plists decoded, and **editable files carry the
     applied-edit overlay** so the model sees the current state a rebuild
     would compile. Unreadable/missing paths degrade to an inline note, never
@@ -565,14 +565,14 @@ def _load_mentioned_files(scan_id: int, paths: list[str]) -> str:
 
     sections: list[str] = []
     total = 0
-    # Dedup — a raw API caller could otherwise attach the same path twice and
+    # Dedup - a raw API caller could otherwise attach the same path twice and
     # double its content in the prompt (wasting the total cap).
     for path in list(dict.fromkeys(paths))[:_MENTION_MAX_FILES]:
         try:
             resp = tree.read_tree_file(scan, path)
             content = resp.content
         except (tree.TreeError, FileNotFoundError) as exc:
-            sections.append(f"- {path}: [could not load — {exc}]")
+            sections.append(f"- {path}: [could not load - {exc}]")
             continue
         if len(content) > _MENTION_FILE_CHARS:
             content = content[:_MENTION_FILE_CHARS] + "\n… [truncated]"
@@ -586,7 +586,7 @@ def _load_mentioned_files(scan_id: int, paths: list[str]) -> str:
     if not sections:
         return ""
     return (
-        "\n\nUSER-MENTIONED FILES — the user explicitly attached these files "
+        "\n\nUSER-MENTIONED FILES - the user explicitly attached these files "
         "to the question (via @mention in the dock). Treat them as the focus: "
         "answer about them directly instead of searching for them. When the "
         "question asks to change code, propose edits to the EDITABLE ones "
@@ -622,17 +622,17 @@ def answer_question(
     ``stream=True`` switches the model calls to ``chat_stream``: content
     tokens are forwarded live via ``on_event`` (kind ``token``), and every
     executed tool call emits ``tool_start``/``tool_end`` events around its
-    execution — the same loop, just observable (the dock's live steps).
+    execution - the same loop, just observable (the dock's live steps).
     ``on_event`` is also honored when ``stream=False`` for the tool events,
     so callers can build a trace without token streaming.
 
-    Trivial greetings ("hi", "hello") are answered with a canned reply — no
+    Trivial greetings ("hi", "hello") are answered with a canned reply - no
     LLM call, no backend pick. If the loop ends without a text answer (the
     model only emitted tool calls), one final plain-chat attempt is made with
     the original grounded prompt (the documented context-only fallback) before
     the graceful "tool-call limit" message is returned.
     """
-    # Trivial greetings get a canned answer — no backend pick, no LLM call,
+    # Trivial greetings get a canned answer - no backend pick, no LLM call,
     # no tool loop. Regression: 'hi' used to make the model emit tool calls
     # every round, burn the whole budget, and come back as the confusing
     # "could not complete within the tool-call limit" message.
@@ -658,23 +658,23 @@ def answer_question(
     deadline = time.monotonic() + timeout
 
     # M6 Phase C: max_tool_rounds is a settings knob (same pattern as
-    # chat_timeout_seconds) — the per-call default comes from settings, an
+    # chat_timeout_seconds) - the per-call default comes from settings, an
     # explicit argument wins.
     if max_tool_rounds is None:
         max_tool_rounds = int(settings.max_tool_rounds)
 
-    # M7: both gates — the scan's web-research opt-in AND an Active search
+    # M7: both gates - the scan's web-research opt-in AND an Active search
     # engine. When they hold, the web tools are offered (and the system
     # prompt tells the model when to use them + to cite URLs).
     web_allowed = web_tools_allowed(scan_id)
     # M8 Phase D: edit tools only when the scan is Android AND the on-demand
-    # apktool decode is ready — same never-even-offered rule (the model gets
+    # apktool decode is ready - same never-even-offered rule (the model gets
     # the review contract explained when they ARE available).
     edit_allowed = edit_tools_allowed(scan_id)
     system_prompt = SYSTEM_PROMPT + (_WEB_PROMPT if web_allowed else "")
     if edit_allowed:
         system_prompt += _M8_EDIT_PROMPT
-    # M8 follow-up: user @-mentions — the mentioned files' content is attached
+    # M8 follow-up: user @-mentions - the mentioned files' content is attached
     # so the model answers/proposes about them directly (no search round).
     mentioned_section = _load_mentioned_files(scan_id, mentioned_files or [])
 
@@ -685,7 +685,7 @@ def answer_question(
         },
         {"role": "user", "content": question},
     ]
-    # The original 2-turn prompt — used by the exhaustion fallback so the
+    # The original 2-turn prompt - used by the exhaustion fallback so the
     # final plain-chat call never carries tool-role messages a server may
     # reject without a `tools` parameter.
     prompt = list(messages)
@@ -721,9 +721,9 @@ def answer_question(
                     on_token=on_token,
                 )
             except Exception:
-                # Some backends reject the tools kwarg — degrade to plain chat,
+                # Some backends reject the tools kwarg - degrade to plain chat,
                 # but only with the *freshly* remaining budget. If the first call
-                # already burned it (hung upstream), stop rather than retry — the
+                # already burned it (hung upstream), stop rather than retry - the
                 # worker block stays bounded by the overall deadline.
                 remaining = _deadline_remaining(deadline, scan_id, timeout)
                 try:
@@ -753,7 +753,7 @@ def answer_question(
             if not tool_calls:
                 # M8 follow-up (Aug 11): plan narration must not be the final
                 # answer. When the content describes an intended tool action
-                # but emitted no call, nudge (bounded) and continue — the
+                # but emitted no call, nudge (bounded) and continue - the
                 # assistant message is still recorded so the follow-up prompt
                 # stays coherent, and the model's next round can actually run
                 # the search/read and roll up a grounded answer. Guard: a
@@ -862,7 +862,7 @@ def answer_question(
     if not final_text:
         # The tool loop never produced a text answer (the model only ever
         # emitted tool calls, or returned empty content). One final plain-chat
-        # attempt with the original grounded prompt — no tools — bounded by the
+        # attempt with the original grounded prompt - no tools - bounded by the
         # remaining budget. This is the documented context-only fallback, and
         # it fixes trivial prompts that used to end in "tool-call limit".
         remaining = _deadline_remaining(deadline, scan_id, timeout)

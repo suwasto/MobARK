@@ -4,7 +4,7 @@ import type { EditRead } from '../../types'
 
 interface CodeEditorProps {
   scanId: number
-  /** Full tree path (content fetch — returns the effective content with the
+  /** Full tree path (content fetch - returns the effective content with the
    * newest applied edit overlaid). */
   contentPath: string
   /** apktool-root-relative path (POST /edits). */
@@ -27,7 +27,7 @@ function EditorLoading() {
 
 /**
  * M8 Phase B plaintext editor for editable paths (smali, res/, the decoded
- * AndroidManifest.xml). No editor dependency — a line-numbered textarea (hljs
+ * AndroidManifest.xml). No editor dependency - a line-numbered textarea (hljs
  * lacks a smali grammar anyway). Dirty tracking, Ctrl/Cmd+S -> POST /edits
  * (stored as a reviewable DB diff; the on-disk apktool tree never changes),
  * and a save-status row. The gutter follows the textarea's scroll exactly
@@ -53,7 +53,7 @@ export function CodeEditor({ scanId, contentPath, editPath, onSaved }: CodeEdito
     setJustSaved(false)
     setScrollTop(0)
     // NOTE: switching files discards any unsaved draft (the dirty indicator
-    // + Ctrl/Cmd+S are the affordance — a confirm dialog is Phase D polish).
+    // + Ctrl/Cmd+S are the affordance - a confirm dialog is Phase D polish).
     api
       .getFileContent(scanId, contentPath)
       .then((d) => {

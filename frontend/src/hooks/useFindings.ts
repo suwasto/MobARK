@@ -5,10 +5,10 @@ import type { FindingRead, Severity } from '../types'
 export type SeverityCounts = Record<Severity, number>
 
 export interface UseFindingsResult {
-  /** Non-suppressed findings (the real posture) — what Overview / Decompiler
+  /** Non-suppressed findings (the real posture) - what Overview / Decompiler
    * / Findings render by default. */
   findings: FindingRead[]
-  /** Suppressed (false-positive) findings — shown by the review toggle. */
+  /** Suppressed (false-positive) findings - shown by the review toggle. */
   suppressed: FindingRead[]
   counts: SeverityCounts
   total: number
@@ -30,7 +30,7 @@ const EMPTY_COUNTS: SeverityCounts = {
  * InsecureBankv2 523-finding scan) plus severity counts for the Overview
  * stat boxes. Fetches suppressed findings too (single call) and splits them
  * out: `findings` = active, `suppressed` = the review queue. Counts are over
- * the ACTIVE set — suppressed false positives don't drive the posture or the
+ * the ACTIVE set - suppressed false positives don't drive the posture or the
  * chips (matching the server-side risk score). Re-fetches when the scan id
  * changes or `refetch` is called.
  */
@@ -54,7 +54,7 @@ export function useFindings(scanId: number | null): UseFindingsResult {
     setError(null)
     // v1 cap: the API's max page size is 1000 (covers the flagship
     // InsecureBankv2 523-finding scan); larger scans would truncate the
-    // stat boxes / tab count — revisit with pagination in a later pass.
+    // stat boxes / tab count - revisit with pagination in a later pass.
     // include_suppressed=true so the review toggle needs no extra fetch.
     api
       .listFindings(scanId, { limit: 1000, includeSuppressed: true })

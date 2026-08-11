@@ -34,11 +34,11 @@ export interface ChatMessage {
   toolsUsed?: string[]
   /** M6 follow-up: the per-tool trace (live steps collapse into this). */
   steps?: ToolStep[]
-  /** Non-empty for failed agent turns — renders as a distinct bubble with
+  /** Non-empty for failed agent turns - renders as a distinct bubble with
    * a Retry affordance that re-sends the original question. */
   errorKind?: ChatErrorKind
   retryQuestion?: string
-  /** M8 follow-up: tree paths the user @mentioned in this message — kept
+  /** M8 follow-up: tree paths the user @mentioned in this message - kept
    * so a Retry re-sends them and the bubble can render clickable chips. */
   mentionedFiles?: string[]
 }
@@ -55,13 +55,13 @@ let nextMessageId = 1
 export function chatErrorMessage(kind: ChatErrorKind, detail: string): string {
   switch (kind) {
     case 'no-model':
-      return 'No chat model is connected yet. Open Settings (top-right ⚙), point MASA at a local backend such as Ollama and pick a model — then I can answer questions about this scan.'
+      return 'No chat model is connected yet. Open Settings (top-right ⚙), point MASA at a local backend such as Ollama and pick a model - then I can answer questions about this scan.'
     case 'not-analyzed':
-      return 'This scan has not finished analyzing yet — the agent becomes available once the pipeline is done.'
+      return 'This scan has not finished analyzing yet - the agent becomes available once the pipeline is done.'
     case 'upstream':
-      return `The model backend failed to answer — it may not be able to load the selected model. ${detail}`
+      return `The model backend failed to answer - it may not be able to load the selected model. ${detail}`
     case 'timeout':
-      return 'The agent ran out of time answering that one. The question may be too broad — narrow it to a specific file or finding, then retry.'
+      return 'The agent ran out of time answering that one. The question may be too broad - narrow it to a specific file or finding, then retry.'
     case 'network':
       return `Could not reach the backend: ${detail}`
     default:
@@ -119,7 +119,7 @@ function parseData<T>(raw: string): T | null {
 const TOKEN_FLUSH_MS = 50
 
 /**
- * Agent dock conversation (Phase G + M6 follow-up) — messages + send over
+ * Agent dock conversation (Phase G + M6 follow-up) - messages + send over
  * `POST /scans/{id}/chat/stream` (SSE: live tokens + tool steps), plus
  * interrupt: `stop()` aborts the in-flight fetch (immediate UI) and fires the
  * cancel endpoint so the server halts the agent loop at the next round (no
@@ -132,7 +132,7 @@ export function useChat(scanId: number) {
   const [sending, setSending] = useState(false)
   const requestIdRef = useRef(0)
   const controllerRef = useRef<AbortController | null>(null)
-  // Ref mirror of `pending` — the stream handlers (abort path especially)
+  // Ref mirror of `pending` - the stream handlers (abort path especially)
   // need the latest turn without reading stale closure state.
   const pendingRef = useRef<PendingTurn | null>(null)
 
@@ -153,7 +153,7 @@ export function useChat(scanId: number) {
     controllerRef.current?.abort()
     controllerRef.current = null
     // The in-flight promise is now aborted; bump the guard so its
-    // then/catch/finally all bail — no error bubble, no stale state.
+    // then/catch/finally all bail - no error bubble, no stale state.
     requestIdRef.current += 1
     setSending(false)
     setMessages((prev) => [
@@ -161,13 +161,13 @@ export function useChat(scanId: number) {
       {
         id: nextMessageId++,
         role: 'agent',
-        content: '⏹ Stopped — the agent\\u2019s turn was interrupted.',
+        content: '⏹ Stopped - the agent\\u2019s turn was interrupted.',
       },
     ])
     // Fire-and-forget: tell the server to stop. If it fails, the abort above
     // already stopped the UI; the server just finishes its current round.
     void api.cancelChat(scanId).catch(() => {
-      // No UI — the stop already happened client-side.
+      // No UI - the stop already happened client-side.
     })
   }, [scanId])
 
@@ -311,7 +311,7 @@ export function useChat(scanId: number) {
           } else {
             pushErrorMessage(
               'error',
-              'The agent stream ended without an answer — please retry.',
+              'The agent stream ended without an answer - please retry.',
             )
           }
           setSending(false)
@@ -321,7 +321,7 @@ export function useChat(scanId: number) {
             // Stopped via the Stop button: keep whatever streamed so far as a
             // partial message (the dock already appended the "Stopped" note),
             // so live text/steps are not silently dropped. The abort is only
-            // meaningful for the CURRENT request — an older request aborted
+            // meaningful for the CURRENT request - an older request aborted
             // by a superseding send already had its ref bumped and must bail.
             if (requestIdRef.current !== id) return
             const partial = pendingRef.current

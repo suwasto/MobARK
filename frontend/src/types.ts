@@ -1,5 +1,5 @@
 /**
- * M5 typed API layer — mirrors of the backend Pydantic schemas
+ * M5 typed API layer - mirrors of the backend Pydantic schemas
  * (backend/app/schemas.py) and model enums (backend/app/models.py).
  */
 
@@ -12,7 +12,7 @@ export interface HealthResponse {
 
 export type ScanStatus = 'queued' | 'running' | 'done' | 'failed'
 export type Platform = 'android' | 'ios'
-// No critical band (owner decision, Aug 8 2026) — high is the top severity.
+// No critical band (owner decision, Aug 8 2026) - high is the top severity.
 export type Severity = 'high' | 'medium' | 'low' | 'info'
 
 export interface ScanRead {
@@ -22,11 +22,11 @@ export interface ScanRead {
   status: ScanStatus
   /** Internal severity-weighted risk (higher = worse); the UI reads security_score. */
   risk_score: number | null
-  /** Public-facing 0-100 score — higher is better (100 - risk). */
+  /** Public-facing 0-100 score - higher is better (100 - risk). */
   security_score: number | null
   error: string | null
   stage: string | null
-  /** M7: per-scan web research opt-in (privacy gate) — the agent's web tools
+  /** M7: per-scan web research opt-in (privacy gate) - the agent's web tools
    * are offered only when this is on AND an Active search engine exists. */
   web_research_enabled: boolean
   /** M8: on-demand apktool decode state (Android only). The Smali chip uses
@@ -50,7 +50,7 @@ export interface SmaliStatus {
   error: string | null
 }
 
-/** M8 Phase B: one edit row (the edits table — DB-diff source of truth). */
+/** M8 Phase B: one edit row (the edits table - DB-diff source of truth). */
 export interface EditRead {
   id: number
   scan_id: number
@@ -82,13 +82,13 @@ export interface SmaliSibling {
   sibling: string | null
 }
 
-/** Java→Smali tree-path mapping for a scan's findings — Smali-mode dots +
+/** Java→Smali tree-path mapping for a scan's findings - Smali-mode dots +
  * the annotation rail re-key jadx findings onto their apktool smali
  * siblings (keys = jadx tree paths like `sources/com/foo/A.java`, values =
  * smali tree paths like `smali/com/foo/A.smali`; scoped to finding-bearing
  * paths so the payload stays bounded).
  *
- * `anchors` (Aug 11): smali-mode LINE anchors for line-bearing findings —
+ * `anchors` (Aug 11): smali-mode LINE anchors for line-bearing findings -
  * `{smaliTreePath: {str(jadxLine): smaliLine}}`, each jadx line mapped to
  * its containing method's `.method` line in the smali sibling (jadx
  * renumbers, so only method granularity is honest). The smali rail notes
@@ -99,7 +99,7 @@ export interface SmaliMapping {
   total: number
 }
 
-/** M8 Phase C: rebuild lifecycle (the builds table — full history, D8). */
+/** M8 Phase C: rebuild lifecycle (the builds table - full history, D8). */
 export type BuildStatus = 'queued' | 'running' | 'done' | 'failed'
 export type BuildStage =
   | 'queued'
@@ -109,7 +109,7 @@ export type BuildStage =
   | 'signing'
   | 'done'
 
-/** One recompile attempt — the recompile modal's poll target. */
+/** One recompile attempt - the recompile modal's poll target. */
 export interface BuildRead {
   id: number
   scan_id: number
@@ -138,7 +138,7 @@ export interface FindingRead {
   tool: string
   detail: Record<string, unknown> | null
   static_only: boolean
-  /** M5 (Aug 8): false-positive suppression — hidden by default, excluded
+  /** M5 (Aug 8): false-positive suppression - hidden by default, excluded
    * from risk/summary/agent context; restorable via the review toggle. */
   suppressed: boolean
   suppressed_at: string | null
@@ -169,7 +169,7 @@ export interface ModelBackendRead {
   enabled: boolean
   local: boolean
   has_api_key: boolean
-  /** Provider's curated model list — Settings shows these by default with a
+  /** Provider's curated model list - Settings shows these by default with a
    * "see all" reveal for the full served list (owner UX request, Aug 8). */
   suggested_models: string[]
   health: ModelBackendHealth | null
@@ -217,7 +217,7 @@ export interface SearchBackendRead {
   /** Active/Inactive radio: exactly one engine enabled at a time. */
   enabled: boolean
   order: number
-  /** The key itself is never returned — only whether one is set. */
+  /** The key itself is never returned - only whether one is set. */
   has_api_key: boolean
   health: SearchBackendHealth | null
 }
@@ -236,7 +236,7 @@ export interface SearchBackendCreate {
   api_key?: string | null
 }
 
-/** One addable search engine — drives the Settings add-form picker. */
+/** One addable search engine - drives the Settings add-form picker. */
 export interface SearchProviderRead {
   id: string
   name: string
@@ -253,7 +253,7 @@ export interface ChatRequest {
   timeout_seconds?: number | null
   /** M6 Phase C: max tool-calling rounds before the context-only fallback. */
   max_tool_rounds?: number | null
-  /** M8 follow-up: tree paths the user @mentioned in the dock — the agent
+  /** M8 follow-up: tree paths the user @mentioned in the dock - the agent
    * gets their content attached (no search round needed). */
   mentioned_files?: string[]
 }
@@ -264,7 +264,7 @@ export interface Citation {
   snippet: string
 }
 
-/** One executed tool call — the persistent trace on a chat response. */
+/** One executed tool call - the persistent trace on a chat response. */
 export interface ToolRunRead {
   id: string
   name: string
@@ -307,7 +307,7 @@ export interface GraphNodeRow {
 
 export interface GraphSearchResponse {
   query: string
-  /** Pre-limit match count — the UI shows "n of m". */
+  /** Pre-limit match count - the UI shows "n of m". */
   total: number
   nodes: GraphNodeRow[]
 }

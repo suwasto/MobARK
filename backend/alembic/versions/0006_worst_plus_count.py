@@ -7,7 +7,7 @@ Create Date: 2026-08-08
 Owner follow-up (Aug 8, 2026): the risk score is now **worst + breadth**,
 not pure max. ``risk.py::compute_risk_score`` scores ``round(10 ×
 max_cvss)`` plus ~1 point per extra finding at the TOP severity band
-(high), capped at +9 so risk never crosses 89 — CVSS 4.0 8.9 is the top of
+(high), capped at +9 so risk never crosses 89 - CVSS 4.0 8.9 is the top of
 the High band, so the removed critical band is never re-introduced. Below
 high, bands keep their plain representative score (446 mediums = 55, same
 as 1 medium). Rationale: suppressing/fixing a few of many highs should
@@ -16,7 +16,7 @@ any high keeps the scan in the High band.
 
 This migration re-scores every ``done`` scan under the new model so
 persisted rows don't drift from the live code (the same recompute pass
-migration 0005 did for the critical->high mapping). Self-contained — no
+migration 0005 did for the critical->high mapping). Self-contained - no
 app imports, so it can't drift from the mapping at migration time. The
 formula mirrors ``risk.py`` exactly (round-half-up on the 0.9 slope).
 """
@@ -37,7 +37,7 @@ _SEVERITY_RISK = {
     "low": 20,
     "info": 0,
 }
-# Worst + breadth constants — MUST match risk.py::compute_risk_score.
+# Worst + breadth constants - MUST match risk.py::compute_risk_score.
 _HIGH_COUNT_BONUS_CAP = 9
 _HIGH_COUNT_BONUS_PER_EXTRA = 0.9
 
@@ -75,5 +75,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Data-only migration: the previous max-only values were overwritten and
-    # are not recoverable (same policy as 0005's rewrite) — nothing to undo.
+    # are not recoverable (same policy as 0005's rewrite) - nothing to undo.
     pass

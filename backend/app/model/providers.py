@@ -1,11 +1,11 @@
-"""Provider table — single source of truth for M3's backend definitions.
+"""Provider table - single source of truth for M3's backend definitions.
 
 One auditable place for each provider's LiteLLM model-string prefix, env-var
 name, key-required vs base-URL-only posture, model-listing path + parsing
 style (``list_style``: OpenAI-shaped Bearer auth, Gemini's
 ``?key=``/``models/`` format, Anthropic's ``x-api-key`` headers), and a
 static fallback model list (used only as the offline fallback when a live
-fetch fails — Anthropic/Gemini — or when a provider has no endpoint at
+fetch fails - Anthropic/Gemini - or when a provider has no endpoint at
 all).
 
 Curated v1 BYOK set (owner decision): OpenAI, Anthropic, DeepSeek, OpenRouter,
@@ -31,16 +31,16 @@ class Provider:
     default_base_url: str
     models_path: str | None  # path under base_url for the GET /models listing
     # How the listing endpoint is called + parsed:
-    #   "openai" — Bearer auth, `{"data": [{"id": ...}]}` (Ollama/LM
+    #   "openai" - Bearer auth, `{"data": [{"id": ...}]}` (Ollama/LM
     #              Studio/OpenAI-compatible)
-    #   "gemini" — `?key=` auth, `{"models": [{"name": "models/..."}]}`,
+    #   "gemini" - `?key=` auth, `{"models": [{"name": "models/..."}]}`,
     #              filtered to generateContent-capable base models
-    #   "anthropic" — `x-api-key` + `anthropic-version` headers (no Bearer),
+    #   "anthropic" - `x-api-key` + `anthropic-version` headers (no Bearer),
     #              `{"data": [{"id": ...}]}` parse (OpenAI-shaped response)
     list_style: str = "openai"
     # Static fallback models used ONLY when a live listing fails or returns
     # empty (Anthropic/Gemini) or no listing endpoint exists. Kept
-    # deliberately small — model names drift; the live list is the source of
+    # deliberately small - model names drift; the live list is the source of
     # truth whenever it works.
     suggested_models: tuple[str, ...] = ()
     dummy_key: str | None = None  # placeholder key for local servers
@@ -94,11 +94,11 @@ PROVIDERS: dict[str, Provider] = {
             key_env_var="ANTHROPIC_API_KEY",
             base_url_required=False,
             default_base_url="https://api.anthropic.com",
-            # Anthropic DOES ship a live listing (`GET /v1/models`) — the
+            # Anthropic DOES ship a live listing (`GET /v1/models`) - the
             # response is OpenAI-shaped but auth is not (x-api-key +
             # anthropic-version, no Bearer), so list_style="anthropic"
             # handles it. The curated list below is the OFFLINE fallback
-            # only — the live list is the source of truth.
+            # only - the live list is the source of truth.
             models_path="/v1/models",
             list_style="anthropic",
             suggested_models=(
@@ -143,16 +143,16 @@ PROVIDERS: dict[str, Provider] = {
             key_required=True,
             key_env_var="GEMINI_API_KEY",
             base_url_required=False,
-            # LiteLLM builds `{api_base}/models/{model}:generateContent` — the
+            # LiteLLM builds `{api_base}/models/{model}:generateContent` - the
             # base must carry the API version root. v1beta is pinned because
             # MASA always passes api_base; only v1beta-compatible models are
             # curated (litellm routes Gemini 3+ previews to v1alpha on its own).
             default_base_url="https://generativelanguage.googleapis.com/v1beta",
-            # Gemini DOES have a live listing (`GET /v1beta/models`) — it's
+            # Gemini DOES have a live listing (`GET /v1beta/models`) - it's
             # just not OpenAI-shaped, so list_style="gemini" handles the
             # `?key=` auth + `models/`-prefixed parse + generateContent
             # filter. The curated list below is the OFFLINE fallback only
-            # (bad key / no network) — the live list is the source of truth,
+            # (bad key / no network) - the live list is the source of truth,
             # so provider deprecations can never hard-break the app again.
             models_path="/models",
             list_style="gemini",
@@ -175,7 +175,7 @@ PROVIDERS: dict[str, Provider] = {
             models_path="/models",
         ),
         # Dev-only (M6 follow-up): MASA_FAKE_MODEL=1 seeds this backend and
-        # model/client.py short-circuits it to a deterministic script — the
+        # model/client.py short-circuits it to a deterministic script - the
         # Agent dock's live steps + token streaming are demoable with zero
         # Ollama. Never contacted; the fake has no base_url and the model
         # listing falls back to the static "demo" model.

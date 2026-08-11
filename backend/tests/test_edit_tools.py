@@ -1,4 +1,4 @@
-"""M8 Phase D tests — the agent edit flow.
+"""M8 Phase D tests - the agent edit flow.
 
 Covers the edit tool surface (``read_editable_file`` / ``propose_smali_edit``
 in agent/tools.py), the ``create_agent_proposal`` service (proposed, never
@@ -154,7 +154,7 @@ def test_find_smali_sibling_rejects_non_sources_path(env):
 
 def test_find_smali_sibling_no_sibling_is_error(env):
     """A class jadx decompiled but apktool didn't (or a jadx-fallback smali)
-    has no editable sibling — a clean error, never a guessed path."""
+    has no editable sibling - a clean error, never a guessed path."""
     scan_id, tmp_path, _ = env
     _jadx_tree(tmp_path, scan_id)
     _apktool_tree(tmp_path, scan_id)
@@ -217,7 +217,7 @@ def test_read_editable_file_missing_is_tool_error(env):
 
 def test_read_editable_file_overlays_applied_edits(env):
     """The model must read the CURRENT state (newest applied edit), not the
-    pristine on-disk baseline — proposals stack on effective content."""
+    pristine on-disk baseline - proposals stack on effective content."""
     scan_id, tmp_path, db = env
     _apktool_tree(tmp_path, scan_id)
     with db() as session:
@@ -303,7 +303,7 @@ def test_propose_smali_edit_size_cap(env, monkeypatch):
 
 
 def test_proposals_never_leak_into_effective_content(env):
-    """A proposed edit must NOT shape the effective content — only APPLIED
+    """A proposed edit must NOT shape the effective content - only APPLIED
     edits stack; a proposal is a review candidate, not a live change."""
     scan_id, tmp_path, db = env
     _apktool_tree(tmp_path, scan_id)
@@ -313,7 +313,7 @@ def test_proposals_never_leak_into_effective_content(env):
                                  'android:debuggable="false"'),
     )
     with db() as session:
-        # Effective content is still the baseline — proposals never apply.
+        # Effective content is still the baseline - proposals never apply.
         assert edits.effective_content(session, scan_id, "AndroidManifest.xml") is None
 
 
@@ -388,7 +388,7 @@ def test_fake_edit_demo_streamed(demo_scan, monkeypatch):
     """THE flagship demo: the fake model + real loop + real edit tools,
     streamed. The dock sees thinking tokens, read_editable_file + a real
     propose_smali_edit step, then a cited answer pointing at the stored
-    proposal — never applied automatically."""
+    proposal - never applied automatically."""
     from app.agent import chat as chat_mod
     from app.agent.chat import answer_question
 
@@ -424,7 +424,7 @@ def test_fake_edit_demo_streamed(demo_scan, monkeypatch):
     ]
     assert all(r.status == "ok" for r in result.tool_runs)
 
-    # The stored row is PROPOSED — effective content untouched.
+    # The stored row is PROPOSED - effective content untouched.
     with db() as session:
         rows = list(
             session.query(Edit).filter(Edit.scan_id == scan_id).all()
@@ -451,7 +451,7 @@ def test_fake_edit_demo_buffered_path(demo_scan, monkeypatch):
 
 
 def test_fake_edit_demo_uses_bar_target_hint(demo_scan, monkeypatch):
-    """The ✨ Ask agent bar appends '(Target editable file: ...)' — the fake
+    """The ✨ Ask agent bar appends '(Target editable file: ...)' - the fake
     reads + proposes THAT file (smali here), not the manifest fallback."""
     from app.agent import chat as chat_mod
     from app.agent.chat import answer_question
@@ -472,7 +472,7 @@ def test_fake_edit_demo_uses_bar_target_hint(demo_scan, monkeypatch):
 
 
 def test_fake_edit_demo_editable_mention_targets_that_file(demo_scan, monkeypatch):
-    """M8 follow-up: the dock's @-mention — '@smali/com/foo/AuthManager.smali
+    """M8 follow-up: the dock's @-mention - '@smali/com/foo/AuthManager.smali
     add a review marker' targets the MENTIONED editable file (not the
     manifest fallback), same as the bar hint flow."""
     from app.agent import chat as chat_mod
@@ -513,7 +513,7 @@ def test_fake_edit_demo_manifest_mention_targets_manifest(demo_scan, monkeypatch
 
 def test_fake_edit_demo_jadx_mention_maps_via_smali_sibling(demo_scan, monkeypatch):
     """M8 follow-up: an @-mention of a JADX source (read-only) drives the
-    search -> map -> read -> propose flow — find_smali_sibling maps the
+    search -> map -> read -> propose flow - find_smali_sibling maps the
     mentioned class to its editable smali, and the proposal targets the
     SIBLING, not the manifest fallback."""
     from app.agent import chat as chat_mod
@@ -546,7 +546,7 @@ def test_fake_edit_demo_jadx_mention_maps_via_smali_sibling(demo_scan, monkeypat
 
 def test_fake_edit_jadx_mention_no_sibling_is_honest_error(demo_scan, monkeypatch):
     """A jadx mention whose class has no decoded smali sibling fails cleanly
-    (find_smali_sibling errors) — no proposal, honest answer."""
+    (find_smali_sibling errors) - no proposal, honest answer."""
     from app.agent import chat as chat_mod
     from app.agent.chat import answer_question
 
@@ -563,7 +563,7 @@ def test_fake_edit_jadx_mention_no_sibling_is_honest_error(demo_scan, monkeypatc
 
 def test_fake_edit_jadx_mention_alone_is_question_not_edit(demo_scan, monkeypatch):
     """An @-mention of a jadx source WITHOUT edit keywords is a question, not
-    an edit request — it keeps the main demo (no proposal row)."""
+    an edit request - it keeps the main demo (no proposal row)."""
     from app.agent import chat as chat_mod
     from app.agent.chat import answer_question
 
@@ -591,7 +591,7 @@ def test_fake_edit_demo_not_edit_question_runs_main_demo(demo_scan, monkeypatch)
 
 def test_fake_edit_demo_failed_read_composes_honest_answer(demo_scan, monkeypatch):
     """If the read errors (e.g. the bar target doesn't exist), the fake must
-    NOT retry the same call — it composes an honest answer and the loop ends
+    NOT retry the same call - it composes an honest answer and the loop ends
     within the round limit (M7 web-demo precedent)."""
     from app.agent import chat as chat_mod
     from app.agent.chat import answer_question

@@ -1,4 +1,4 @@
-"""Dev-only fake LLM tests (M6 follow-up) — no network, no Ollama.
+"""Dev-only fake LLM tests (M6 follow-up) - no network, no Ollama.
 
 The fake is the deterministic stand-in for a real model: seeded by the
 MASA_FAKE_MODEL knob, short-circuited in model/client.py, and scripted in
@@ -43,7 +43,7 @@ def _tool_results(messages):
 
 def test_fake_knob_reads_documented_env_var(monkeypatch):
     """Regression: pydantic-settings derives env names from FIELD names, so
-    ``fake_model_enabled`` would silently become MASA_FAKE_MODEL_ENABLED —
+    ``fake_model_enabled`` would silently become MASA_FAKE_MODEL_ENABLED -
     the documented knob MASA_FAKE_MODEL needs the explicit alias. The
     live demo run exposed this: the server ignored MASA_FAKE_MODEL=1."""
     from app.config import Settings
@@ -63,7 +63,7 @@ def test_fake_provider_in_table():
     provider = PROVIDERS["fake"]
     assert provider.kind == "local"
     assert provider.suggested_models == ("demo",)
-    assert provider.models_path is None  # no live listing — static "demo"
+    assert provider.models_path is None  # no live listing - static "demo"
 
 
 def test_seed_omits_fake_by_default(monkeypatch):
@@ -91,7 +91,7 @@ def test_store_reconciles_fake_into_existing_store(monkeypatch, tmp_path):
     assert store.get("fake") is not None
     assert store.get("fake").model == "demo"
     assert store.get("fake").enabled
-    # The reconcile is idempotent — a converged store doesn't rewrite itself.
+    # The reconcile is idempotent - a converged store doesn't rewrite itself.
     assert [b.id for b in store.read()] == ["fake", "ollama", "lm-studio"]
 
 
@@ -143,7 +143,7 @@ def test_fake_chat_round2_composes_answer_from_real_hits():
 
 def test_fake_chat_round2_tool_error_never_mistaken_for_manifest():
     """A failed read_manifest ({"error": ...}) must not render as "the
-    manifest summary is available" — error dicts are skipped (review catch)."""
+    manifest summary is available" - error dicts are skipped (review catch)."""
     messages = [
         {"role": "tool", "tool_call_id": "c1", "content": "[]"},
         {"role": "tool", "tool_call_id": "c2",
@@ -208,7 +208,7 @@ def test_fake_stream_plain_without_tools():
 
 
 def test_fake_stream_rounds_flow_through_real_accumulator():
-    """The fake's chunks must be consumable by the REAL _stream_round — the
+    """The fake's chunks must be consumable by the REAL _stream_round - the
     exact integration a demo turn runs (thinking text + normalized tool calls)."""
     messages = [{"role": "user", "content": "where is the webview?"}]
     tokens: list[str] = []
@@ -250,7 +250,7 @@ def test_fake_web_round1_issues_search_when_no_results():
 
 
 def test_fake_web_round1_uses_the_users_question_as_the_query():
-    """A manual web-search test types its OWN query — the fake's round-1
+    """A manual web-search test types its OWN query - the fake's round-1
     web_search must run the user's actual question text (a real model would
     paraphrase it; the fake is a script and searches verbatim). The canned
     query is only the fallback for empty/short questions."""
@@ -289,7 +289,7 @@ def test_fake_web_round2_fetches_top_result_once():
 
 def test_fake_web_round3_failed_fetch_never_retried_cites_results():
     """Regression (containerized e2e, Aug 9): a 403'd page (e.g. medium.com
-    blocking the honest MASA UA) must NOT be re-fetched — the next response
+    blocking the honest MASA UA) must NOT be re-fetched - the next response
     composes the answer from the search results, citing the top URL, so the
     demo always lands a citation within the default 3 tool rounds instead of
     looping on the same failed fetch until the round limit."""
@@ -440,7 +440,7 @@ def test_fake_backend_runs_real_agent_loop(demo_scan, monkeypatch):
     ends = [e for e in events if e.kind == "tool_end"]
     assert all(e.payload["status"] == "ok" for e in ends)
     search_end = next(e for e in ends if e.payload["name"] == "search_code")
-    assert search_end.payload["count"] == 1  # W.java:42 — a REAL hit
+    assert search_end.payload["count"] == 1  # W.java:42 - a REAL hit
 
     # The answer cites the real first hit -> clickable src-chip in the dock.
     assert "com/app/W.java:42" in result.answer
@@ -453,7 +453,7 @@ def test_fake_backend_runs_real_agent_loop(demo_scan, monkeypatch):
 
 def test_fake_backend_buffered_path_same_script(demo_scan, monkeypatch):
     """The buffered (non-streaming) /chat path with the fake runs the same
-    script — thinking + two tools + composed answer."""
+    script - thinking + two tools + composed answer."""
     from app.agent import chat as chat_mod
     from app.agent.chat import answer_question
 

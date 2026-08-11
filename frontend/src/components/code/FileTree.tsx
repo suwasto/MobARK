@@ -52,7 +52,7 @@ function DirNode({
   )
 }
 
-/** Recursive renderer — carries the root name so file clicks know it. */
+/** Recursive renderer - carries the root name so file clicks know it. */
 function TreeNode({
   node,
   rootName,
@@ -69,7 +69,7 @@ function TreeNode({
   if (node.type === 'file') {
     const rank = rest.findingFiles.get(node.path) ?? 0
     const active = rest.selectedPath === node.path
-    // iOS hidden binary blobs are inventory rows, not openable files — they
+    // iOS hidden binary blobs are inventory rows, not openable files - they
     // render inert (no click/keyboard, dimmed) with an explanatory tooltip.
     if (node.binary) {
       return (
@@ -78,7 +78,7 @@ function TreeNode({
           role="treeitem"
           aria-disabled
           className="file-node binary"
-          title={`${node.name} — binary file, not viewable (use analysis/ + import-table findings)`}
+          title={`${node.name} - binary file, not viewable (use analysis/ + import-table findings)`}
         >
           <span className="fname">{node.name}</span>
         </div>

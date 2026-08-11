@@ -15,7 +15,7 @@ def _settings(**overrides) -> Settings:
 
 def test_seed_creates_file_with_local_backends_only(tmp_path, monkeypatch):
     """BYOK backends are no longer seeded keyless (owner decision, Aug 8
-    2026) — an unusable cloud entry only confuses Settings. Fresh installs
+    2026) - an unusable cloud entry only confuses Settings. Fresh installs
     get local backends; cloud providers are added via the BYOK menu."""
     # Deterministic: a dev machine may have MASA_*_API_KEY exported.
     for key in ("OPENAI", "ANTHROPIC", "DEEPSEEK", "OPENROUTER", "GEMINI"):
@@ -73,8 +73,8 @@ def test_store_honors_existing_file_over_env(tmp_path, monkeypatch):
 
 def test_upsert_persists_and_clears_key(tmp_path):
     store = BackendStore(tmp_path, settings_obj=_settings())
-    store.read()  # seed (local backends only — unkeyed BYOK no longer seeds)
-    # Add a BYOK backend the way the app does (store.add, keyed) — owner
+    store.read()  # seed (local backends only - unkeyed BYOK no longer seeds)
+    # Add a BYOK backend the way the app does (store.add, keyed) - owner
     # decision Aug 8 2026: keyless BYOK entries are never seeded/created.
     store.add(
         ModelBackend(

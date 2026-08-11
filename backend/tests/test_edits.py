@@ -35,7 +35,7 @@ def _make_decoded_scan(db_session_factory, tmp_path, monkeypatch, *, platform="a
 
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     # tree.py opens its own session for the effective-content overlay (same
-    # pattern as the iOS analysis docs) — point it at the scratch DB.
+    # pattern as the iOS analysis docs) - point it at the scratch DB.
     monkeypatch.setattr(app.db, "SessionLocal", db_session_factory)
     with db_session_factory() as session:
         scan = Scan(
@@ -118,7 +118,7 @@ def test_edit_original_baselines_on_effective_content(
         e2 = session.get(Edit, edit2["id"])
         assert e2.original_content == PATCHED_SMALI  # edit 1's new_content
         assert e2.new_content == stacked
-        # the diff is ONLY the nop addition — the const line is context, never
+        # the diff is ONLY the nop addition - the const line is context, never
         # a removal (i.e. edit2 was not re-diffed against the on-disk baseline)
         assert "+    nop" in e2.unified_diff
         assert "-    const/4 v0, 0x0" not in e2.unified_diff
@@ -211,7 +211,7 @@ def test_edit_not_analyzed_409(client, db_session_factory, monkeypatch, tmp_path
 
 def test_apply_reject_revert_transitions(client, db_session_factory, monkeypatch, tmp_path):
     scan_id = _make_decoded_scan(db_session_factory, tmp_path, monkeypatch)
-    # manual edits are applied already — reject/revert must 400 on wrong state
+    # manual edits are applied already - reject/revert must 400 on wrong state
     edit = _post_edit(client, scan_id, "smali/com/foo/AuthManager.smali", PATCHED_SMALI).json()
     r = client.post(f"/api/v1/scans/{scan_id}/edits/{edit['id']}/reject")
     assert r.status_code == 400
@@ -285,7 +285,7 @@ def test_viewer_shows_applied_edit_content(client, db_session_factory, monkeypat
         params={"path": "smali/com/foo/AuthManager.smali"},
     ).json()
     assert "const/4 v0, 0x0" in content["content"]
-    # the on-disk tree is untouched — the edit lives only in the DB
+    # the on-disk tree is untouched - the edit lives only in the DB
     assert (
         apktool.decoded_root(scan_id) / "smali" / "com" / "foo" / "AuthManager.smali"
     ).read_text() == ORIGINAL_SMALI
@@ -388,7 +388,7 @@ def test_smali_sibling_multidex_first_found(
     client, db_session_factory, monkeypatch, tmp_path
 ):
     """A class present in both smali and smali_classesN resolves to the
-    first-found (smali) — apktool's classes.dex order."""
+    first-found (smali) - apktool's classes.dex order."""
     scan_id = _make_decoded_scan(db_session_factory, tmp_path, monkeypatch)
     extra = apktool.decoded_root(scan_id) / "smali_classes2" / "com" / "foo"
     (extra / "AuthManager.smali").write_text(ORIGINAL_SMALI)

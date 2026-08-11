@@ -1,4 +1,4 @@
-"""M5 insights unit tests — explain + summary with the LLM client mocked.
+"""M5 insights unit tests - explain + summary with the LLM client mocked.
 
 No network, no model store churn: ``pick_chat_backend`` and ``client_chat``
 are monkeypatched per test.
@@ -80,7 +80,7 @@ def test_explain_generates_and_persists(monkeypatch):
 
     monkeypatch.setattr(insights, "client_chat", fake_chat)
     monkeypatch.setattr(insights, "pick_chat_backend", lambda: _backend())
-    # No real scan tree in a unit test — fake the source-context read.
+    # No real scan tree in a unit test - fake the source-context read.
     monkeypatch.setattr(
         insights, "read_file", lambda *a, **k: "e.putString(\"session_token\", res.getToken());"
     )
@@ -100,7 +100,7 @@ def test_explain_generates_and_persists(monkeypatch):
 
 def test_explain_regenerate_bypasses_cache(monkeypatch):
     """regenerate=True re-runs the LLM even on a cached finding and overwrites
-    the stored explanation — the Regenerate button's explicit cost spend."""
+    the stored explanation - the Regenerate button's explicit cost spend."""
     finding = _finding(explanation="already explained")
     calls = {"n": 0}
 
@@ -212,7 +212,7 @@ def test_summary_cache_hit_skips_llm(monkeypatch):
 
 def test_summary_regenerate_bypasses_cache(monkeypatch):
     """regenerate=True re-runs the LLM even with a cached summary and
-    overwrites the stored row — same explicit-opt-in contract as explain."""
+    overwrites the stored row - same explicit-opt-in contract as explain."""
     scan = _scan(ai_summary="cached summary")
     calls = {"n": 0}
 

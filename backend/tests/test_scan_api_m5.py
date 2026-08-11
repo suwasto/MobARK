@@ -1,4 +1,4 @@
-"""M5 Phase A API tests — upload, findings GET, explain, summary, files.
+"""M5 Phase A API tests - upload, findings GET, explain, summary, files.
 
 LLM-backed endpoints are monkeypatched (no network, no model store); the
 insights module itself has its own mocked unit tests (test_agent/).
@@ -93,7 +93,7 @@ def _make_ios_tree(scan_id, tmp_path, monkeypatch, with_binary=False):
     )
     (app_dir / "Resources" / "strings.txt").write_text("hello")
     if with_binary:
-        # the app executable — NUL bytes sniff as binary and get hidden
+        # the app executable - NUL bytes sniff as binary and get hidden
         (app_dir / "northbank").write_bytes(b"\x00\x01\x02\xcf\xfa\xed\xfe...")
 
 
@@ -240,7 +240,7 @@ def test_explain_success(client, db_session_factory, monkeypatch):
 
     def fake_explain(scan_id_, finding, regenerate=False):
         return {
-            "explanation": "Stored with MODE_PRIVATE — readable on rooted devices.",
+            "explanation": "Stored with MODE_PRIVATE - readable on rooted devices.",
             "cached": False,
             "model": "qwen2.5:7b",
             "generated_at": "2026-08-06T00:00:00Z",
@@ -275,7 +275,7 @@ def test_explain_no_model_400(client, db_session_factory, monkeypatch):
     from app.model.selection import NoModelConfigured
 
     def no_model(scan_id_, finding, regenerate=False):
-        raise NoModelConfigured("no chat model configured — pick a backend + model in Settings")
+        raise NoModelConfigured("no chat model configured - pick a backend + model in Settings")
 
     monkeypatch.setattr(routes.insights, "explain_finding", no_model)
     r = client.post(f"/api/v1/scans/{scan_id}/findings/{finding_id}/explain")
@@ -308,7 +308,7 @@ def test_explain_not_analyzed_409(client, db_session_factory):
 
 def test_explain_regenerate_bypasses_cache(client, db_session_factory, monkeypatch):
     """regenerate=true reaches the LLM even when the finding already has a
-    cached explanation — the Regenerate button is an explicit opt-in that
+    cached explanation - the Regenerate button is an explicit opt-in that
     spends cost; the default call stays cache-first."""
     scan_id = _scan_with_findings(db_session_factory)
     finding_id = _finding_id(client, scan_id)
@@ -391,7 +391,7 @@ def test_summary_cached_skips_llm(client, db_session_factory):
 
 def test_summary_regenerate_bypasses_cache(client, db_session_factory, monkeypatch):
     """regenerate=true reaches the LLM even when the scan already has a
-    cached summary — same explicit-opt-in contract as explanations."""
+    cached summary - same explicit-opt-in contract as explanations."""
     scan_id = _scan_with_findings(db_session_factory)
     with db_session_factory() as session:
         session.get(Scan, scan_id).ai_summary = "cached overview"
@@ -537,7 +537,7 @@ def test_files_ios_bundle_root(client, db_session_factory, monkeypatch, tmp_path
 
     scan_id = _scan_with_findings(db_session_factory, platform="ios")
     _make_ios_tree(scan_id, tmp_path, monkeypatch)
-    # tree.py opens its own session for the analysis docs — point it at the
+    # tree.py opens its own session for the analysis docs - point it at the
     # scratch DB (same pattern as agent/tools.py).
     monkeypatch.setattr(app.db, "SessionLocal", db_session_factory)
     r = client.get(f"/api/v1/scans/{scan_id}/files")
@@ -673,7 +673,7 @@ def test_files_ios_analysis_root_and_content(
     _make_ios_tree(scan_id, tmp_path, monkeypatch)
     _make_ios_analysis_findings(db_session_factory, scan_id)
     # tree.py opens its own session (app.db.SessionLocal) for the analysis
-    # docs — point it at the scratch DB, same pattern as agent/tools.py.
+    # docs - point it at the scratch DB, same pattern as agent/tools.py.
     monkeypatch.setattr(app.db, "SessionLocal", db_session_factory)
 
     r = client.get(f"/api/v1/scans/{scan_id}/files")
@@ -752,7 +752,7 @@ def test_files_tree_caps_set_truncated(db_session_factory, monkeypatch, tmp_path
 
 def test_files_tree_unbounded_by_default(db_session_factory, monkeypatch, tmp_path):
     """The per-root node cap was removed (owner decision, Aug 10): a tree
-    with thousands of nodes serves in FULL with default caps — the old 1500
+    with thousands of nodes serves in FULL with default caps - the old 1500
     cap truncated real trees mid-branch, hiding app code behind library
     subtrees. An explicit ``max_nodes`` still caps (the test above)."""
     import app.config
@@ -769,7 +769,7 @@ def test_files_tree_unbounded_by_default(db_session_factory, monkeypatch, tmp_pa
         roots = tree.list_tree(scan)
     sources = next(r for r in roots if r.name == "sources")
     assert sources.truncated is False
-    # com + foo dirs + all 2000 files — nothing cut off
+    # com + foo dirs + all 2000 files - nothing cut off
     assert sources.total_nodes == 2002
 
 
@@ -777,7 +777,7 @@ def test_tree_cache_serves_second_call_without_walk(
     db_session_factory, monkeypatch, tmp_path
 ):
     """The tree is computed once per scan; a second call is served from the
-    module cache without re-walking the filesystem (owner, Aug 10 — repeated
+    module cache without re-walking the filesystem (owner, Aug 10 - repeated
     Decompiler opens shouldn't re-walk)."""
     scan_id = _scan_with_findings(db_session_factory)
     _make_android_tree(scan_id, tmp_path, monkeypatch)
@@ -797,7 +797,7 @@ def test_tree_cache_serves_second_call_without_walk(
     with db_session_factory() as session:
         scan = session.get(Scan, scan_id)
         r2 = tree.cached_list_tree(scan)
-    assert calls["n"] == first  # the second call added ZERO walks — cache-served
+    assert calls["n"] == first  # the second call added ZERO walks - cache-served
     assert [r.name for r in r1] == [r.name for r in r2]
     assert r1[0].total_nodes == r2[0].total_nodes
 
@@ -914,7 +914,7 @@ def test_unsuppress_restores_finding_and_risk(client, db_session_factory):
 
 
 def test_suppression_invalidates_cached_ai_summary(client, db_session_factory):
-    """A cached overview summary must not survive a suppress/restore toggle —
+    """A cached overview summary must not survive a suppress/restore toggle -
     it may cite the finding being reviewed (Aug 8 follow-up)."""
     scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
     with db_session_factory() as session:

@@ -169,7 +169,7 @@ def test_alembic_0006_worst_plus_count_recompute(tmp_path, monkeypatch):
                 "'2026-08-08T00:00:00')"
             )
         )
-        # Stale pre-0006 score (80) — proves 0006 also corrects no-high scans.
+        # Stale pre-0006 score (80) - proves 0006 also corrects no-high scans.
         conn.execute(
             text(
                 "INSERT INTO scans (id, filename, platform, status, risk_score, "
@@ -231,7 +231,7 @@ def test_alembic_0006_worst_plus_count_recompute(tmp_path, monkeypatch):
 
 
 def test_alembic_0007_band_symmetric_recompute(tmp_path, monkeypatch):
-    """Migration 0007 data pass: the breadth bonus extends to every band —
+    """Migration 0007 data pass: the breadth bonus extends to every band -
     3 mediums -> 57 (was 55 under 0006), 100 lows -> 39 (was 20), highs
     unchanged at 89."""
     db_url = f"sqlite:///{tmp_path / 'band-symmetric.db'}"
@@ -276,7 +276,7 @@ def test_alembic_0007_band_symmetric_recompute(tmp_path, monkeypatch):
 
 def test_alembic_0008_web_research_column(tmp_path, monkeypatch):
     """M7 migration 0008: scans.web_research_enabled (per-scan web research
-    opt-in, default off — the privacy gate)."""
+    opt-in, default off - the privacy gate)."""
     db_url = f"sqlite:///{tmp_path / 'web-research.db'}"
     monkeypatch.setenv("MASA_DATABASE_URL", db_url)
 
@@ -311,7 +311,7 @@ def test_alembic_0008_defaults_off_and_downgrades(tmp_path, monkeypatch):
         default = conn.execute(
             text("SELECT web_research_enabled FROM scans WHERE id = 1")
         ).scalar()
-        assert default == 0  # server_default false — opt-in is never implicit
+        assert default == 0  # server_default false - opt-in is never implicit
     engine.dispose()
 
     command.downgrade(cfg, "0007")
@@ -342,7 +342,7 @@ def test_alembic_0009_apktool_columns(tmp_path, monkeypatch):
             )
         )
         # server_default: existing scans start not_started (nothing decodes
-        # until the user triggers the Smali view — the on-demand posture)
+        # until the user triggers the Smali view - the on-demand posture)
         default = conn.execute(
             text("SELECT apktool_status FROM scans WHERE id = 1")
         ).scalar()

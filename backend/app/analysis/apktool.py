@@ -1,14 +1,14 @@
 """apktool (dis)assembly wrapper (APK -> decoded smali/res/AndroidManifest tree).
 
 M8 edit & recompile, Android only. apktool is a JVM CLI tool (Apache-2.0),
-invoked strictly as a subprocess — never imported, per the project license
+invoked strictly as a subprocess - never imported, per the project license
 posture. ``decode()`` produces apktool's ``-o`` layout: ``<out>/`` with
 ``AndroidManifest.xml``, ``smali{,classesN}/``, ``res/``, ``apktool.yml``.
 
 Decode is **on-demand** (owner decision, Aug 10 2026): the RQ job runs only
 when the user first opens the Smali view / starts an edit, then caches per
 scan. The decoded tree stays the pristine baseline for the whole M8 edit
-model — edits are DB diffs applied at rebuild, never silent tree writes.
+model - edits are DB diffs applied at rebuild, never silent tree writes.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def build(tree_dir: Path, out_apk: Path, timeout: int | None = None) -> None:
     """Assemble a decoded tree back into an APK (``apktool b -o``).
 
     Operates on a *copy* of the pristine decoded tree (the rebuild pipeline
-    overlays the applied edits onto that copy first — the on-disk baseline
+    overlays the applied edits onto that copy first - the on-disk baseline
     never mutates). Raises :class:`ApktoolError` with a specific reason on
     timeout / non-zero exit / silent 0-exit without an output file.
     """
@@ -89,7 +89,7 @@ def build(tree_dir: Path, out_apk: Path, timeout: int | None = None) -> None:
 def decode(apk_path: Path, out_dir: Path, timeout: int | None = None) -> None:
     """Disassemble ``apk_path`` into ``out_dir`` (``apktool d -f -o``).
 
-    Raises :class:`ApktoolError` with a specific reason on any failure —
+    Raises :class:`ApktoolError` with a specific reason on any failure -
     timeout, non-zero exit (bad APK / missing aapt2), or a silent 0-exit
     that produced no manifest. Callers (the RQ job) map the error to
     ``scans.apktool_status=failed`` + ``apktool_error``.

@@ -20,7 +20,7 @@ import type {
 } from '../types'
 
 /**
- * M5 view machine — derives purely from the active scan's status:
+ * M5 view machine - derives purely from the active scan's status:
  *   no scans                -> 'empty'
  *   active queued/running   -> 'progress'
  *   active done/failed      -> 'loaded'
@@ -33,7 +33,7 @@ export type View = 'empty' | 'progress' | 'loaded'
 const ACTIVE_SCAN_KEY = 'masa.activeScanId'
 
 interface AppContextValue {
-  /** First load in flight — shell shows the boot splash. */
+  /** First load in flight - shell shows the boot splash. */
   booting: boolean
   view: View
   scans: ScanRead[]
@@ -50,15 +50,15 @@ interface AppContextValue {
     refreshAll: () => Promise<void>
     selectScan: (id: number | null) => void
     uploadScan: (file: File) => Promise<ScanRead>
-    /** M5 Phase H — model backend mutations (Settings modal + ModelPicker). */
+    /** M5 Phase H - model backend mutations (Settings modal + ModelPicker). */
     updateBackend: (id: string, payload: ModelBackendUpsert) => Promise<void>
-    /** Batch PUTs with a single refresh — avoids N full backend re-probes. */
+    /** Batch PUTs with a single refresh - avoids N full backend re-probes. */
     updateBackends: (entries: { id: string; payload: ModelBackendUpsert }[]) => Promise<void>
     createBackend: (payload: ModelBackendCreate) => Promise<void>
     deleteBackend: (id: string) => Promise<void>
     /** Full health probe; the probed backend is merged into state in place. */
     testBackend: (id: string) => Promise<ModelBackendRead>
-    /** M7 — search engine mutations (Settings -> Search & research). */
+    /** M7 - search engine mutations (Settings -> Search & research). */
     updateSearchBackend: (id: string, payload: SearchBackendUpsert) => Promise<void>
     createSearchBackend: (payload: SearchBackendCreate) => Promise<void>
     deleteSearchBackend: (id: string) => Promise<void>
@@ -67,7 +67,7 @@ interface AppContextValue {
     /** One-click start for the bundled engine (compose up + wait, server-
      * side); the returned card carries the fresh health, merged in place. */
     startSearchBackend: (id: string) => Promise<SearchBackendRead>
-    /** M7 — per-scan web research opt-in (the dock 🌐 toggle). Refreshes the
+    /** M7 - per-scan web research opt-in (the dock 🌐 toggle). Refreshes the
      * scan list so ScanRead.web_research_enabled stays honest. */
     setWebResearch: (scanId: number, enabled: boolean) => Promise<void>
   }
@@ -103,7 +103,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return list[0]?.id ?? null
       })
     } catch {
-      // Backend unreachable — keep whatever state we already had.
+      // Backend unreachable - keep whatever state we already had.
     }
   }, [])
 
@@ -154,7 +154,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(ACTIVE_SCAN_KEY, String(id))
       }
     } catch {
-      // Storage unavailable (private mode) — session-only selection is fine.
+      // Storage unavailable (private mode) - session-only selection is fine.
     }
   }, [])
 
@@ -202,7 +202,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const testBackend = useCallback(async (id: string) => {
     const probed = await api.testBackend(id)
-    // Merge the probe result in place — a full refresh would downgrade the
+    // Merge the probe result in place - a full refresh would downgrade the
     // probe to the lightweight reachability check this result already carries.
     setBackends((prev) => prev.map((b) => (b.id === probed.id ? probed : b)))
     return probed
@@ -239,7 +239,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return probed
   }, [])
 
-  /** One-click start for the bundled engine — the returned card carries the
+  /** One-click start for the bundled engine - the returned card carries the
    * fresh health, merged in place so a full list refresh never downgrades it
    * to the lightweight reachability check. */
   const startSearchBackend = useCallback(async (id: string) => {

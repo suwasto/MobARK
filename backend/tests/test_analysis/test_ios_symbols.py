@@ -1,4 +1,4 @@
-"""Import-table scanner tests — pure matcher, no LIEF binary needed.
+"""Import-table scanner tests - pure matcher, no LIEF binary needed.
 
 M4 Layer 1 iOS source #2: known-insecure API blocklist matched against the
 Mach-O import table. The matcher is a pure function; the LIEF read is thin.
@@ -21,7 +21,7 @@ def test_match_legacy_crypto():
 
 
 def test_match_uiwebview_via_objc_class_reference():
-    """UIWebView is usually a class reference, not an import — the scanner
+    """UIWebView is usually a class reference, not an import - the scanner
     accepts extra ObjC metadata names for that case."""
     findings = match_imports([], extra_names=["UIWebView"])
     assert any("UIWebView" in f.title for f in findings)
@@ -36,7 +36,7 @@ def test_match_anti_debug_symbols():
 
 
 def test_underscore_prefix_normalized():
-    # "_ptrace" and "ptrace" are the same symbol — one finding, not two.
+    # "_ptrace" and "ptrace" are the same symbol - one finding, not two.
     assert len(match_imports(["_ptrace", "ptrace"])) == 1
 
 

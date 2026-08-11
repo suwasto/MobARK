@@ -6,14 +6,14 @@ import type { ScanRead } from '../types'
 interface TargetBarProps {
   onPickFile: () => void
   uploading: boolean
-  /** Override the identity shown — the progress-dialog backdrop renders the
+  /** Override the identity shown - the progress-dialog backdrop renders the
    * last completed scan while the active one runs. Defaults to the active
    * scan. */
   scan?: ScanRead | null
 }
 
 /**
- * Target bar — the active scan's identity plus the "Open a different scan"
+ * Target bar - the active scan's identity plus the "Open a different scan"
  * switch dropdown (upload new artifact or jump to any recent scan). One scan
  * at a time, matching the mockup.
  */

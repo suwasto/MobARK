@@ -88,11 +88,11 @@ def run_scan(scan_id: int) -> dict:
         scan.finished_at = utcnow()
         scan.error = "\n".join(result.warnings)[:2000] if result.warnings else None
         db.commit()
-        # M4 Layer 3: chain the Graphify code-graph build as a follow-up job —
+        # M4 Layer 3: chain the Graphify code-graph build as a follow-up job -
         # a separate, retryable job so a graph failure never fails analysis.
         # Android only: iOS has no decompiled source tree (M4 Decision 5).
         # A failed enqueue (e.g. Redis briefly down) is a warning, never a
-        # scan failure — analysis already succeeded and is committed above.
+        # scan failure - analysis already succeeded and is committed above.
         graph_enqueued = False
         if result.platform == "android":
             try:
@@ -144,7 +144,7 @@ def build_graph_scan(scan_id: int) -> dict:
     Runs as a follow-up job chained after ``run_scan`` in the same
     worker/queue (a failure here never fails the analysis job). iOS records
     ``built=False`` with a clear reason instead of erroring. Graph state is
-    filesystem-derived (``data/graphs/<scan_id>/graphify-out/graph.json``) —
+    filesystem-derived (``data/graphs/<scan_id>/graphify-out/graph.json``) -
     no DB columns.
     """
     from app.config import settings
@@ -162,7 +162,7 @@ def build_graph_scan(scan_id: int) -> dict:
                 "ok": True,
                 "built": False,
                 "reason": "ios-no-source",
-                "note": "graph is Android-only — iOS has no decompiled source tree",
+                "note": "graph is Android-only - iOS has no decompiled source tree",
             }
         decompiled_root = settings.data_dir / "work" / str(scan_id) / "decompiled"
         if not decompiled_root.is_dir():
@@ -170,7 +170,7 @@ def build_graph_scan(scan_id: int) -> dict:
                 "ok": False,
                 "built": False,
                 "error": (
-                    f"no decompiled source at {decompiled_root} — run the analysis "
+                    f"no decompiled source at {decompiled_root} - run the analysis "
                     "scan first"
                 ),
             }
@@ -201,7 +201,7 @@ def run_apktool_decode(scan_id: int) -> dict:
     """Decode a scan's APK into smali/res/AndroidManifest (Android only).
 
     **On-demand** (owner decision, Aug 10 2026): this job runs only when the
-    user first opens the Smali view or starts an edit — never as part of the
+    user first opens the Smali view or starts an edit - never as part of the
     scan pipeline. The decoded tree is cached per scan (one decode in v1);
     ``ready`` is filesystem-derived (``apktool/AndroidManifest.xml`` exists)
     so a crash mid-decode can never leave a phantom ``ready``. A failed
@@ -220,7 +220,7 @@ def run_apktool_decode(scan_id: int) -> dict:
         if scan.platform != "android":
             return {
                 "ok": False,
-                "error": "apktool decode is Android-only — iOS keeps the read-only "
+                "error": "apktool decode is Android-only - iOS keeps the read-only "
                 "bundle view (M8 decision 5)",
             }
         if apktool.is_ready(scan_id):
@@ -275,7 +275,7 @@ def run_rebuild(scan_id: int, build_id: int) -> dict:
     applied edit ids at job start (``edits_json``), so edits accepted
     mid-build never mutate the build tree; a done build's artifact stays
     re-downloadable. Every stage fails loudly (decision 8): the failing
-    stage + specific reason land on ``builds.stage``/``builds.error`` —
+    stage + specific reason land on ``builds.stage``/``builds.error`` -
     never a silently broken APK. Zero applied edits is allowed (default
     rebuild of the pristine tree). The artifact is signed with MASA's
     install-scoped TEST keystore (decision 7) and the filename carries the
@@ -307,16 +307,16 @@ def run_rebuild(scan_id: int, build_id: int) -> dict:
         if scan.platform != "android":
             raise rebuild.RebuildError(
                 "applying",
-                "rebuild is Android-only — iOS keeps the read-only bundle "
+                "rebuild is Android-only - iOS keeps the read-only bundle "
                 "view (M8 decision 5)",
             )
         if not apktool.is_ready(scan_id):
             raise rebuild.RebuildError(
-                "applying", "apktool decode not ready — run the decode first"
+                "applying", "apktool decode not ready - run the decode first"
             )
 
         # Snapshot the applied edits at job start (decision 8): a human can
-        # accept/reject proposals while the build runs — the tree never sees
+        # accept/reject proposals while the build runs - the tree never sees
         # them. ``edits_json`` is the immutable record for this build.
         applied = list(
             db.scalars(
@@ -342,7 +342,7 @@ def run_rebuild(scan_id: int, build_id: int) -> dict:
         build.artifact_sha256 = artifact.sha256
         build.finished_at = utcnow()
         db.commit()
-        # Record which build consumed each snapshot edit (only on success — a
+        # Record which build consumed each snapshot edit (only on success - a
         # failed build produced no artifact to consume them).
         for edit_id in json.loads(build.edits_json):
             edit = db.get(Edit, edit_id)

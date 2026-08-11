@@ -1,4 +1,4 @@
-"""client.chat / model_string — litellm monkeypatched, no network."""
+"""client.chat / model_string - litellm monkeypatched, no network."""
 
 import pytest
 
@@ -72,7 +72,7 @@ def test_chat_passes_backend_mapping(monkeypatch):
     assert captured["api_key"] == "ollama"  # dummy key for local servers
     assert captured["max_tokens"] == 1
     # Local thinking models (Nanbeige4.2) would burn the budget on <think>
-    # blocks — Ollama calls must carry think:false.
+    # blocks - Ollama calls must carry think:false.
     assert captured["extra_body"] == {"think": False}
 
 

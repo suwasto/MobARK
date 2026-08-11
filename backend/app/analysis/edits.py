@@ -1,14 +1,14 @@
-"""M8 Phase B: the edits table — DB-diff source of truth (edit/recompile).
+"""M8 Phase B: the edits table - DB-diff source of truth (edit/recompile).
 
 Edits are **full-file rows in the DB, applied at rebuild** (owner decision,
-Aug 10 2026) — never silent writes to the on-disk apktool tree, which stays
+Aug 10 2026) - never silent writes to the on-disk apktool tree, which stays
 the pristine baseline. ``create_manual_edit`` baselines a new edit on the
 file's *effective* content (baseline + the newest applied edit), so same-file
 edits stack naturally; the effective content the viewer shows is exactly the
 newest applied edit's ``new_content`` (or the baseline when there is none).
-Apply/Reject/Revert are human API calls — never agent tools (decision 7).
+Apply/Reject/Revert are human API calls - never agent tools (decision 7).
 
-Diff generation is stdlib ``difflib`` — no new dependency.
+Diff generation is stdlib ``difflib`` - no new dependency.
 """
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ from app.models import Edit, utcnow
 
 
 class EditError(ValueError):
-    """Domain error for the edit service — the API maps it to a 400/409/413."""
+    """Domain error for the edit service - the API maps it to a 400/409/413."""
 
 
 def make_unified_diff(original: str, new: str, file_path: str) -> str:
     """A ``git diff``-style unified diff for one full-file edit (empty string
-    when the content is identical — the create path rejects no-ops first)."""
+    when the content is identical - the create path rejects no-ops first)."""
     diff = difflib.unified_diff(
         original.splitlines(),
         new.splitlines(),
@@ -61,13 +61,13 @@ def effective_content(db, scan_id: int, file_path: str) -> str | None:
 
 def create_manual_edit(db, scan, file_path: str, content: str) -> Edit:
     """Create a **manual** edit: validated, stacked on the effective content,
-    stored as ``status=applied`` (the human authored it in the editor — no
+    stored as ``status=applied`` (the human authored it in the editor - no
     review step, unlike agent proposals in Phase D). Raises EditError on
     non-editable / oversized / unchanged content, TreeError/FileNotFoundError
     when the baseline cannot be read.
     """
     if not editable.can_edit(scan, file_path):
-        raise EditError(f"{file_path!r} is not editable — only smali, res/, and "
+        raise EditError(f"{file_path!r} is not editable - only smali, res/, and "
                         "the decoded AndroidManifest.xml can be edited")
     if len(content) > editable.MAX_EDIT_CHARS:
         raise EditError(
@@ -79,7 +79,7 @@ def create_manual_edit(db, scan, file_path: str, content: str) -> Edit:
     if current is None:
         current = baseline
     if content == current:
-        raise EditError("content unchanged — nothing to save")
+        raise EditError("content unchanged - nothing to save")
     edit = Edit(
         scan_id=scan.id,
         file_path=file_path,
@@ -99,17 +99,17 @@ def create_agent_proposal(
     db, scan, file_path: str, content: str, instruction: str
 ) -> Edit:
     """Create an **agent** edit: validated, stacked on the effective content,
-    stored as ``status=proposed`` — **never auto-applied** (decision 7: apply/
+    stored as ``status=proposed`` - **never auto-applied** (decision 7: apply/
     reject/revert are human API calls). Raises EditError on non-editable /
     oversized / unchanged content, TreeError/FileNotFoundError when the
     baseline cannot be read. Same stacking rule as manual edits: the proposal
     baselines on the *effective* content so same-file proposals build on
     whatever is already applied, and its ``unified_diff`` is the review
-    surface (D7 — file-by-file Apply/Reject in the UI).
+    surface (D7 - file-by-file Apply/Reject in the UI).
     """
     if not editable.can_edit(scan, file_path):
         raise EditError(
-            f"{file_path!r} is not editable — only smali, res/, and "
+            f"{file_path!r} is not editable - only smali, res/, and "
             "the decoded AndroidManifest.xml can be edited"
         )
     if len(content) > editable.MAX_EDIT_CHARS:
@@ -120,7 +120,7 @@ def create_agent_proposal(
     if current is None:
         current = baseline
     if content == current:
-        raise EditError("content unchanged — nothing to propose")
+        raise EditError("content unchanged - nothing to propose")
     edit = Edit(
         scan_id=scan.id,
         file_path=file_path,
@@ -137,10 +137,10 @@ def create_agent_proposal(
 
 
 def apply_edit(db, edit: Edit) -> Edit:
-    """proposed -> applied (stamps applied_at). Agent proposals only — the
+    """proposed -> applied (stamps applied_at). Agent proposals only - the
     human owns application."""
     if edit.status != "proposed":
-        raise EditError(f"edit {edit.id} is {edit.status}, not proposed — only "
+        raise EditError(f"edit {edit.id} is {edit.status}, not proposed - only "
                         "proposed edits can be applied")
     edit.status = "applied"
     edit.applied_at = utcnow()
@@ -151,7 +151,7 @@ def apply_edit(db, edit: Edit) -> Edit:
 def reject_edit(db, edit: Edit) -> Edit:
     """proposed -> rejected."""
     if edit.status != "proposed":
-        raise EditError(f"edit {edit.id} is {edit.status}, not proposed — only "
+        raise EditError(f"edit {edit.id} is {edit.status}, not proposed - only "
                         "proposed edits can be rejected")
     edit.status = "rejected"
     db.commit()
@@ -161,9 +161,9 @@ def reject_edit(db, edit: Edit) -> Edit:
 def revert_edit(db, edit: Edit) -> Edit:
     """applied -> reverted: the effective content falls back to the previous
     applied edit (if any) or the baseline. Marking reverted removes it from
-    the newest-applied lookup — stacks pop to the prior state."""
+    the newest-applied lookup - stacks pop to the prior state."""
     if edit.status != "applied":
-        raise EditError(f"edit {edit.id} is {edit.status}, not applied — only "
+        raise EditError(f"edit {edit.id} is {edit.status}, not applied - only "
                         "applied edits can be reverted")
     edit.status = "reverted"
     db.commit()

@@ -1,7 +1,7 @@
-"""iOS Gitleaks custom-ruleset tests (M4 Layer 1 — string-level checks).
+"""iOS Gitleaks custom-ruleset tests (M4 Layer 1 - string-level checks).
 
 kSecAttrAccessibleAlways is a string in the binary's __cstring, not a symbol
-import — it rides through Gitleaks via the iOS ruleset, never the import-table
+import - it rides through Gitleaks via the iOS ruleset, never the import-table
 scanner.
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ def test_ios_config_file_exists_and_parses():
     assert "ios-insecure-keychain-accessibility" in ids
     rule = next(r for r in rules if r["id"] == "ios-insecure-keychain-accessibility")
     assert "kSecAttrAccessibleAlways" in rule["regex"]
-    assert rule["entropy"] == 0  # fixed string — no entropy gate
+    assert rule["entropy"] == 0  # fixed string - no entropy gate
 
 
 def test_scan_directory_passes_config_flag(monkeypatch, tmp_path):

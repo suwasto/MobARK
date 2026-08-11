@@ -1,4 +1,4 @@
-"""M8 Phase C: rebuild API — trigger guards, builds list/get, download.
+"""M8 Phase C: rebuild API - trigger guards, builds list/get, download.
 
 Redis and subprocesses are mocked; the guard ordering (analyzed → Android →
 decode ready → in-flight) and the download contract are the units under test.
@@ -102,7 +102,7 @@ def test_rebuild_trigger_409_decode_not_ready(client, db_session_factory, tmp_pa
 def test_rebuild_trigger_reaps_stale_queued_build(
     client, db_session_factory, tmp_path, monkeypatch
 ):
-    """A worker crash leaves a build stuck in queued forever — the trigger
+    """A worker crash leaves a build stuck in queued forever - the trigger
     fails it as stale so the one-in-flight guard can't lock the scan out."""
     from datetime import UTC, datetime, timedelta
 
@@ -258,7 +258,7 @@ def test_download_404_path_escapes_artifact_dir(
     client, db_session_factory, tmp_path, monkeypatch
 ):
     """A stale/edited artifact_path pointing outside the scan's artifact dir
-    is refused — the download endpoint never streams arbitrary files."""
+    is refused - the download endpoint never streams arbitrary files."""
     monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
     scan_id = _add_scan(db_session_factory)
     outside = tmp_path / "outside.apk"

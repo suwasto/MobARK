@@ -15,7 +15,7 @@ const SEARCH_DEBOUNCE_MS = 300
 // filesystem-derived state until it flips to built, then stop; the cap
 // keeps a permanently failed build from polling forever.
 const GRAPH_STATE_POLL_MS = 5000
-const GRAPH_STATE_MAX_POLLS = 72 // ~6 min — then stop and show the hint
+const GRAPH_STATE_MAX_POLLS = 72 // ~6 min - then stop and show the hint
 
 interface CodeMapsPanelProps {
   scanId: number
@@ -33,7 +33,7 @@ function nodeLoc(n: GraphNodeRow): string {
 /**
  * Code maps tab: searchable structural code graph (Android only).
  *
- * The 64 MB graph.json never reaches the browser — the backend compacts it
+ * The 64 MB graph.json never reaches the browser - the backend compacts it
  * into a per-scan explorer index, and this panel talks to three thin
  * endpoints: search (debounced substring over labels/ids), hubs (most-
  * connected nodes for the initial view), and node detail (in/out neighbors
@@ -46,7 +46,7 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
   const [stateError, setStateError] = useState<string | null>(null)
   /** True while the tab is auto-refreshing the graph state (the Android
    * build window). Goes false once built, on a permanent error, or after
-   * the poll cap — the hint copy and the "building…" label key off it. */
+   * the poll cap - the hint copy and the "building…" label key off it. */
   const [polling, setPolling] = useState(false)
   /** Bumped by the hint's "check again" button to restart the poll loop. */
   const [retryNonce, setRetryNonce] = useState(0)
@@ -66,7 +66,7 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
 
   // Graph build state (filesystem-derived backend state). The chained graph
   // build job runs AFTER the scan completes, so a freshly rescanned app can
-  // show "not built yet" for a minute or two — keep polling until the state
+  // show "not built yet" for a minute or two - keep polling until the state
   // flips to built. Android only: iOS never builds a graph, so it must not
   // poll forever. Transient errors (e.g. the API restarting) keep the loop
   // alive up to the cap instead of wedging the tab into the error box.
@@ -113,7 +113,7 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
     }
   }, [scanId, platform, retryNonce])
 
-  // Hubs for the initial view — loaded once per scan.
+  // Hubs for the initial view - loaded once per scan.
   useEffect(() => {
     if (!built || hubs) return
     let cancelled = false
@@ -211,7 +211,7 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
         <input
           className="codemap-search"
           type="search"
-          placeholder="Search code — class, method, resource… (e.g. WebView, NetworkSecurityConfig)"
+          placeholder="Search code - class, method, resource… (e.g. WebView, NetworkSecurityConfig)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           disabled={!built}
@@ -233,7 +233,7 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
           {stateLoading
             ? '…'
             : built
-              ? `${state?.nodes?.toLocaleString() ?? '–'} nodes · ${state?.edges?.toLocaleString() ?? '–'} edges`
+              ? `${state?.nodes?.toLocaleString() ?? '-'} nodes · ${state?.edges?.toLocaleString() ?? '-'} edges`
               : polling
                 ? 'building…'
                 : ''}
@@ -252,12 +252,12 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
         <div className="view-hint">
           {platform !== 'android' ? (
             <>
-              Code maps are <strong>Android-only</strong> — iOS has no
+              Code maps are <strong>Android-only</strong> - iOS has no
               decompiled source tree to graph ({state.reason}).
             </>
           ) : polling ? (
             <>
-              {state.reason} — it builds automatically right after the
+              {state.reason} - it builds automatically right after the
               Android analysis completes (usually a minute or two). This
               view refreshes by itself while it builds, so there's no need
               to re-scan.
@@ -265,7 +265,7 @@ export function CodeMapsPanel({ scanId, platform, onOpenFile }: CodeMapsPanelPro
           ) : (
             <>
               {state.reason}. If it still hasn't appeared after a few
-              minutes the build may have failed —{' '}
+              minutes the build may have failed -{' '}
               <button
                 type="button"
                 className="link-btn"

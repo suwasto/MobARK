@@ -8,7 +8,7 @@
     POST   /api/v1/search/backends/{id}/start one-click start (bundled engine only)
 
 ``PUT {enabled: true}`` enforces the one-Active radio server-side
-(``SearchStore.enable_only``) — a raw API client can never leave two engines
+(``SearchStore.enable_only``) - a raw API client can never leave two engines
 Active, mirroring ``pick_chat_backend`` determinism in the model layer
 (owner decision, Aug 9). The bundled ``searxng`` entry is deletable/editable
 like any other (the store file, not the seed table, is the source of truth).
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/search", tags=["search"])
 
 def _to_health(h: SearchHealth):
     """SearchHealth dataclass -> the API schema (kept local so the route
-    file stays small — the schema lives in app.schemas, mirrored by the
+    file stays small - the schema lives in app.schemas, mirrored by the
     frontend types)."""
     from app.schemas import SearchBackendHealth
 
@@ -60,7 +60,7 @@ def _to_read(backend: SearchBackend, health: SearchHealth | None) -> SearchBacke
         base_url=backend.base_url,
         enabled=backend.enabled,
         order=backend.order,
-        # The key itself is never returned — only whether one is set.
+        # The key itself is never returned - only whether one is set.
         has_api_key=backend.has_api_key(),
         health=_to_health(health) if health else None,
     )
@@ -76,18 +76,18 @@ def _find(store: SearchStore, backend_id: str) -> SearchBackend:
 @router.get("/backends", response_model=list[SearchBackendRead])
 def list_search_backends() -> list[SearchBackendRead]:
     """All configured search engines with lightweight reachability (base URL
-    HTTP check only — the real search probe lives in POST /test).
+    HTTP check only - the real search probe lives in POST /test).
 
     SearXNG-style engines (bundled + custom) are probed even when INACTIVE:
     their lightweight check is a cheap base-URL HTTP GET, and the Settings
     radio needs it to keep the Active toggle disabled until the engine is
-    actually reachable (owner follow-up, Aug 11 — a dead engine can't be
+    actually reachable (owner follow-up, Aug 11 - a dead engine can't be
     activated, and the Agent dock 🌐 toggle needs the same liveness signal
     for the Active engine). Keyed engines keep the enabled-only rule: their
-    honest health check IS a real query (it validates the key — the base URL
+    honest health check IS a real query (it validates the key - the base URL
     has no meaningful root endpoint), so an inactive keyed engine is never
     probed on the list route. Cost note: a list call blocks up to the 3s
-    lightweight timeout per dead searxng-style backend — fine for the bundled
+    lightweight timeout per dead searxng-style backend - fine for the bundled
     engine; a large fleet of dead custom instances could stack (accepted at
     this scale, and the UI poll is 4s)."""
     store = get_search_store()
@@ -105,7 +105,7 @@ def list_search_backends() -> list[SearchBackendRead]:
 
 @router.get("/providers", response_model=list[SearchProviderRead])
 def list_search_providers() -> list[SearchProviderRead]:
-    """The addable engine set (Settings add-form picker) — everything except
+    """The addable engine set (Settings add-form picker) - everything except
     the bundled SearXNG, which is always present and edited, never re-added.
     Single source of truth: the provider table, mirrored to the UI."""
     return [
@@ -126,7 +126,7 @@ def list_search_providers() -> list[SearchProviderRead]:
 def create_search_backend(payload: SearchBackendCreate) -> SearchBackendRead:
     """Add a search engine (Settings -> Search & research): a custom
     SearXNG-compatible instance (base URL required, no key) or a keyed
-    provider (Brave/Serper/Mojeek — API key required, base URL optional with
+    provider (Brave/Serper/Mojeek - API key required, base URL optional with
     a per-provider default). The new backend becomes Active (radio)."""
     store = get_search_store()
     provider = SEARCH_PROVIDERS.get(payload.provider_id)
@@ -139,7 +139,7 @@ def create_search_backend(payload: SearchBackendCreate) -> SearchBackendRead:
     if provider.id == "searxng":
         raise HTTPException(
             status_code=400,
-            detail=f"{provider.name} is bundled — edit it via "
+            detail=f"{provider.name} is bundled - edit it via "
             "PUT /api/v1/search/backends/{id}",
         )
     if provider.key_required and not payload.api_key:
@@ -171,7 +171,7 @@ def create_search_backend(payload: SearchBackendCreate) -> SearchBackendRead:
 
 @router.delete("/backends/{backend_id}", status_code=204)
 def delete_search_backend(backend_id: str) -> Response:
-    """Remove a search backend. The bundled searxng entry is deletable too —
+    """Remove a search backend. The bundled searxng entry is deletable too -
     the store file is the source of truth; a later re-add is a Settings
     action (or re-seed by removing the store file)."""
     store = get_search_store()
@@ -184,7 +184,7 @@ def delete_search_backend(backend_id: str) -> Response:
 @router.post("/backends/{backend_id}/test", response_model=SearchBackendRead)
 def test_search_backend(backend_id: str) -> SearchBackendRead:
     """Full probe: a real search query against the engine, reporting the
-    normalized result count — the honest check that the JSON format is
+    normalized result count - the honest check that the JSON format is
     enabled on the instance."""
     backend = _find(get_search_store(), backend_id)
     return _to_read(backend, check_backend(backend, probe=True))
@@ -210,8 +210,8 @@ def update_search_backend(backend_id: str, payload: SearchBackendUpsert) -> Sear
 # ---- one-click start for the bundled engine (owner request, Aug 9) ----------
 # Settings -> Search & research: when the probe fails on the bundled SearXNG,
 # the UI offers a "Start engine" button instead of only the compose hint text.
-# The backend runs the documented compose command — a FIXED argv list, no
-# shell, no user input, so this is not an injection surface — then polls the
+# The backend runs the documented compose command - a FIXED argv list, no
+# shell, no user input, so this is not an injection surface - then polls the
 # engine until it answers. Only works when the API process has Docker on its
 # host (host-run dev mode); inside the app container there is no docker
 # CLI/socket and the error carries the manual command, exactly like every
@@ -229,15 +229,15 @@ class _StartError(Exception):
 
 
 def _find_compose_file() -> Path | None:
-    """docker-compose.yml / compose.yml discovered upward from cwd — compose's
+    """docker-compose.yml / compose.yml discovered upward from cwd - compose's
     own discovery only works when cwd IS the repo root; searching lets the
     backend run from anywhere (dev runs from ``backend/``). None when no file
-    is found (e.g. inside the app container) — the plain command then fails
+    is found (e.g. inside the app container) - the plain command then fails
     with compose's own "no configuration file" error, surfaced as-is.
 
     Assumption (documented layout): the first match walking upward IS MASA's
     compose file. In a nested checkout inside a larger project with its own
-    compose file, the wrong file could be picked — the 502 then surfaces the
+    compose file, the wrong file could be picked - the 502 then surfaces the
     real error (stderr tail) so it stays diagnosable."""
     start = Path.cwd().resolve()
     for d in (start, *start.parents):
@@ -255,7 +255,7 @@ def _find_compose_file() -> Path | None:
 
 def _run_compose_up() -> None:
     """Run the documented bundled-engine start command and wait for compose to
-    return (container started — NOT yet booted; callers poll the probe).
+    return (container started - NOT yet booted; callers poll the probe).
     Raises ``_StartError`` with the manual command on any failure."""
     cmd = ["docker", "compose", "--profile", "web", "up", "-d", "searxng"]
     compose_file = _find_compose_file()
@@ -266,14 +266,14 @@ def _run_compose_up() -> None:
     except FileNotFoundError:
         raise _StartError(
             502,
-            "Docker isn't reachable from this process — start the engine "
+            "Docker isn't reachable from this process - start the engine "
             "manually: `docker compose --profile web up -d searxng`",
         ) from None
     except subprocess.TimeoutExpired:
         raise _StartError(
             504,
             "starting the engine timed out (an image pull may still be "
-            "running) — start it manually: "
+            "running) - start it manually: "
             "`docker compose --profile web up -d searxng`",
         ) from None
     if proc.returncode != 0:
@@ -281,7 +281,7 @@ def _run_compose_up() -> None:
         detail = tail[-1] if tail else "unknown error"
         raise _StartError(
             502,
-            f"engine failed to start: {detail} — start it manually: "
+            f"engine failed to start: {detail} - start it manually: "
             "`docker compose --profile web up -d searxng`",
         )
 
@@ -291,7 +291,7 @@ def _wait_for_engine(
     attempts: int = 12,
     delay: float = 3.0,
 ) -> SearchHealth:
-    """After ``compose up`` returns, SearXNG still needs ~10-30s to boot —
+    """After ``compose up`` returns, SearXNG still needs ~10-30s to boot -
     poll the lightweight reachability check, then run the full probe (a real
     query) once it answers. Never raises: a slow boot just returns the last
     unreachable health and the UI can re-test."""
@@ -307,7 +307,7 @@ def _wait_for_engine(
 @router.post("/backends/{backend_id}/start", response_model=SearchBackendRead)
 def start_search_backend(backend_id: str) -> SearchBackendRead:
     """One-click start for the BUNDLED SearXNG engine (Settings -> Search &
-    research — owner request, Aug 9). Runs the documented compose command
+    research - owner request, Aug 9). Runs the documented compose command
     server-side, waits for the engine to answer, and returns the fresh
     health. Custom instances are self-hosted and have no start command (400);
     Docker unreachable degrades to a 502 carrying the manual command."""
@@ -316,7 +316,7 @@ def start_search_backend(backend_id: str) -> SearchBackendRead:
     if backend.kind != "bundled":
         raise HTTPException(
             status_code=400,
-            detail=f"{backend.name} is not bundled — only the bundled engine "
+            detail=f"{backend.name} is not bundled - only the bundled engine "
             "has a start command (custom instances are self-hosted)",
         )
     try:

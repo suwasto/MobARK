@@ -25,7 +25,7 @@ from app.analysis.mastg import test_ids_for_control
 from app.config import settings
 
 # M4 Layer 1: iOS string-level rules (kSecAttrAccessibleAlways) ride through
-# Gitleaks as a custom ruleset — the import-table scanner cannot see strings.
+# Gitleaks as a custom ruleset - the import-table scanner cannot see strings.
 _IOS_GITLEAKS_CONFIG = Path(__file__).parent / "resources" / "gitleaks_ios.toml"
 
 
@@ -41,7 +41,7 @@ def run_analysis(
     """Dispatch to the platform pipeline based on the artifact extension.
 
     ``on_stage`` (optional, M5 progress screen) is invoked with a
-    human-readable stage string at each pipeline boundary — the RQ job
+    human-readable stage string at each pipeline boundary - the RQ job
     persists it to ``Scan.stage`` so the dashboard shows real progress.
     """
     suffix = Path(artifact_path).suffix.lower()
@@ -183,7 +183,7 @@ def run_ios_analysis(
     reports.mkdir(parents=True, exist_ok=True)
 
     # --- enrichment: import-table scanner (known-insecure API blocklist) ---
-    # M4 Layer 1 iOS source #2 — named explicitly; this is the "symbol /
+    # M4 Layer 1 iOS source #2 - named explicitly; this is the "symbol /
     # import-table scanning" stage, not a vague "LIEF-derived" catch-all.
     if on_stage:
         on_stage("symbols")
@@ -193,7 +193,7 @@ def run_ios_analysis(
     result.meta.update(symbols_result.meta)
 
     # --- enrichment: secret + string scanning over the bundle tree ---
-    # iOS uses the custom ruleset (kSecAttrAccessibleAlways) — string-level,
+    # iOS uses the custom ruleset (kSecAttrAccessibleAlways) - string-level,
     # not import-table-level.
     if on_stage:
         on_stage("secrets")
@@ -230,7 +230,7 @@ def _preflight_apk(apk_path: Path) -> None:
     except (zipfile.BadZipFile, OSError) as exc:
         raise ScanAborted(f"corrupt archive: {exc}") from exc
     if "AndroidManifest.xml" not in names:
-        raise ScanAborted("missing AndroidManifest.xml — not an Android APK")
+        raise ScanAborted("missing AndroidManifest.xml - not an Android APK")
 
 
 def _fill_mastg_test_ids(findings: list[FindingOut], platform: str) -> None:

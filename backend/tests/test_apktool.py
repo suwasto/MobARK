@@ -84,7 +84,7 @@ def test_decode_timeout_maps_to_clean_error(monkeypatch, tmp_path):
 
 
 def test_decode_exit_zero_without_manifest_fails(monkeypatch, tmp_path):
-    """apktool exiting 0 while producing nothing must fail loudly — a silent
+    """apktool exiting 0 while producing nothing must fail loudly - a silent
     success would leave the Smali view pointing at a broken tree."""
     monkeypatch.setattr(apktool, "apktool_binary", lambda: "apktool")
     monkeypatch.setattr(
@@ -122,7 +122,7 @@ def test_build_argv_and_success(monkeypatch, tmp_path):
 
 def test_build_failure_and_no_output_fail_loudly(monkeypatch, tmp_path):
     """A non-zero apktool b exit (and a silent 0-exit without output) both
-    fail loudly with the stderr reason — never a silent broken APK."""
+    fail loudly with the stderr reason - never a silent broken APK."""
     monkeypatch.setattr(apktool, "apktool_binary", lambda: "apktool")
     monkeypatch.setattr(
         apktool,

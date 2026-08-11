@@ -1,4 +1,4 @@
-"""M7 provider table invariants — the audit surface for search engines."""
+"""M7 provider table invariants - the audit surface for search engines."""
 
 from app.search.providers import SEARCH_PROVIDERS
 
@@ -6,7 +6,7 @@ from app.search.providers import SEARCH_PROVIDERS
 def test_engine_set_matches_v1_plus_keyed_rows():
     """Bundled SearXNG + custom SearXNG-compatible instance + the keyed
     Brave/Serper/Mojeek rows (Aug 9 owner follow-up). More providers are just
-    a table row + a client branch — no other code changes."""
+    a table row + a client branch - no other code changes."""
     assert set(SEARCH_PROVIDERS) == {"searxng", "custom", "brave", "serper", "mojeek"}
 
 

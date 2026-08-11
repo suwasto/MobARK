@@ -27,14 +27,14 @@ interface RecompileModalProps {
 }
 
 /**
- * M8 Phase C: Edit & recompile — the rebuild history modal.
+ * M8 Phase C: Edit & recompile - the rebuild history modal.
  *
  * The persistent, un-dismissable "resigned test build" warning (decision 10)
  * is always rendered; the artifact filename + download header carry the same
  * `-resigned-test-` label (decision 9). While a build runs, the modal polls
  * its live stage; done builds stay re-downloadable (decision 8). The edits
  * list is the full history with per-applied-edit "Restore original" (revert
- * to the prior state — human-owned, never an agent action).
+ * to the prior state - human-owned, never an agent action).
  */
 export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
   const [builds, setBuilds] = useState<BuildRead[]>([])
@@ -107,7 +107,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
           }
         }
       } catch {
-        // Transient poll failure — the next tick retries.
+        // Transient poll failure - the next tick retries.
       }
     }
     const id = window.setInterval(tick, 2000)
@@ -149,7 +149,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
     <div
       className="modal-overlay"
       onMouseDown={(e) => {
-        // Backdrop click dismisses — the build keeps running server-side and
+        // Backdrop click dismisses - the build keeps running server-side and
         // the modal resumes live when reopened.
         if (e.target === e.currentTarget) onClose()
       }}
@@ -177,7 +177,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
           {/* Persistent, un-dismissable test-build label (decision 10). */}
           <div className="recompile-warn" role="note">
             <strong>⚠ Resigned test build.</strong> The rebuilt APK is signed
-            with MASA&rsquo;s install-scoped test keystore — not the app&rsquo;s
+            with MASA&rsquo;s install-scoped test keystore - not the app&rsquo;s
             original certificate. Install only on a test device. The artifact
             filename always carries the <code>-resigned-test-</code> label.
           </div>
@@ -194,7 +194,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
               <div className="recompile-action-title">Build a new APK</div>
               <div className="recompile-action-sub">
                 {appliedCount === 0
-                  ? 'No applied edits — this rebuilds the pristine decoded tree.'
+                  ? 'No applied edits - this rebuilds the pristine decoded tree.'
                   : `${appliedCount} applied edit${appliedCount === 1 ? '' : 's'} are overlaid onto a fresh copy of the decoded tree.`}{' '}
                 The baseline never changes.
               </div>
@@ -206,7 +206,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
               onClick={startRebuild}
               title={
                 activeBuild
-                  ? `Build #${activeBuild.id} is running — one build at a time`
+                  ? `Build #${activeBuild.id} is running - one build at a time`
                   : 'Recompile with the current applied edits'
               }
             >
@@ -293,7 +293,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
               <div className="recompile-empty">Loading build history…</div>
             ) : builds.length === 0 ? (
               <div className="recompile-empty">
-                No rebuilds yet — every attempt stays here, and a done
+                No rebuilds yet - every attempt stays here, and a done
                 artifact can be re-downloaded at any time.
               </div>
             ) : (
@@ -333,7 +333,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
               <div className="recompile-empty">Loading edit history…</div>
             ) : edits.length === 0 ? (
               <div className="recompile-empty">
-                No edits yet — open a smali / res / manifest file in the
+                No edits yet - open a smali / res / manifest file in the
                 decompiler and save with Ctrl/Cmd+S.
               </div>
             ) : (
@@ -353,7 +353,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
                       <button
                         type="button"
                         className="link-btn"
-                        title="Revert this edit — the effective content falls back to the previous applied edit (or the baseline)"
+                        title="Revert this edit - the effective content falls back to the previous applied edit (or the baseline)"
                         onClick={() => restoreEdit(e)}
                       >
                         Restore original

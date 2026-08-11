@@ -14,7 +14,7 @@ def test_semgrep_severity_map():
 
 def test_semgrep_curated_overrides_are_high():
     # Owner calibration (Aug 7): complete TLS verification bypasses were
-    # critical; after the critical band was removed (Aug 8) they are high —
+    # critical; after the critical band was removed (Aug 8) they are high -
     # the top severity.
     assert semgrep_severity("masa-android-all-hostname-verifier", "ERROR") == "high"
     assert semgrep_severity("masa-android-insecure-trust-manager", "ERROR") == "high"

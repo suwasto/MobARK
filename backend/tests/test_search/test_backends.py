@@ -1,9 +1,9 @@
-"""M7 SearchStore — env seeding, 0600 perms, and the one-Active radio.
+"""M7 SearchStore - env seeding, 0600 perms, and the one-Active radio.
 
 The radio (owner decision, Aug 9) is the module's core contract: exactly one
 search backend may be Active at a time, enforced server-side by
 ``enable_only`` (and on ``add``), so a raw API client can never leave two
-engines Active — mirroring ``pick_chat_backend`` determinism.
+engines Active - mirroring ``pick_chat_backend`` determinism.
 """
 
 import json
@@ -21,7 +21,7 @@ def _settings(**overrides) -> Settings:
 
 def test_seed_creates_bundled_searxng_enabled(tmp_path):
     """A fresh store carries the bundled SearXNG backend, seeded ACTIVE (the
-    bundled default) — the user can turn it off; no custom instances seed."""
+    bundled default) - the user can turn it off; no custom instances seed."""
     store = SearchStore(tmp_path, settings_obj=_settings())
     backends = store.read()
     assert [b.id for b in backends] == ["searxng"]
@@ -102,7 +102,7 @@ def test_active_none_when_all_off(tmp_path):
 
 def test_two_direct_enables_leave_one_active(tmp_path):
     """The API contract: two PUT {enabled:true} calls leave exactly one
-    Active — the radio is enforced by the store, not the UI."""
+    Active - the radio is enforced by the store, not the UI."""
     store = SearchStore(tmp_path, settings_obj=_settings())
     store.read()
     store.add(
@@ -134,7 +134,7 @@ def test_add_of_enabled_backend_turns_others_off(tmp_path):
             base_url="http://searxng.example:8080",
         )
     )
-    # The freshly-added custom instance is enabled — the bundled searxng is off.
+    # The freshly-added custom instance is enabled - the bundled searxng is off.
     assert store.active().id == "custom"
 
 
@@ -202,7 +202,7 @@ def test_repr_never_leaks_api_key():
 
 def test_keyed_providers_seed_only_with_env_key(tmp_path, monkeypatch):
     """Mirror of the model BYOK rule: a keyed search provider seeds only when
-    a real API key is configured via env (MASA_BRAVE_API_KEY etc.) — no
+    a real API key is configured via env (MASA_BRAVE_API_KEY etc.) - no
     unusable keyless entry is ever created. Seeded DISABLED so the radio
     keeps the bundled engine Active by default."""
     monkeypatch.delenv("MASA_BRAVE_API_KEY", raising=False)

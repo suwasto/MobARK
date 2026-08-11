@@ -1,4 +1,4 @@
-"""Layer 1 context tests — precision derivation, platform tool whitelists,
+"""Layer 1 context tests - precision derivation, platform tool whitelists,
 full-set rendering. No LLM, no embeddings, no network.
 """
 from __future__ import annotations
@@ -150,7 +150,7 @@ def test_max_findings_is_explicit_escape_hatch_only(db_session_factory):
 
 
 def test_known_file_defaults_for_manifest_and_plist(db_session_factory):
-    # plist/androguard stages don't set a per-finding file_path — Layer 1 must
+    # plist/androguard stages don't set a per-finding file_path - Layer 1 must
     # still name the file (Info.plist / AndroidManifest.xml), it's part of the
     # precision contract.
     android_scan = _add_scan(db_session_factory, platform="android")

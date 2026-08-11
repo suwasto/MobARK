@@ -4,7 +4,7 @@ import type { DependenciesResponse, DependencyItem } from '../../types'
 
 interface DependenciesPanelProps {
   scanId: number
-  /** Pre-fill the Agent dock with a question about a dependency — known-CVE
+  /** Pre-fill the Agent dock with a question about a dependency - known-CVE
    * research is the M7 web-research use case (the agent searches when the
    * scan's 🌐 Web toggle is on; without it, it answers from local context). */
   onAskAgent: (question: string) => void
@@ -37,7 +37,7 @@ function DepRow({
   onAskAgent: (q: string) => void
 }) {
   const showCve =
-    // iOS system dylibs are Apple's own — nothing to research per-dependency.
+    // iOS system dylibs are Apple's own - nothing to research per-dependency.
     !(platform === 'ios' && item.system === true)
   const display = item.label ?? item.name
   return (
@@ -67,7 +67,7 @@ function DepRow({
           <button
             type="button"
             className="link-btn shrink-0"
-            title="Pre-fill the Agent dock with a known-CVE question — turn on 🌐 Web research for this scan to let the agent search"
+            title="Pre-fill the Agent dock with a known-CVE question - turn on 🌐 Web research for this scan to let the agent search"
             onClick={() => onAskAgent(cveQuestion(display))}
           >
             Check known CVEs
@@ -142,10 +142,10 @@ export function DependenciesPanel({ scanId, onAskAgent }: DependenciesPanelProps
         </div>
       )}
 
-      {/* CVE research note — the M7 web-research boundary */}
+      {/* CVE research note - the M7 web-research boundary */}
       <div className="mb-6 rounded border border-dashed border-line bg-panel p-4 text-[12.5px] leading-relaxed text-bone-dim">
         Known-CVE research runs through the{' '}
-        <strong className="text-bone">Agent dock</strong> — use the per-dependency{' '}
+        <strong className="text-bone">Agent dock</strong> - use the per-dependency{' '}
         <em>Check known CVEs</em> button to pre-fill a question, and turn on the
         dock's <strong className="text-bone">🌐 Web</strong> toggle (needs an
         Active search engine in Settings → Search &amp; research) so the agent
@@ -172,8 +172,8 @@ export function DependenciesPanel({ scanId, onAskAgent }: DependenciesPanelProps
         <div className="rounded border border-line-soft bg-panel p-5 text-[12.5px] leading-relaxed text-bone-dim">
           No third-party dependencies detected{' '}
           {data.platform === 'ios'
-            ? '— the bundle links no third-party dylibs and embeds no frameworks.'
-            : '— the decompiled tree shows only the app\'s own package and the APK ships no native libraries.'}
+            ? '- the bundle links no third-party dylibs and embeds no frameworks.'
+            : '- the decompiled tree shows only the app\'s own package and the APK ships no native libraries.'}
         </div>
       )}
 
@@ -181,7 +181,7 @@ export function DependenciesPanel({ scanId, onAskAgent }: DependenciesPanelProps
         <>
           {data.truncated && (
             <div className="mb-6 rounded border border-amber/30 bg-amber/10 p-4 text-[12px] text-bone-dim">
-              The source walk hit its size cap — the package list below may be
+              The source walk hit its size cap - the package list below may be
               partial (libraries with code findings are always listed).
             </div>
           )}

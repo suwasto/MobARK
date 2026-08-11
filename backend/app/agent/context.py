@@ -1,16 +1,16 @@
-"""Layer 1 — structured findings as direct agent context (no embeddings).
+"""Layer 1 - structured findings as direct agent context (no embeddings).
 
 Every static-analysis source already emits the unified ``FindingOut`` shape
 persisted to the ``findings`` table (androguard/semgrep/gitleaks for Android;
 plist/lief/symbols/gitleaks/semgrep for iOS). This module is the Layer 1
 normalizer for the agent:
 
-1. derives each finding's **precision level** — ``file/line`` (semgrep,
+1. derives each finding's **precision level** - ``file/line`` (semgrep,
    gitleaks, androguard manifest, Info.plist) vs ``binary-level presence only``
    (Mach-O protections/entitlements, import-table scanner);
 2. filters to the scan platform's tool set (androguard is Android-only and
    must never appear in an iOS context);
-3. renders the **full findings set** — no truncation, no subsetting — as a
+3. renders the **full findings set** - no truncation, no subsetting - as a
    compact, precision-tagged context block.
 
 This is a data lookup over the findings table, not retrieval: no embedding,
@@ -41,7 +41,7 @@ _DEFAULT_PRECISION = PRECISION_BINARY
 
 # Platform tool whitelists. androguard is Android/JVM-only and MUST NOT appear
 # in the iOS path; semgrep is listed on iOS for completeness but is zero-yield
-# by design (no decompiled source — the context notes this for the agent).
+# by design (no decompiled source - the context notes this for the agent).
 ANDROID_TOOLS = ("androguard", "semgrep", "gitleaks")
 IOS_TOOLS = ("plist", "lief", "symbols", "gitleaks", "semgrep")
 _PLATFORM_TOOLS: dict[str, frozenset[str]] = {
@@ -59,7 +59,7 @@ _TOOL_LABELS: dict[str, str] = {
 }
 
 IOS_SEMGREP_NOTE = (
-    "semgrep: zero findings by design on iOS — the pipeline extracts binary "
+    "semgrep: zero findings by design on iOS - the pipeline extracts binary "
     "structure via LIEF, not decompiled Swift/ObjC source, so semgrep has no "
     "parseable source to scan. Do not rely on it for iOS answers."
 )
@@ -159,9 +159,9 @@ def build_findings_context(
     """Assemble the full normalized findings context for a scan.
 
     ``max_findings`` is an explicit escape hatch for pathological findings
-    counts — the default (None) is the full set, never a silent subset.
+    counts - the default (None) is the full set, never a silent subset.
     """
-    # Suppressed false positives are excluded from the agent context — they
+    # Suppressed false positives are excluded from the agent context - they
     # were reviewed and dismissed, so grounding answers on them would be
     # misleading (owner decision, Aug 8).
     rows = db.scalars(
@@ -187,19 +187,19 @@ def render_context(scan: Scan, entries: list[FindingContextEntry]) -> str:
     """Compact precision-tagged rendering of the findings set for the agent."""
     lines: list[str] = []
     header = (
-        f"FINDINGS CONTEXT — scan {scan.id} ({scan.filename}, platform "
-        f"{scan.platform or 'unknown'}, status {scan.status}) — {len(entries)} "
+        f"FINDINGS CONTEXT - scan {scan.id} ({scan.filename}, platform "
+        f"{scan.platform or 'unknown'}, status {scan.status}) - {len(entries)} "
         "findings across every static-analysis source. Full set, no truncation."
     )
     lines.append(header)
     lines.append("")
     lines.append("PRECISION LEGEND:")
     lines.append(
-        f"  [{PRECISION_FILE_LINE}] — finding has a concrete source location "
+        f"  [{PRECISION_FILE_LINE}] - finding has a concrete source location "
         "(file, and line when shown)."
     )
     lines.append(
-        f"  [{PRECISION_BINARY}] — the evidence exists somewhere in the app "
+        f"  [{PRECISION_BINARY}] - the evidence exists somewhere in the app "
         "binary/bundle but has no specific source location (imports, "
         "entitlements, Mach-O flags). Never invent a file/line for these."
     )
@@ -212,7 +212,7 @@ def render_context(scan: Scan, entries: list[FindingContextEntry]) -> str:
     for tool in _PLATFORM_TOOLS.get(scan.platform or "", ()):
         group = by_tool.get(tool, [])
         label = _TOOL_LABELS.get(tool, tool)
-        lines.append(f"## {label} — {len(group)} finding(s)")
+        lines.append(f"## {label} - {len(group)} finding(s)")
         for entry in group:
             lines.append(_render_entry(entry))
         lines.append("")
@@ -229,9 +229,9 @@ def _render_entry(entry: FindingContextEntry) -> str:
     meta = entry.category or ""
     if entry.mastg_test_id:
         meta = f"{meta} (MASTG {entry.mastg_test_id})" if meta else f"MASTG {entry.mastg_test_id}"
-    line = f"- {tag} {sev} {entry.title} — {entry.location}"
+    line = f"- {tag} {sev} {entry.title} - {entry.location}"
     if meta:
-        line += f" — {meta}"
+        line += f" - {meta}"
     if entry.detail:
         compact = json.dumps(entry.detail, separators=(",", ":"), default=str)
         if len(compact) > _DETAIL_MAX:

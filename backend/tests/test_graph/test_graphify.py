@@ -1,4 +1,4 @@
-"""graphify wrapper tests — subprocess stubbed, no real graphify calls."""
+"""graphify wrapper tests - subprocess stubbed, no real graphify calls."""
 from __future__ import annotations
 
 import json
@@ -77,7 +77,7 @@ def test_count_graph_empty(tmp_path):
 
 def test_build_runs_update_and_relocates_input_dir_output(monkeypatch, tmp_path):
     """Regression (Aug 8): graphify 0.9.32 writes into the INPUT dir
-    (``<decompiled>/graphify-out/``), not the cwd — build() must move it
+    (``<decompiled>/graphify-out/``), not the cwd - build() must move it
     into the per-scan graphs dir so the decompiler tree stays clean and
     graph_path_for resolves. Verified empirically in the container."""
     captured = _stub_run(monkeypatch, stdout="updating...")
@@ -93,7 +93,7 @@ def test_build_runs_update_and_relocates_input_dir_output(monkeypatch, tmp_path)
     assert stats.edges == 20
     assert stats.graph_path == tmp_path / "5" / "graphify-out" / "graph.json"
     assert stats.graph_path.is_file()
-    # The input-side copy is gone — relocated, not copied.
+    # The input-side copy is gone - relocated, not copied.
     assert not (decompiled / "graphify-out").exists()
     assert captured["cmd"][0] == "graphify"
     assert captured["cmd"][1:3] == ["update", str(decompiled)]
@@ -103,7 +103,7 @@ def test_build_runs_update_and_relocates_input_dir_output(monkeypatch, tmp_path)
 
 def test_build_keeps_existing_target_output(monkeypatch, tmp_path):
     """A re-run where the per-scan graph.json already exists (previous build)
-    keeps it even if the input dir was re-polluted — target wins."""
+    keeps it even if the input dir was re-polluted - target wins."""
     _stub_run(monkeypatch, stdout="updating...")
     decompiled = tmp_path / "decompiled"
     in_out = decompiled / "graphify-out"
@@ -343,7 +343,7 @@ def test_explorer_hubs_ranks_by_degree(tmp_path):
 
 def test_explorer_index_rebuilds_on_version_mismatch(tmp_path):
     """A stale explorer.json from an older build (v1, root-prefixed rows)
-    must be rebuilt — never served as-is — so the normalized shape wins."""
+    must be rebuilt - never served as-is - so the normalized shape wins."""
     p = _write_explorer_graph(
         tmp_path,
         nodes=[

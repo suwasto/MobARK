@@ -4,14 +4,14 @@ Revision ID: 0009
 Revises: 0008
 Create Date: 2026-08-10
 
-Owner decisions (Aug 10, 2026): apktool decode is **on-demand** — an RQ job
+Owner decisions (Aug 10, 2026): apktool decode is **on-demand** - an RQ job
 triggered by the first Smali view / first edit, cached per scan, never a
 scan-pipeline step. ``scans.apktool_status`` tracks in-flight states
 (``not_started | queued | decoding | ready | failed``); ``ready`` is also
 filesystem-derived (``<work>/<scan>/apktool/AndroidManifest.xml`` exists),
 and ``scans.apktool_error`` carries the specific decode failure for the UI.
 
-Phase B adds the **``edits`` table** — the DB-diff source of truth for M8
+Phase B adds the **``edits`` table** - the DB-diff source of truth for M8
 edit/recompile: full-file rows (original + new + generated unified diff),
 never silent writes to the on-disk apktool tree. Phase C adds the
 **``builds`` table** (full rebuild history; the pipeline snapshots the

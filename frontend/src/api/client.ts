@@ -1,5 +1,5 @@
 /**
- * M5 typed API client — thin fetch wrapper over the FastAPI surface.
+ * M5 typed API client - thin fetch wrapper over the FastAPI surface.
  *
  * All endpoints hang off the same-origin `/api/v1` base (Vite dev proxy in
  * dev, FastAPI static mount in production). Errors are normalized to
@@ -60,7 +60,7 @@ async function toApiError(res: Response): Promise<ApiError> {
       detail = JSON.stringify(body.detail)
     }
   } catch {
-    // Non-JSON error body — fall back to the status text above.
+    // Non-JSON error body - fall back to the status text above.
   }
   return new ApiError(res.status, detail)
 }
@@ -74,7 +74,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers }).catch((err: unknown) => {
     // User-initiated aborts (the agent Stop button) reach the caller
     // untouched so it can tell "stopped" apart from a real network failure.
-    // Check by name, not instanceof — some fetch polyfills reject with a
+    // Check by name, not instanceof - some fetch polyfills reject with a
     // plain Error named 'AbortError' rather than a DOMException.
     if ((err as { name?: string } | null)?.name === 'AbortError') throw err
     // Network-level failures (backend down, proxy unreachable) become
@@ -95,7 +95,7 @@ export interface FindingsQuery {
   severity?: Severity
   limit?: number
   offset?: number
-  /** M5 (Aug 8): show suppressed (false-positive) findings too — the review
+  /** M5 (Aug 8): show suppressed (false-positive) findings too - the review
    * toggle. Defaults to false (suppressed findings are hidden). */
   includeSuppressed?: boolean
 }
@@ -130,14 +130,14 @@ export const api = {
     request<FindingRead>(`/scans/${scanId}/findings/${findingId}/unsuppress`, {
       method: 'POST',
     }),
-  /** Cached server-side (scans.ai_summary) — repeat calls return it with no
+  /** Cached server-side (scans.ai_summary) - repeat calls return it with no
    * LLM spend. `regenerate` explicitly bypasses the cache (Regenerate button). */
   scanSummary: (scanId: number, regenerate = false) =>
     request<SummaryResponse>(
       `/scans/${scanId}/summary${regenerate ? '?regenerate=true' : ''}`,
       { method: 'POST' },
     ),
-  /** Cached server-side (findings.explanation) — repeat calls are free.
+  /** Cached server-side (findings.explanation) - repeat calls are free.
    * `regenerate` explicitly bypasses the cache (Regenerate button). */
   explainFinding: (scanId: number, findingId: number, regenerate = false) =>
     request<ExplainResponse>(
@@ -155,7 +155,7 @@ export const api = {
     request<FileContentResponse>(
       `/scans/${scanId}/files/content?path=${encodeURIComponent(path)}`,
     ),
-  /** Dependencies tab inventory — derived on demand, nothing leaves the
+  /** Dependencies tab inventory - derived on demand, nothing leaves the
    * machine. Known-CVE research is the agent's web-research use case (the
    * panel's "Check known CVEs" button pre-fills the dock question). */
   listDependencies: (scanId: number) =>
@@ -166,7 +166,7 @@ export const api = {
    * decoding/ready, non-Android, or not analyzed). */
   triggerSmali: (scanId: number) =>
     request<SmaliStatus>(`/scans/${scanId}/smali`, { method: 'POST' }),
-  /** Current decode state — `ready` is filesystem-derived server-side, so a
+  /** Current decode state - `ready` is filesystem-derived server-side, so a
    * worker crash mid-decode can never report a phantom ready. */
   smaliStatus: (scanId: number) =>
     request<SmaliStatus>(`/scans/${scanId}/smali-status`),
@@ -174,7 +174,7 @@ export const api = {
   // ---- M8 Phase B: edits (DB-diff source of truth) ----
   /** All edit rows for a scan, newest first (full history). */
   listEdits: (scanId: number) => request<EditRead[]>(`/scans/${scanId}/edits`),
-  /** Manual edit from the editor (Ctrl/Cmd+S) — created as `applied`. */
+  /** Manual edit from the editor (Ctrl/Cmd+S) - created as `applied`. */
   createEdit: (scanId: number, payload: EditCreate) =>
     request<EditRead>(`/scans/${scanId}/edits`, {
       method: 'POST',
@@ -197,7 +197,7 @@ export const api = {
     request<SmaliSibling>(
       `/scans/${scanId}/files/smali-sibling?path=${encodeURIComponent(path)}`,
     ),
-  /** Java→Smali tree-path mapping for the scan's findings — Smali-mode
+  /** Java→Smali tree-path mapping for the scan's findings - Smali-mode
    * dots + the annotation rail re-key jadx findings onto their apktool
    * smali siblings (Android only; empty mapping before the decode). */
   smaliMapping: (scanId: number) =>
@@ -210,11 +210,11 @@ export const api = {
     request<BuildRead>(`/scans/${scanId}/rebuild`, { method: 'POST' }),
   /** Full rebuild history, newest first. */
   listBuilds: (scanId: number) => request<BuildRead[]>(`/scans/${scanId}/builds`),
-  /** One build — the recompile modal's poll target for live stages. */
+  /** One build - the recompile modal's poll target for live stages. */
   getBuild: (scanId: number, buildId: number) =>
     request<BuildRead>(`/scans/${scanId}/builds/${buildId}`),
   /** Download URL of a done build's resigned TEST APK. Same-origin, so a
-   * plain anchor works — the backend sets the attachment name (which carries
+   * plain anchor works - the backend sets the attachment name (which carries
    * the `-resigned-test-` label) + the X-Resigned-Test-Build header. */
   buildDownloadUrl: (scanId: number, buildId: number) =>
     `${API_BASE}/scans/${scanId}/builds/${buildId}/download`,
@@ -224,7 +224,7 @@ export const api = {
     scanId: number,
     question: string,
     timeoutSeconds?: number,
-    /** AbortSignal from the Stop button — aborting makes the fetch reject
+    /** AbortSignal from the Stop button - aborting makes the fetch reject
      * with AbortError (re-thrown untouched by `request`). */
     signal?: AbortSignal,
     /** M8 follow-up: tree paths the user @mentioned in the dock. */
@@ -240,8 +240,8 @@ export const api = {
     })
   },
   /** M6 follow-up: SSE stream of one agent turn (live token + tool events).
-   * Returns the raw Response — the caller reads the body as a stream and
-   * decodes events (pre-stream HTTP errors — 400 no-model, 409 not analyzed —
+   * Returns the raw Response - the caller reads the body as a stream and
+   * decodes events (pre-stream HTTP errors - 400 no-model, 409 not analyzed -
    * still surface as ApiError here; in-stream failures arrive as SSE
    * `error` frames). */
   chatStream: (
@@ -265,7 +265,7 @@ export const api = {
       if (!res.ok) throw await toApiError(res)
       return res
     }),
-  /** Stop an in-flight agent chat (the Stop button) — fire-and-forget; the
+  /** Stop an in-flight agent chat (the Stop button) - fire-and-forget; the
    * server polls this flag between agent rounds and halts the LLM loop so it
    * stops burning tokens instead of running to the end of the budget. */
   cancelChat: (scanId: number) =>
@@ -308,7 +308,7 @@ export const api = {
 
   // ---- M7 search backends (web research engines) ----
   listSearchBackends: () => request<SearchBackendRead[]>('/search/backends'),
-  /** The addable engine set (Settings add-form picker) — everything except
+  /** The addable engine set (Settings add-form picker) - everything except
    * the bundled SearXNG. */
   listSearchProviders: () => request<SearchProviderRead[]>('/search/providers'),
   createSearchBackend: (payload: SearchBackendCreate) =>
@@ -327,7 +327,7 @@ export const api = {
   /** Full probe: a real search query against the engine. */
   testSearchBackend: (id: string) =>
     request<SearchBackendRead>(`/search/backends/${id}/test`, { method: 'POST' }),
-  /** One-click start for the bundled engine — runs `docker compose --profile
+  /** One-click start for the bundled engine - runs `docker compose --profile
    * web up -d searxng` server-side and waits for it to answer (the Settings
    * "Start engine" button; custom instances 400). */
   startSearchBackend: (id: string) =>

@@ -1,4 +1,4 @@
-"""Layers 1-3 + M6 chat orchestration — client_chat monkeypatched, no
+"""Layers 1-3 + M6 chat orchestration - client_chat monkeypatched, no
 network, no LLM.
 
 Ollama is off during development (owner decision): every test here is a
@@ -93,7 +93,7 @@ def test_answer_without_tool_calls_uses_findings_context(env, monkeypatch):
 def test_mentioned_files_content_attached_to_context(env, monkeypatch):
     """M8 follow-up: the dock's @-mentions. ChatRequest.mentioned_files
     paths get their current content attached to the system prompt (the
-    USER-MENTIONED FILES section) so the model answers about them directly —
+    USER-MENTIONED FILES section) so the model answers about them directly -
     no search round needed."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -145,7 +145,7 @@ def test_mentioned_files_deduped(env, monkeypatch):
 
 
 def test_mentioned_files_missing_path_degrades_to_note(env, monkeypatch):
-    """A mentioned path that doesn't exist must degrade to an inline note —
+    """A mentioned path that doesn't exist must degrade to an inline note -
     never a crash (the model sees '[could not load ...]')."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -258,7 +258,7 @@ def test_agent_timeout_raises_when_budget_exhausted(env, monkeypatch):
 
 def test_fallback_gets_remaining_budget_not_full_timeout(env, monkeypatch):
     """Regression: when the tools call fails and the plain-chat fallback runs,
-    it must receive the *remaining* budget — otherwise a hung call plus its
+    it must receive the *remaining* budget - otherwise a hung call plus its
     retry doubles the block time."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -282,7 +282,7 @@ def test_fallback_gets_remaining_budget_not_full_timeout(env, monkeypatch):
 
 def test_fallback_skipped_when_first_call_exhausted_budget(env, monkeypatch):
     """Regression: if the tools call burns the whole budget (hung upstream),
-    the plain-chat fallback must NOT retry — it raises AgentTimeout instead,
+    the plain-chat fallback must NOT retry - it raises AgentTimeout instead,
     keeping the worker block bounded by the deadline."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -319,7 +319,7 @@ def test_fallback_skipped_when_first_call_exhausted_budget(env, monkeypatch):
 def test_upstream_llm_failure_wrapped_not_raw(env, monkeypatch):
     """Regression: a model call that fails on both the tools attempt and the
     no-tools fallback must raise ChatUpstreamError carrying the upstream
-    message — the API maps it to 502, not a raw 500 (the 500 the user saw
+    message - the API maps it to 502, not a raw 500 (the 500 the user saw
     when Ollama couldn't load the model)."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -337,7 +337,7 @@ def test_upstream_llm_failure_wrapped_not_raw(env, monkeypatch):
 
 def test_upstream_error_carries_arch_hint(env, monkeypatch):
     """The nanbeige-style error gets the shared actionable hint in the chat
-    bubble too — not just in the Settings probe."""
+    bubble too - not just in the Settings probe."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
 
@@ -406,7 +406,7 @@ def _chunk(content=None, tool_calls=None):
 
 
 def _tc_delta(index, call_id=None, name=None, arguments=None):
-    """One incremental tool-call delta (``function`` fields optional — arrive
+    """One incremental tool-call delta (``function`` fields optional - arrive
     on the first chunk for the index, arguments concatenate across chunks)."""
     fn = {}
     if name:
@@ -421,7 +421,7 @@ def _tc_delta(index, call_id=None, name=None, arguments=None):
 
 def test_stream_emits_tokens_then_answer(env, monkeypatch):
     """stream=True forwards content tokens live and returns the accumulated
-    answer — same result as the buffered path."""
+    answer - same result as the buffered path."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
     events: list[chat_mod.AgentEvent] = []
@@ -478,7 +478,7 @@ def test_stream_accumulates_tool_call_and_emits_steps(env, monkeypatch):
 
 def test_stream_tool_error_records_error_status(env, monkeypatch):
     """A tool that fails (ToolError -> {"error": ...}) ends its step as an
-    error with the message — never a crash."""
+    error with the message - never a crash."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
     events: list[chat_mod.AgentEvent] = []
@@ -552,7 +552,7 @@ def test_stream_fallback_on_tools_rejection_streams_too(env, monkeypatch):
 
 def test_stream_cancel_raises_interrupted_between_rounds(env, monkeypatch):
     """The Stop button's flag still stops a streaming turn at the next round
-    boundary (token/tool events before it are fine — no half-answer)."""
+    boundary (token/tool events before it are fine - no half-answer)."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
     calls = {"n": 0}
@@ -591,7 +591,7 @@ def test_stream_cancel_raises_interrupted_between_rounds(env, monkeypatch):
 
 def test_multi_step_search_then_decompiled_class(env, monkeypatch):
     """Phase D multi-step: the fake model runs search_code FIRST, then reads
-    the hit via get_decompiled_class, then answers — assert the ordered tool
+    the hit via get_decompiled_class, then answers - assert the ordered tool
     results reach the follow-up prompt and tools_used reflects both."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -614,7 +614,7 @@ def test_multi_step_search_then_decompiled_class(env, monkeypatch):
                     ],
                 )
             ),
-            _resp(_msg("The WebView client is com/app/W.java — see line 42.")),
+            _resp(_msg("The WebView client is com/app/W.java - see line 42.")),
         ]
     )
 
@@ -638,7 +638,7 @@ def test_multi_step_search_then_decompiled_class(env, monkeypatch):
 
 
 def test_flagship_question_uses_graph_query_first(env, monkeypatch, tmp_path):
-    """Phase D flagship: 'where is certificate pinning located' — the fake
+    """Phase D flagship: 'where is certificate pinning located' - the fake
     model picks graph_query FIRST (Layer 3, not the context-only path); the
     graph result reaches the answer and is cited."""
     scan_id = env
@@ -699,7 +699,7 @@ def test_flagship_question_uses_graph_query_first(env, monkeypatch, tmp_path):
 
 
 def test_max_tool_rounds_knob_from_settings(env, monkeypatch):
-    """M6 Phase C: max_tool_rounds defaults from settings — with the knob
+    """M6 Phase C: max_tool_rounds defaults from settings - with the knob
     set to 1 the loop runs at most 2 tool rounds before the plain fallback."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -758,7 +758,7 @@ def test_max_tool_rounds_explicit_argument_wins(env, monkeypatch):
 
 
 def test_any_model_gets_tools_offered_soft_gate(env, monkeypatch):
-    """M6 Phase B soft gate: tools are offered to ANY configured model — the
+    """M6 Phase B soft gate: tools are offered to ANY configured model - the
     known-good list (Qwen2.5/2.5-coder, Llama 3.1+) is a documented
     recommendation, not a hard gate. An arbitrary (off-list) backend still
     receives the full platform tool schemas."""
@@ -779,7 +779,7 @@ def test_any_model_gets_tools_offered_soft_gate(env, monkeypatch):
 
 def test_ios_never_offered_get_decompiled_class(monkeypatch, db_session_factory, tmp_path):
     """M6 Phase B: an iOS scan's tool schemas exclude the Android-only class
-    tool — the model can't waste a round on a guaranteed-failing call."""
+    tool - the model can't waste a round on a guaranteed-failing call."""
     monkeypatch.setattr("app.config.settings.data_dir", tmp_path)
     monkeypatch.setattr("app.db.SessionLocal", db_session_factory)
     with db_session_factory() as session:
@@ -813,7 +813,7 @@ def test_ios_never_offered_get_decompiled_class(monkeypatch, db_session_factory,
 
 
 def test_greeting_answered_without_llm_or_backend(env, monkeypatch):
-    """'hi' gets a canned greeting — no backend pick, no LLM call, no tool
+    """'hi' gets a canned greeting - no backend pick, no LLM call, no tool
     loop (regression: it used to burn the whole tool budget and return the
     confusing 'tool-call limit' message)."""
     scan_id = env
@@ -846,7 +846,7 @@ def test_greeting_variants_short_circuit(env, monkeypatch):
 
 
 def test_greeting_like_question_still_uses_llm(env, monkeypatch):
-    """'hi, …' is a real question, not a greeting — it must go through the
+    """'hi, …' is a real question, not a greeting - it must go through the
     agent normally (the short-circuit only catches bare greetings)."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -861,7 +861,7 @@ def test_greeting_like_question_still_uses_llm(env, monkeypatch):
 
 def test_loop_exhaustion_falls_back_to_plain_chat(env, monkeypatch):
     """If the model only ever emits tool calls, the loop ends and ONE final
-    no-tools attempt replays the original grounded prompt — the 'tool-call
+    no-tools attempt replays the original grounded prompt - the 'tool-call
     limit' message must not be the answer (regression: 'hi' style prompts)."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -945,7 +945,7 @@ def test_loop_exhaustion_empty_fallback_returns_graceful_message(env, monkeypatc
 
 def test_request_cancel_stops_loop_at_next_round(env, monkeypatch):
     """The Stop button's server side: request_cancel(scan_id) makes the loop
-    raise ChatInterrupted at the next round boundary — the second LLM call
+    raise ChatInterrupted at the next round boundary - the second LLM call
     never happens, and the registry entry is cleared in the finally."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -993,7 +993,7 @@ def test_cancel_registry_cleared_after_normal_answer(env, monkeypatch):
 
 def test_request_cancel_noop_without_in_flight_chat(env, monkeypatch):
     """Cancelling before/after a chat changes nothing (the flag only exists
-    while a request is in flight) — a later chat still answers normally."""
+    while a request is in flight) - a later chat still answers normally."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
     chat_mod.request_cancel(scan_id)  # no event registered yet
@@ -1018,7 +1018,7 @@ def test_plan_narration_nudges_model_to_actually_call_tool(env, monkeypatch):
     batches: list[list[dict]] = []
     responses = iter(
         [
-            # Round 1: pure plan narration — NO tool call (the bug).
+            # Round 1: pure plan narration - NO tool call (the bug).
             _resp(
                 _msg(
                     "To remove password validation we need to inspect the login "
@@ -1035,7 +1035,7 @@ def test_plan_narration_nudges_model_to_actually_call_tool(env, monkeypatch):
                     ],
                 )
             ),
-            # Round 3: the rollup — a real answer composed from the results.
+            # Round 3: the rollup - a real answer composed from the results.
             _resp(
                 _msg(
                     "The login flow verifies the password in "
@@ -1053,7 +1053,7 @@ def test_plan_narration_nudges_model_to_actually_call_tool(env, monkeypatch):
 
     result = answer_question(scan_id, "disable password validation in authentication")
 
-    # The tool actually ran — the narration was NOT the answer.
+    # The tool actually ran - the narration was NOT the answer.
     assert result.tools_used == ["search_code"]
     assert result.tool_mode == "tools"
     assert "LoginActivity.java:88" in result.answer
@@ -1079,7 +1079,7 @@ def test_plan_narration_bounded_after_max_nudges(env, monkeypatch):
     result = answer_question(scan_id, "find the password check")
 
     # original + _MAX_NARRATION_NUDGES nudges, then the next narration is
-    # accepted — bounded, no infinite loop.
+    # accepted - bounded, no infinite loop.
     assert calls["n"] == chat_mod._MAX_NARRATION_NUDGES + 1
     assert result.answer == narration
     assert result.tools_used == []
@@ -1088,7 +1088,7 @@ def test_plan_narration_bounded_after_max_nudges(env, monkeypatch):
 def test_stale_final_text_cleared_when_nudging_then_exhausting(env, monkeypatch):
     """Review catch (Aug 11): a round that emits narration WITH a tool call
     sets final_text; if later rounds are nudged and the loop then EXHAUSTS
-    its round budget, the stale narration must not win — an empty final_text
+    its round budget, the stale narration must not win - an empty final_text
     falls through to the grounded plain-chat fallback."""
     scan_id = env
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
@@ -1102,7 +1102,7 @@ def test_stale_final_text_cleared_when_nudging_then_exhausting(env, monkeypatch)
         if "tools" not in kwargs:
             return _resp(_msg("The WebView client is com/app/W.java:42."))
         if calls["n"] == 1:
-            # Narration + tool call — sets final_text to the narration.
+            # Narration + tool call - sets final_text to the narration.
             return _resp(
                 _msg(
                     "Let me search the code for the WebView client.",

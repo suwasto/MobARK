@@ -1,10 +1,10 @@
-"""M5 risk/security score unit tests — CVSS 4.0 mapping, worst+count, edges.
+"""M5 risk/security score unit tests - CVSS 4.0 mapping, worst+count, edges.
 
 Formula (docs/progress/M5.md): each severity band maps to a representative
-CVSS 4.0 base score (high 8.0, medium 5.5, low 2.0, info 0 — the critical
+CVSS 4.0 base score (high 8.0, medium 5.5, low 2.0, info 0 - the critical
 band was removed Aug 8); risk = round(10 * max(cvss)) driven by the worst
 finding, plus ~1 point per extra finding at the worst severity band, capped
-at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 — the band
+at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 - the band
  tops 8.9/6.9/3.9 × 10). Owner decisions: max-not-mean Aug 7; "worst +
 count" then band-symmetric Aug 8. security = 100 - risk (higher is
 better). Suppressed findings are skipped entirely; bands never overlap
@@ -64,7 +64,7 @@ def test_single_low_is_twenty():
 
 def test_worst_finding_drives_the_score():
     # Max aggregation (owner decision): a single high among many lower
-    # findings still reads 80 — the worst finding governs the posture.
+    # findings still reads 80 - the worst finding governs the posture.
     findings = (
         [_f("high")]
         + [_f("medium")] * 5
@@ -76,7 +76,7 @@ def test_worst_finding_drives_the_score():
 def test_high_count_adds_breadth_bonus():
     # Worst + count (owner decision, Aug 8): each extra high adds ~1 point,
     # capped at +9 so risk never crosses 89 (CVSS 4.0 8.9 = High band top).
-    # Note: the 0.9 slope's rounding makes 6 and 7 highs both read 85 — the
+    # Note: the 0.9 slope's rounding makes 6 and 7 highs both read 85 - the
     # flat step is expected (int(0.9*5+0.5) == int(0.9*6+0.5) == 5), not a bug.
     assert compute_risk_score([_f("high")]) == 80
     assert compute_risk_score([_f("high"), _f("high")]) == 81
@@ -123,7 +123,7 @@ def test_suppressed_findings_are_excluded():
     # A suppressed worst finding must not drive the posture (Aug 8).
     assert compute_risk_score([_suppressed("high")]) == 0
     assert compute_risk_score([_suppressed("high"), _f("low")]) == 20
-    # Plain FindingOut (analysis layer) has no suppressed attribute — getattr
+    # Plain FindingOut (analysis layer) has no suppressed attribute - getattr
     # keeps both call sites working.
     assert compute_risk_score([_f("high")]) == 80
 

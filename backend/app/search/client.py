@@ -1,27 +1,27 @@
-"""M7 search client — engine queries (dispatch by ``query_style``) + bounded
+"""M7 search client - engine queries (dispatch by ``query_style``) + bounded
 web_fetch extraction.
 
 ``query`` talks to the single Active engine and normalizes every provider's
-response to ``[{title, url, snippet, engine}]`` — the model cites source URLs
+response to ``[{title, url, snippet, engine}]`` - the model cites source URLs
 from it. There is no universal search-API protocol, so each ``query_style``
 has its own small request + parse branch (see ``app/search/providers.py``):
 
-  searxng — GET {base}/search?q=…&format=json      -> results[]
-  brave   — GET {base}/res/v1/web/search            -> web.results[]
+  searxng - GET {base}/search?q=…&format=json      -> results[]
+  brave   - GET {base}/res/v1/web/search            -> web.results[]
             (X-Subscription-Token header, count param)
-  serper  — POST {base}/search (X-API-KEY, JSON     -> organic[]
+  serper  - POST {base}/search (X-API-KEY, JSON     -> organic[]
             body {"q": …})
-  mojeek  — GET {base}/search?q=…&api_key=…&fmt=json-> response.results[]
+  mojeek  - GET {base}/search?q=…&api_key=…&fmt=json-> response.results[]
             (desc field, not description)
 
 ``web_fetch`` is the agent's page reader: a bounded httpx GET + **trafilatura
-(>=1.8.0 — Apache-2.0; earlier versions were GPLv3+)** article extraction.
+(>=1.8.0 - Apache-2.0; earlier versions were GPLv3+)** article extraction.
 SSRF-guarded: http(s) scheme only, private/reserved hosts refused at the
-first hop AND on every redirect hop — the agent must never read the user's
+first hop AND on every redirect hop - the agent must never read the user's
 local network (this is the one deliberate egress in MASA).
 
 ``check_backend`` powers the Settings probe: the lightweight pass accepts any
-2xx from the base URL (SearXNG) — keyed engines have no meaningful root
+2xx from the base URL (SearXNG) - keyed engines have no meaningful root
 endpoint, so their honest health check IS a real query (also validates the
 key); the full test runs a real search query and reports the normalized
 result count.
@@ -44,7 +44,7 @@ from app.search.backends import SearchBackend
 _MAX_RESULTS = 10
 _MAX_REDIRECTS = 5
 # Extracted text cap for the model (the article is bounded before extraction
-# too, via web_fetch_max_bytes — this is the model-facing trim).
+# too, via web_fetch_max_bytes - this is the model-facing trim).
 _WEB_FETCH_MAX_CHARS = 8000
 _LIGHTWEIGHT_TIMEOUT = 3.0
 
@@ -69,15 +69,15 @@ _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
 
 class SearchError(RuntimeError):
-    """A web tool failed cleanly — surfaced to the model as an error result."""
+    """A web tool failed cleanly - surfaced to the model as an error result."""
 
 
 def compose_hint(backend: SearchBackend) -> str:
-    """Actionable first-use hint for an unreachable engine — the self-
+    """Actionable first-use hint for an unreachable engine - the self-
     explaining posture shared with the Ollama arch hint (M6)."""
     if backend.kind == "bundled":
         return (
-            f"SearXNG is unreachable at {backend.base_url} — start the search "
+            f"SearXNG is unreachable at {backend.base_url} - start the search "
             "service: `docker compose --profile web up -d searxng`"
         )
     return f"search engine is unreachable at {backend.base_url}"
@@ -85,11 +85,11 @@ def compose_hint(backend: SearchBackend) -> str:
 
 def _keyed_hint(backend: SearchBackend, exc: Exception) -> str:
     """Self-explaining failure message for a keyed engine: a 401/403 is a
-    rejected key (the most common first-use failure) — the bundled engine
+    rejected key (the most common first-use failure) - the bundled engine
     keeps its compose hint (``compose_hint``)."""
     if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
         return (
-            f"{backend.name} rejected the API key (HTTP {exc.response.status_code}) — "
+            f"{backend.name} rejected the API key (HTTP {exc.response.status_code}) - "
             "check the key in Settings → Search & research"
         )
     return f"search engine is unreachable at {backend.base_url}"
@@ -98,7 +98,7 @@ def _keyed_hint(backend: SearchBackend, exc: Exception) -> str:
 def _require_key(backend: SearchBackend) -> None:
     if not backend.has_api_key():
         raise SearchError(
-            f"{backend.name} has no API key configured — add it in Settings → "
+            f"{backend.name} has no API key configured - add it in Settings → "
             "Search & research"
         )
 
@@ -168,7 +168,7 @@ def _query_brave(
     backend: SearchBackend, q: str, *, timeout: float, limit: int
 ) -> list[dict]:
     """Brave Search API: GET /res/v1/web/search with the key in the
-    ``X-Subscription-Token`` header (a query-param key gets 401 — see
+    ``X-Subscription-Token`` header (a query-param key gets 401 - see
     docs). ``count`` maxes at 20."""
     _require_key(backend)
     url = f"{backend.base_url.rstrip('/')}/res/v1/web/search"
@@ -203,7 +203,7 @@ def _query_serper(
     backend: SearchBackend, q: str, *, timeout: float, limit: int
 ) -> list[dict]:
     """Serper (Google SERP): POST {base}/search with the key in the
-    ``X-API-KEY`` header and a JSON body — GET with query params gets 400."""
+    ``X-API-KEY`` header and a JSON body - GET with query params gets 400."""
     _require_key(backend)
     url = f"{backend.base_url.rstrip('/')}/search"
     headers = {"X-API-KEY": backend.api_key, "Content-Type": "application/json"}
@@ -283,9 +283,9 @@ def query(
     """Search via the backend's engine (dispatched by ``query_style``).
 
     Returns ``[{title, url, snippet, engine}]``, top ``limit`` results (every
-    provider returns results best-first). Raises :class:`SearchError` — with
+    provider returns results best-first). Raises :class:`SearchError` - with
     a compose hint for the bundled engine, an API-key hint for a 401/403
-    from a keyed engine — when the engine is unreachable or the response is
+    from a keyed engine - when the engine is unreachable or the response is
     unparseable.
     """
     if not q.strip():
@@ -319,9 +319,9 @@ def _validate_target_url(url: str) -> str:
     try:
         addr = ipaddress.ip_address(host)
     except ValueError:
-        return url  # hostname — DNS rebinding is out of scope for a local tool
+        return url  # hostname - DNS rebinding is out of scope for a local tool
     # IPv4-mapped IPv6 (e.g. ``::ffff:127.0.0.1``) connects to the mapped
-    # IPv4 — test THAT against the private nets too, or loopback slips
+    # IPv4 - test THAT against the private nets too, or loopback slips
     # through the IPv6 net list (review catch).
     if addr.version == 6 and addr.ipv4_mapped is not None:
         addr = addr.ipv4_mapped
@@ -345,9 +345,9 @@ def web_fetch(
 ) -> dict:
     """Fetch one page (bounded) and extract agent-friendly article text.
 
-    Returns ``{"url", "title", "text"}`` — the URL is the final post-redirect
+    Returns ``{"url", "title", "text"}`` - the URL is the final post-redirect
     location so the model cites the page it actually read. Static pages only
-    in v1 (no browser — JS-rendered pages degrade to their raw HTML; the
+    in v1 (no browser - JS-rendered pages degrade to their raw HTML; the
     extraction fails cleanly when nothing readable remains).
     """
     timeout = timeout or float(settings.web_fetch_timeout_seconds)
@@ -357,7 +357,7 @@ def web_fetch(
         for _hop in range(_MAX_REDIRECTS + 1):
             current = _validate_target_url(current)
             try:
-                # Streaming read: the size cap bounds memory TOO — the body is
+                # Streaming read: the size cap bounds memory TOO - the body is
                 # consumed in chunks and truncated at max_bytes, so a huge page
                 # never materializes fully in RAM (review catch; the old
                 # ``resp.content[:max_bytes]`` buffered the whole body first).
@@ -395,7 +395,7 @@ def web_fetch(
         raise SearchError(f"could not extract text from {current}: {exc}") from exc
     if not text:
         raise SearchError(
-            f"no readable text extracted from {current} — the page may be "
+            f"no readable text extracted from {current} - the page may be "
             "JS-rendered (v1 has no browser automation)"
         )
     return {"url": current, "title": _extract_title(html), "text": text[:_WEB_FETCH_MAX_CHARS]}
@@ -421,15 +421,15 @@ def check_backend(backend: SearchBackend, *, probe: bool = False) -> SearchHealt
     """Reachability of a search backend. Never raises.
 
     Lightweight (``probe=False``, used by ``GET /search/backends``): accept
-    any 2xx from the base URL — the cheap list pass. Full test
+    any 2xx from the base URL - the cheap list pass. Full test
     (``probe=True``, ``POST /search/backends/{id}/test``): run a real search
-    query and report the normalized result count — the honest check that the
+    query and report the normalized result count - the honest check that the
     JSON format is actually enabled on the instance.
     """
     start = time.monotonic()
     latency = lambda: int((time.monotonic() - start) * 1000)  # noqa: E731
     if probe or backend.provider.query_style != "searxng":
-        # Full test (or ANY keyed engine — no meaningful root endpoint
+        # Full test (or ANY keyed engine - no meaningful root endpoint
         # exists, so a real query IS the honest health check; it also
         # validates the key, surfacing "rejected the API key" cleanly).
         try:

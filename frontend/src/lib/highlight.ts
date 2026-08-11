@@ -11,7 +11,7 @@ import yaml from 'highlight.js/lib/languages/yaml'
 import plaintext from 'highlight.js/lib/languages/plaintext'
 
 // Languages the decompiler serves (backend `FileContentResponse.language`).
-// Registered explicitly via the core build — no CDN, local-first.
+// Registered explicitly via the core build - no CDN, local-first.
 hljs.registerLanguage('java', java)
 hljs.registerLanguage('xml', xml)
 hljs.registerLanguage('kotlin', kotlin)
@@ -50,7 +50,7 @@ export function splitHtmlLines(html: string): string[] {
   const lines: string[] = []
   // Stack of currently-open tags across the whole output (a span can open
   // on one line and close on a later one). `preCount` is how many of them
-  // were already open when the current line began — those are re-opened as
+  // were already open when the current line began - those are re-opened as
   // the line's prefix and re-carried by updating preCount at emit.
   const tags: string[] = []
   let preCount = 0
@@ -95,7 +95,7 @@ export function splitHtmlLines(html: string): string[] {
     }
   }
   emit()
-  // highlight.js emits a trailing newline — drop the empty last line so
+  // highlight.js emits a trailing newline - drop the empty last line so
   // line numbers stay 1:1 with the source.
   if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
   return lines

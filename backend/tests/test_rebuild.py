@@ -1,4 +1,4 @@
-"""M8 Phase C: rebuild pipeline — service + RQ job tests (tools mocked).
+"""M8 Phase C: rebuild pipeline - service + RQ job tests (tools mocked).
 
 The keystore lifecycle, edit overlay, stage sequencing, artifact naming and
 the fail-loudly contract (each stage maps to a specific RebuildError) are
@@ -74,7 +74,7 @@ def test_ensure_keystore_generates_once(monkeypatch, tmp_path):
 
     def fake_run(cmd, timeout):
         calls.append(cmd)
-        # the real keytool would create the keystore file — the fake must too
+        # the real keytool would create the keystore file - the fake must too
         if cmd[0] == "keytool":
             ks = Path(cmd[cmd.index("-keystore") + 1])
             ks.parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +178,7 @@ def _fake_pipeline_tools(monkeypatch, tmp_path):
     monkeypatch.setattr(rebuild, "_keytool_binary", lambda: "keytool")
     monkeypatch.setattr(rebuild, "_zipalign_binary", lambda: "zipalign")
     monkeypatch.setattr(rebuild, "_apksigner_binary", lambda: "apksigner")
-    # The keystore lifecycle is covered by its own tests — the pipeline
+    # The keystore lifecycle is covered by its own tests - the pipeline
     # tests stub it out so the fake keytool never has to materialize a JKS.
     monkeypatch.setattr(
         rebuild,
@@ -221,12 +221,12 @@ def test_build_apk_zero_edits_builds_pristine(monkeypatch, tmp_path):
 
 def test_build_apk_apktool_b_failure_fails_loudly(monkeypatch, tmp_path):
     """The awkward-APK rebuild contract (Phase E): a decoded tree apktool
-    cannot assemble back — e.g. an edit that introduced invalid smali —
+    cannot assemble back - e.g. an edit that introduced invalid smali -
     fails at the 'rebuilding' stage with the specific stderr reason, wrapped
     into the pipeline's stage-tagged RebuildError (an ApktoolError must
     never escape build_apk untagged). No artifact survives a failed build."""
     _decoded_tree(tmp_path, monkeypatch)
-    # The test fails at the apktool b stage — no zipalign/apksigner/keystore
+    # The test fails at the apktool b stage - no zipalign/apksigner/keystore
     # fakes are needed (they are never reached).
 
     def boom(tree_dir, out_apk, timeout=None):
@@ -278,7 +278,7 @@ def test_build_apk_verify_gate_failure_fails_loudly(monkeypatch, tmp_path):
         if cmd[0] == "zipalign":
             Path(cmd[-1]).write_bytes(b"PK")
             return RunResult(0, "", "")
-        # the sign step succeeds but the VERIFY GATE fails — decision 9:
+        # the sign step succeeds but the VERIFY GATE fails - decision 9:
         # a signed-but-invalid APK is a failed build, never a silent break
         return RunResult(1, "", "Verifies")
 
@@ -453,10 +453,10 @@ def test_job_rebuild_awkward_edit_fails_loudly_at_stage(
 ):
     """Phase E awkward-APK case end-to-end at the job level: an applied edit
     apktool cannot assemble fails the BUILD ROW at the 'rebuilding' stage
-    with the specific reason and NO artifact (decision 8 — never a silently
+    with the specific reason and NO artifact (decision 8 - never a silently
     broken APK; the user sees the exact apktool complaint to fix).
 
-    Note: this is the build-row CONTRACT test — the RebuildError('rebuilding')
+    Note: this is the build-row CONTRACT test - the RebuildError('rebuilding')
     wrap itself is pinned by test_build_apk_apktool_b_failure_fails_loudly
     (the job's generic exception handler would also surface build.stage here
     because on_stage set it to 'rebuilding' before the call)."""
@@ -490,7 +490,7 @@ def test_job_rebuild_snapshot_isolates_mid_build_edits(
     monkeypatch, db_session_factory, tmp_path
 ):
     """Phase E race coverage: an edit APPLIED while the build runs must never
-    reach the build tree — the job snapshots its edit set at start
+    reach the build tree - the job snapshots its edit set at start
     (edits_json) and the snapshot is the immutable record for the build, so a
     human can keep reviewing/applying while the worker builds."""
     monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
@@ -538,7 +538,7 @@ def test_job_rebuild_snapshot_isolates_mid_build_edits(
 
 def test_job_rebuild_scan_mismatch_is_refused(monkeypatch, db_session_factory, tmp_path):
     """A build row enqueued against the wrong scan id is refused before any
-    pipeline work — it must never build one scan under another's build row."""
+    pipeline work - it must never build one scan under another's build row."""
     monkeypatch.setattr("app.db.SessionLocal", db_session_factory)
     scan_a = _make_scan_and_edits(db_session_factory)
     scan_b = _make_scan_and_edits(db_session_factory)

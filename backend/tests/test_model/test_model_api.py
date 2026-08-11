@@ -1,4 +1,4 @@
-"""M3 API surface — health functions monkeypatched, no network, no disk store
+"""M3 API surface - health functions monkeypatched, no network, no disk store
 churn on the real data dir."""
 
 import pytest
@@ -45,7 +45,7 @@ def test_list_backends_shape_and_redaction(api):
     assert r.status_code == 200
     data = r.json()
     ids = {b["id"] for b in data}
-    # BYOK backends are NOT seeded keyless (owner decision, Aug 8 2026) — a
+    # BYOK backends are NOT seeded keyless (owner decision, Aug 8 2026) - a
     # fresh store carries only the local backends; cloud providers are added
     # via POST /backends (the BYOK menu).
     assert {"ollama", "lm-studio"} == ids
@@ -96,7 +96,7 @@ def test_unknown_backend_404(api):
 
 
 def test_upsert_persists_config_and_never_leaks_key(api):
-    # BYOK backends start absent — add via POST (the BYOK menu) first.
+    # BYOK backends start absent - add via POST (the BYOK menu) first.
     api.post("/api/v1/model/backends", json={"provider_id": "openai", "api_key": "sk-secret"})
     r = api.put("/api/v1/model/backends/openai", json={"model": "gpt-4o", "api_key": "sk-secret"})
     assert r.status_code == 200

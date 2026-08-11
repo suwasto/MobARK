@@ -1,4 +1,4 @@
-"""iOS Mach-O import-table scanner (M4 Layer 1 — iOS source #2).
+"""iOS Mach-O import-table scanner (M4 Layer 1 - iOS source #2).
 
 Reads the Mach-O import table via LIEF and matches imported symbols against a
 known-insecure API blocklist: legacy crypto (``CC_MD5``/``CC_SHA1``/``CC_DES``/
@@ -7,10 +7,10 @@ certificate-bypass selectors, and ``ptrace``/``sysctl`` anti-debug imports.
 
 Precision is **binary-level presence only** by design: an import proves the
 code links/calls the API somewhere in the binary, but gives no source
-location — findings say exactly that and note what constant-level detail
+location - findings say exactly that and note what constant-level detail
 (e.g. ``kCCOptionECBMode``, ``PT_DENY_ATTACH``) cannot be confirmed
 statically. String-level checks (e.g. ``kSecAttrAccessibleAlways``) are NOT
-this scanner's job — they go through Gitleaks (see
+this scanner's job - they go through Gitleaks (see
 ``app/analysis/resources/gitleaks_ios.toml``).
 """
 from __future__ import annotations
@@ -43,28 +43,28 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
         "Legacy MD5 hashing imported (CC_MD5)",
         "medium",
         "MASVS-CRYPTO-2",
-        "MD5 is cryptographically broken — binary-level presence, no source location.",
+        "MD5 is cryptographically broken - binary-level presence, no source location.",
     ),
     ImportRule(
         "CC_MD4",
         "Legacy MD4 hashing imported (CC_MD4)",
         "medium",
         "MASVS-CRYPTO-2",
-        "MD4 is cryptographically broken — binary-level presence, no source location.",
+        "MD4 is cryptographically broken - binary-level presence, no source location.",
     ),
     ImportRule(
         "CC_SHA1",
         "Legacy SHA-1 hashing imported (CC_SHA1)",
         "medium",
         "MASVS-CRYPTO-2",
-        "SHA-1 is deprecated for security uses — binary-level presence, no source location.",
+        "SHA-1 is deprecated for security uses - binary-level presence, no source location.",
     ),
     ImportRule(
         "CC_DES",
         "Legacy DES cipher imported (CC_DES)",
         "high",
         "MASVS-CRYPTO-2",
-        "DES is broken and must not be used — binary-level presence, no source location.",
+        "DES is broken and must not be used - binary-level presence, no source location.",
     ),
     ImportRule(
         "CCCrypt",
@@ -94,12 +94,12 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "setAllowsAnyHTTPSCertificate",
         "NSURLConnection certificate bypass (setAllowsAnyHTTPSCertificate)",
-        # Owner calibration (Aug 7): complete TLS verification bypass —
+        # Owner calibration (Aug 7): complete TLS verification bypass -
         # direct MITM compromise, same class as the Android hostname verifier.
-        # Aug 8: the critical band was removed — high is the top severity.
+        # Aug 8: the critical band was removed - high is the top severity.
         "high",
         "MASVS-NETWORK-2",
-        "Server identity verification disabled for this connection — binary-level "
+        "Server identity verification disabled for this connection - binary-level "
         "presence, no source location.",
     ),
     ImportRule(
@@ -107,28 +107,28 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
         "Custom NSURLConnection authentication (canAuthenticateAgainstProtectionSpace)",
         "medium",
         "MASVS-NETWORK-2",
-        "Custom server-identity handling — verify it validates certificates. "
+        "Custom server-identity handling - verify it validates certificates. "
         "Binary-level presence, no source location.",
     ),
     # --- anti-debug / anti-tampering ---
     ImportRule(
         "ptrace",
-        "ptrace imported — possible anti-debug (PT_DENY_ATTACH)",
+        "ptrace imported - possible anti-debug (PT_DENY_ATTACH)",
         "medium",
         "MASVS-RESILIENCE-2",
-        "ptrace(PT_DENY_ATTACH) is a common anti-debug technique — the constant is "
+        "ptrace(PT_DENY_ATTACH) is a common anti-debug technique - the constant is "
         "code-level and not visible in the import table.",
     ),
     ImportRule(
         "sysctl",
-        "sysctl imported — possible anti-debug (KERN_PROC inspection)",
+        "sysctl imported - possible anti-debug (KERN_PROC inspection)",
         "low",
         "MASVS-RESILIENCE-2",
         "sysctl KERN_PROC inspection is a common debugger-detection technique.",
     ),
     ImportRule(
         "syscall",
-        "syscall imported — possible anti-debug",
+        "syscall imported - possible anti-debug",
         "low",
         "MASVS-RESILIENCE-2",
         "Direct syscall use can indicate anti-debugging; also common in jailbreak "
@@ -196,7 +196,7 @@ def analyze_app_binary(app_root: Path) -> StageResult:
     result = StageResult()
     exe_path = macho._find_main_executable(app_root)
     if exe_path is None:
-        result.errors.append("no main executable — import-table scan skipped")
+        result.errors.append("no main executable - import-table scan skipped")
         return result
     try:
         binaries = macho._load_binaries(exe_path)
@@ -205,7 +205,7 @@ def analyze_app_binary(app_root: Path) -> StageResult:
         return result
 
     # Dedup across slices: a fat binary (arm64 + armv7) would otherwise emit
-    # the same finding once per slice — the matcher's own seen-set is per call.
+    # the same finding once per slice - the matcher's own seen-set is per call.
     seen: set[tuple[str, str]] = set()
     for binary in binaries:
         imported = [s.name for s in binary.imported_symbols if s.name]

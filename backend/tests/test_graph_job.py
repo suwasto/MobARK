@@ -1,4 +1,4 @@
-"""build_graph_scan job tests — graphify stubbed; no Redis, no network."""
+"""build_graph_scan job tests - graphify stubbed; no Redis, no network."""
 from __future__ import annotations
 
 from pathlib import Path

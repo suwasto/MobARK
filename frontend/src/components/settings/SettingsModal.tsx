@@ -14,7 +14,7 @@ type TabKey = 'backends' | 'byok' | 'search'
 /**
  * Settings modal (mockup 1:1): Model backends + Bring your own key + Search
  * & research (M7, live) tabs. Field edits persist as they happen (blur /
- * actions) — "Save changes" closes and refreshes so the top-bar
+ * actions) - "Save changes" closes and refreshes so the top-bar
  * provider/model pickers are current.
  */
 export function SettingsModal({ open, onClose }: SettingsModalProps) {

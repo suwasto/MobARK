@@ -19,13 +19,13 @@ class Scan(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    # "android" | "ios" — detected by M1/M2; null until then.
+    # "android" | "ios" - detected by M1/M2; null until then.
     platform: Mapped[str | None] = mapped_column(String(16))
     # queued | running | done | failed
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
     # 0-100 aggregate RISK score, computed by the scan job (M5,
     # analysis/risk.py). The public-facing security score (100 - risk) is
-    # derived on read via the property below — never stored, so the two
+    # derived on read via the property below - never stored, so the two
     # cannot drift (owner decision, Aug 7: higher is better).
     risk_score: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
@@ -43,7 +43,7 @@ class Scan(Base):
     web_research_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
     # M8: on-demand apktool decode state (Android only; the Smali view +
     # edit/recompile feature). not_started | queued | decoding | ready | failed
-    # — ``ready`` is also filesystem-derived via analysis/apktool.py::is_ready
+    # - ``ready`` is also filesystem-derived via analysis/apktool.py::is_ready
     # (the column tracks in-flight states; the tree on disk is the truth).
     # ``apktool_error`` carries the specific decode failure for the UI.
     apktool_status: Mapped[str] = mapped_column(
@@ -70,11 +70,11 @@ class Scan(Base):
 
 
 class Edit(Base):
-    """One file edit (M8 edit & recompile, Android only) — DB-diff source
+    """One file edit (M8 edit & recompile, Android only) - DB-diff source
     of truth. Full-file rows: ``original_content`` (the effective baseline at
     creation) + ``new_content`` + the generated ``unified_diff``. The on-disk
     apktool tree stays pristine; the rebuild job overlays applied edits onto
-    a fresh copy. ``status``: proposed | applied | rejected | reverted —
+    a fresh copy. ``status``: proposed | applied | rejected | reverted -
     manual edits are created applied; agent proposals (Phase D) start
     proposed and the human applies. ``build_id`` is filled when a rebuild
     consumes the edit (Phase C).
@@ -110,7 +110,7 @@ class Edit(Base):
 
 
 class Build(Base):
-    """One recompile attempt (M8 Phase C) — full rebuild history per scan
+    """One recompile attempt (M8 Phase C) - full rebuild history per scan
     (decision 8). The pipeline snapshots the applied edits at job start
     (``edits_json``), so edits accepted mid-build never mutate the build tree;
     a done build's artifact is re-downloadable at any time.
@@ -126,7 +126,7 @@ class Build(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
     # applying | rebuilding | zipping | signing | done (queued before the job)
     stage: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
-    # specific failure: the failing stage's stderr excerpt — never a silent break
+    # specific failure: the failing stage's stderr excerpt - never a silent break
     error: Mapped[str | None] = mapped_column(Text)
     # JSON list of applied edit ids at snapshot time
     edits_json: Mapped[str | None] = mapped_column(Text)
@@ -156,12 +156,12 @@ class Finding(Base):
         ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(512), nullable=False)
-    # high | medium | low | info (no critical band — owner decision Aug 8,
+    # high | medium | low | info (no critical band - owner decision Aug 8,
     # 2026; see migration 0005 for the critical->high data rewrite).
     severity: Mapped[str] = mapped_column(String(16), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(1024))
     line_number: Mapped[int | None] = mapped_column(Integer)
-    # MASVS/MASTG-mappable category — refined in M1.
+    # MASVS/MASTG-mappable category - refined in M1.
     category: Mapped[str | None] = mapped_column(String(128))
     # MASTG test id (e.g. MASTG-TEST-0073) when known from the vendored mapping.
     mastg_test_id: Mapped[str | None] = mapped_column(String(64))
@@ -169,7 +169,7 @@ class Finding(Base):
     tool: Mapped[str] = mapped_column(String(64), nullable=False)
     detail: Mapped[str | None] = mapped_column(Text)
     # True = static-only finding (all current findings; runtime/dynamic
-    # confirmation is out of scope for v1 — M2's mockup "static-only" label).
+    # confirmation is out of scope for v1 - M2's mockup "static-only" label).
     static_only: Mapped[bool] = mapped_column(default=True, nullable=False)
     # M5: cached AI explanation (POST /scans/{id}/findings/{fid}/explain).
     # Re-running a scan deletes findings, so stale explanations never survive.

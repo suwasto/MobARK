@@ -1,7 +1,7 @@
-"""API tests — POST /scans/{id}/chat + GET /scans/{id}/graph (M4 Layers 1-3).
+"""API tests - POST /scans/{id}/chat + GET /scans/{id}/graph (M4 Layers 1-3).
 
 The old RAG chat API tests were deleted with the pipeline; these cover the
-non-embedding replacement. answer_question is monkeypatched — no LLM.
+non-embedding replacement. answer_question is monkeypatched - no LLM.
 """
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def test_chat_no_model_configured_400(client, db_session_factory, monkeypatch):
     from app.api.routes import scans as routes
 
     def boom(*args, **kwargs):
-        raise ChatNotConfigured("no chat model configured — pick a backend + model in Settings")
+        raise ChatNotConfigured("no chat model configured - pick a backend + model in Settings")
 
     monkeypatch.setattr(routes, "answer_question", boom)
     r = client.post(f"/api/v1/scans/{scan_id}/chat", json={"question": "hi"})
@@ -185,7 +185,7 @@ def test_chat_timeout_forwarded_and_504(client, db_session_factory, monkeypatch)
 
 def test_chat_upstream_llm_failure_502(client, db_session_factory, monkeypatch):
     """An upstream LLM failure (e.g. Ollama can't load the model's
-    architecture) maps to 502 with the upstream message — not a raw 500."""
+    architecture) maps to 502 with the upstream message - not a raw 500."""
     from app.agent.chat import ChatUpstreamError
     from app.api.routes import scans as routes
 
@@ -298,11 +298,11 @@ def test_chat_stream_error_frames_map_kinds(client, db_session_factory, monkeypa
 
 def test_chat_stream_no_model_400_before_stream(client, db_session_factory, monkeypatch):
     """No chat model configured -> a clean pre-stream HTTP 400 (nothing sent),
-    not an error frame — the dock keeps the exact 'pick a model' UX."""
+    not an error frame - the dock keeps the exact 'pick a model' UX."""
     from app.api.routes import scans as routes
 
     def boom():
-        raise ChatNotConfigured("no chat model configured — pick a backend + model in Settings")
+        raise ChatNotConfigured("no chat model configured - pick a backend + model in Settings")
 
     monkeypatch.setattr(routes, "check_configured", boom)
     scan_id = _add_scan(db_session_factory)
@@ -323,7 +323,7 @@ def test_chat_stream_not_analyzed_409_and_unknown_404(client, db_session_factory
 
 def test_chat_stream_fake_backend_demo_e2e(client, db_session_factory, monkeypatch, tmp_path):
     """THE dev demo, end-to-end: MASA_FAKE_MODEL=1 + the real agent loop +
-    real tools, streamed through the SSE route — no Ollama anywhere. The
+    real tools, streamed through the SSE route - no Ollama anywhere. The
     client sees thinking tokens, two live tool steps (real results), then the
     answer frame with the composed citation + full tool_runs trace."""
     import app.config
@@ -403,7 +403,7 @@ def test_chat_stream_forwards_timeout_and_max_rounds(client, db_session_factory,
 
 def test_chat_cancel_calls_request_cancel(client, db_session_factory, monkeypatch):
     """The Stop button's endpoint sets the in-process cancel flag (which the
-    agent loop polls between rounds) — verified against the real handler."""
+    agent loop polls between rounds) - verified against the real handler."""
     from app.api.routes import scans as routes
 
     called = {"scan_id": None}
@@ -420,7 +420,7 @@ def test_chat_cancel_calls_request_cancel(client, db_session_factory, monkeypatc
 
 
 def test_chat_cancel_is_noop_without_in_flight_chat(client, db_session_factory):
-    """Cancelling when nothing is running is a clean 200 no-op — the flag
+    """Cancelling when nothing is running is a clean 200 no-op - the flag
     only exists while a request is in flight (request_cancel on a missing
     event must never raise)."""
     scan_id = _add_scan(db_session_factory)
@@ -435,7 +435,7 @@ def test_chat_cancel_unknown_scan_404(client):
 
 
 def test_chat_interrupted_409(client, db_session_factory, monkeypatch):
-    """A cancelled chat (Stop button -> ChatInterrupted) maps to 409 — never
+    """A cancelled chat (Stop button -> ChatInterrupted) maps to 409 - never
     a fake 200 answer."""
     from app.agent.chat import ChatInterrupted
     from app.api.routes import scans as routes

@@ -9,7 +9,7 @@ def _utc_aware(value: datetime) -> datetime:
 
     SQLite drops tzinfo on round-trip, so persisted timestamps (scans /
     findings created_at) arrive naive; without this the API would serialize
-    them with no offset and browsers would parse them as local time — the
+    them with no offset and browsers would parse them as local time - the
     scan date then reads hours off on non-UTC machines (owner report, Aug
     7). Already-aware values pass through untouched.
     """
@@ -38,7 +38,7 @@ class ScanRead(BaseModel):
     security_score: int | None = None
     error: str | None = None
     stage: str | None = None
-    # M7: per-scan web research opt-in (privacy gate) — the agent's web
+    # M7: per-scan web research opt-in (privacy gate) - the agent's web
     # tools are offered only when this is on AND an Active search engine
     # exists. Default off; controlled by the dock 🌐 toggle + Settings.
     web_research_enabled: bool = False
@@ -125,7 +125,7 @@ class ModelBackendRead(BaseModel):
     enabled: bool = True
     local: bool
     has_api_key: bool  # never the key itself
-    # Provider's curated model list (``Provider.suggested_models``) — the
+    # Provider's curated model list (``Provider.suggested_models``) - the
     # Settings UI shows these by default with a "see all" reveal for the
     # full served list (owner UX request, Aug 8).
     suggested_models: list[str] = []
@@ -150,7 +150,7 @@ class ModelBackendModels(BaseModel):
 
 # ---- M4 agent layer (Layers 1-3: findings context + grep/read + graph tools) ----
 # The RAG/embedding schemas (ChatRequest.top_k, ScanIndexState) were removed
-# with the pipeline — grounding is now the full findings set + tools.
+# with the pipeline - grounding is now the full findings set + tools.
 
 
 class ChatRequest(BaseModel):
@@ -165,7 +165,7 @@ class ChatRequest(BaseModel):
     # M8 follow-up (dock @-mentions): tree paths the user explicitly attached
     # to the question (``@sources/com/foo/A.java`` etc.). The chat layer loads
     # their content into the agent context so the model answers / proposes
-    # edits about them directly — no search round needed. Capped small (the
+    # edits about them directly - no search round needed. Capped small (the
     # validator trims blanks + caps the count; the list Field max is a loose
     # transport bound only).
     mentioned_files: list[str] = Field(default_factory=list, max_length=50)
@@ -190,7 +190,7 @@ class Citation(BaseModel):
 
 
 class ToolRunRead(BaseModel):
-    """One executed tool call — the persistent trace on a chat response, so
+    """One executed tool call - the persistent trace on a chat response, so
     the dock can render a collapsible per-tool record (args, status,
     duration, capped result preview)."""
 
@@ -238,7 +238,7 @@ class GraphNodeRow(BaseModel):
 class GraphSearchResponse(BaseModel):
     """Code maps search: substring matches over node labels/ids.
 
-    ``total`` is the pre-limit match count — the UI can show "n of m".
+    ``total`` is the pre-limit match count - the UI can show "n of m".
     """
 
     query: str
@@ -309,7 +309,7 @@ class FileNode(BaseModel):
     path: str  # relative to the tree root
     type: str  # "dir" | "file"
     # True for iOS hidden binary blobs listed under the synthetic
-    # "Binary (Mach-O)" folder — rendered as inert, non-viewable rows.
+    # "Binary (Mach-O)" folder - rendered as inert, non-viewable rows.
     binary: bool = False
     children: list["FileNode"] = []
 
@@ -321,7 +321,7 @@ class FileTreeRoot(BaseModel):
     """A bounded tree for one root (sources / resources / Payload/*.app).
 
     ``filtered_binaries`` (iOS) counts raw binary files hidden from the
-    curated bundle walk — the UI shows the count so hiding never looks like
+    curated bundle walk - the UI shows the count so hiding never looks like
     data loss.
     """
 
@@ -378,7 +378,7 @@ class SearchBackendHealth(BaseModel):
 
 class SearchBackendRead(BaseModel):
     """One configured search engine (the Active/Inactive radio list). The key
-    is never returned — only ``has_api_key`` (same honesty rule as model
+    is never returned - only ``has_api_key`` (same honesty rule as model
     backends)."""
 
     id: str
@@ -404,7 +404,7 @@ class SearchBackendUpsert(BaseModel):
 
 class SearchBackendCreate(BaseModel):
     """Add a search engine: a custom SearXNG-compatible instance (base URL
-    required, no key) or a keyed provider (Brave/Serper/Mojeek — API key
+    required, no key) or a keyed provider (Brave/Serper/Mojeek - API key
     required, base URL optional with a per-provider default)."""
 
     provider_id: str
@@ -413,7 +413,7 @@ class SearchBackendCreate(BaseModel):
 
 
 class SearchProviderRead(BaseModel):
-    """One addable search engine — drives the Settings add-form picker."""
+    """One addable search engine - drives the Settings add-form picker."""
 
     id: str
     name: str
@@ -434,7 +434,7 @@ class WebResearchUpdate(BaseModel):
 
 class DependencyApp(BaseModel):
     """Identity metadata for the scanned app (Android package + SDK levels /
-    iOS bundle id + version). Fields are best-effort — missing when the scan
+    iOS bundle id + version). Fields are best-effort - missing when the scan
     output doesn't carry them."""
 
     package: str | None = None
@@ -450,7 +450,7 @@ class DependencyItem(BaseModel):
     ``kind``: ``package`` (Android Java/Kotlin group) · ``native`` (Android
     ``lib/*.so``) · ``dylib`` (iOS Mach-O link) · ``framework`` (iOS
     embedded ``Frameworks/*.framework``). ``label`` is a human name for
-    well-known libraries (else None — the raw package/name stands).
+    well-known libraries (else None - the raw package/name stands).
     Finding tallies are the non-suppressed semgrep findings inside the
     dependency's package (Android packages only; the other kinds are
     inventory without findings).
@@ -471,9 +471,9 @@ class DependencyItem(BaseModel):
 
 
 class DependenciesResponse(BaseModel):
-    """The Dependencies tab payload — derived on demand from scan output,
+    """The Dependencies tab payload - derived on demand from scan output,
     nothing new persisted. Known-CVE research is NOT a column here: it is
-    the agent's web-research use case (M7) — the UI pre-fills the dock
+    the agent's web-research use case (M7) - the UI pre-fills the dock
     question and the agent decides when to search.
     """
 
@@ -504,7 +504,7 @@ class SmaliStatusResponse(BaseModel):
 
 class EditRead(BaseModel):
     """One M8 file edit (the edits table). Full file contents are NOT in the
-    list — the unified diff (``GET .../edits/{eid}/diff``) is the review
+    list - the unified diff (``GET .../edits/{eid}/diff``) is the review
     surface; the viewer reads effective content via ``files/content``."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -555,7 +555,7 @@ class SmaliSiblingResponse(BaseModel):
 
 
 class SmaliMappingResponse(BaseModel):
-    """Finding→apktool tree-path mapping for a scan's findings — powers the
+    """Finding→apktool tree-path mapping for a scan's findings - powers the
     Smali-mode tree dots + annotation rail (findings live on jadx
     ``sources/...`` paths; their apktool siblings get the same dots/notes
     once the decode is ready).
@@ -569,11 +569,11 @@ class SmaliMappingResponse(BaseModel):
 
     ``anchors`` (M8 follow-up, Aug 11) are the smali-mode LINE anchors for
     line-bearing findings: ``{smali_tree_path: {str(jadx_line): smali_line}}``
-    — each finding's jadx line mapped to its containing method's ``.method``
+    - each finding's jadx line mapped to its containing method's ``.method``
     line in the smali sibling (jadx renumbers source lines, so only METHOD
     granularity is honest; the rail pins notes there so they align with the
     smali editor's own line numbers). Findings without a resolvable anchor
-    simply have no entry — those notes stack from the top."""
+    simply have no entry - those notes stack from the top."""
 
     mapping: dict[str, str]
     anchors: dict[str, dict[str, int]] = {}
@@ -584,7 +584,7 @@ class SmaliMappingResponse(BaseModel):
 
 
 class BuildRead(BaseModel):
-    """One recompile attempt (the builds table — full rebuild history, D8).
+    """One recompile attempt (the builds table - full rebuild history, D8).
 
     ``edit_ids`` is the snapshot of applied edits taken at job start (parsed
     from ``edits_json``), so history shows exactly what each build consumed.
@@ -596,11 +596,11 @@ class BuildRead(BaseModel):
     scan_id: int
     # queued | running | done | failed
     status: str
-    # queued | applying | rebuilding | zipping | signing | done — the failing
+    # queued | applying | rebuilding | zipping | signing | done - the failing
     # stage is kept on a failed build so the error reads in context.
     stage: str
     error: str | None = None
-    # Applied edit ids snapshot at job start — read from the stored
+    # Applied edit ids snapshot at job start - read from the stored
     # ``edits_json`` column (from_attributes maps by the alias, not the
     # field name).
     edit_ids: list[int] = Field(default=[], validation_alias="edits_json")

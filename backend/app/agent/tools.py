@@ -1,22 +1,22 @@
-"""Agent tools — Layers 2 + 3 (plain-text + Graphify) and the M6
+"""Agent tools - Layers 2 + 3 (plain-text + Graphify) and the M6
 app-oriented set, zero embeddings.
 
-Layer 2 — ``search_code`` / ``read_file``: plain-text operations over
+Layer 2 - ``search_code`` / ``read_file``: plain-text operations over
 whatever decompiled/extracted output exists for the scan's platform. The tools
-themselves contain no platform branching — the ONLY platform knowledge lives
+themselves contain no platform branching - the ONLY platform knowledge lives
 in ``resolve_tree_root`` (which tree to search/read).
 
-Layer 3 — ``graph_query`` / ``graph_path`` / ``graph_explain``: Graphify
+Layer 3 - ``graph_query`` / ``graph_path`` / ``graph_explain``: Graphify
 traversal for Android call-graph/structural questions. Android only: iOS has
 no decompiled source tree, so no graph exists and the tools fail with a clear
 reason. No Semgrep-based substitute is built for iOS graphing.
 
-M6 — app-oriented tools (``read_manifest`` / ``get_decompiled_class`` /
+M6 - app-oriented tools (``read_manifest`` / ``get_decompiled_class`` /
 ``get_permissions`` / ``run_secrets_scan`` / ``search_strings``): the PRD
 surface. These are deliberately platform-aware (unlike the Layer 2/3 tools):
 Android reads the decompiled AndroidManifest.xml + jadx sources, iOS reads
 Info.plist + the bundle. ``run_secrets_scan`` wraps the existing M1 gitleaks
-wrapper — the agent layer never invokes gitleaks as a raw subprocess.
+wrapper - the agent layer never invokes gitleaks as a raw subprocess.
 """
 from __future__ import annotations
 
@@ -64,21 +64,21 @@ _ANDROID_ONLY_TOOLS = frozenset({"get_decompiled_class"})
 
 # M8 edit tools: offered ONLY when the scan is Android AND the on-demand
 # apktool decode is ready (the same derive-don't-trust-the-column rule the
-# Smali chip uses — ``apktool.is_ready`` is filesystem-derived). Like the M7
+# Smali chip uses - ``apktool.is_ready`` is filesystem-derived). Like the M7
 # web tools, the model never even *sees* them otherwise, and the handlers
 # re-check both gates defensively. ``propose_smali_edit`` stores a **proposed**
-# edit row + unified diff for human review — it never auto-applies (decision
+# edit row + unified diff for human review - it never auto-applies (decision
 # 7: apply/reject/revert are human API calls).
 # ``find_smali_sibling`` is the bridge between the Layer 2 search surface
-# (jadx ``sources/`` — what search_code returns) and the M8 edit surface
-# (apktool ``smali*/`` — what the edit tools accept): the model searches,
+# (jadx ``sources/`` - what search_code returns) and the M8 edit surface
+# (apktool ``smali*/`` - what the edit tools accept): the model searches,
 # maps the hit here, then reads/proposes.
 _M8_EDIT_TOOLS = frozenset(
     {"find_smali_sibling", "read_editable_file", "propose_smali_edit"}
 )
 _MAX_EDITABLE_READ_CHARS = 50_000
 
-# M7 web tools: offered ONLY when BOTH gates hold — the scan's web-research
+# M7 web tools: offered ONLY when BOTH gates hold - the scan's web-research
 # opt-in (scans.web_research_enabled) AND an Active search engine
 # (SearchStore.active()). They are the one deliberate egress in MASA, so the
 # model never even sees them otherwise (same filter as _ANDROID_ONLY_TOOLS).
@@ -98,7 +98,7 @@ _TEXT_SUFFIXES = {
 
 
 class ToolError(RuntimeError):
-    """A tool failed cleanly — surfaced to the model as a JSON error result."""
+    """A tool failed cleanly - surfaced to the model as a JSON error result."""
 
 
 # ---- scan tree resolution (the only platform knowledge) ----------------------
@@ -167,7 +167,7 @@ def search_code(
 ) -> list[dict]:
     """Regex search over the scan tree, returns ``[{file, line, snippet}]``.
 
-    Identical for Android and iOS — plain text over the scan's tree. Binary
+    Identical for Android and iOS - plain text over the scan's tree. Binary
     files are skipped (they are covered by gitleaks / the import-table
     scanner, not grep).
     """
@@ -227,13 +227,13 @@ def read_file(
         try:
             plist = plistlib.loads(data)
         except plistlib.InvalidFileException:
-            pass  # not a (parseable) plist — fall through to text read
+            pass  # not a (parseable) plist - fall through to text read
         else:
             return _cap(json.dumps(plist, indent=2, default=str), max_chars)
 
-    if b"\x00" in data[:_BINARY_SNIFF_BYTES]:  # binary — see is_text_file()
+    if b"\x00" in data[:_BINARY_SNIFF_BYTES]:  # binary - see is_text_file()
         raise ToolError(
-            f"{path} is a binary file — no text content (use the findings / import-table "
+            f"{path} is a binary file - no text content (use the findings / import-table "
             "scanner for binary-level evidence)"
         )
 
@@ -257,7 +257,7 @@ def _cap(text: str, max_chars: int) -> str:
 # dock 🌐 toggle -> scans.web_research_enabled, default off) AND an Active
 # search engine (the Settings radio list -> SearchStore.active()). The tools
 # are only *offered* to the model when both hold, and the handlers re-check
-# both defensively — a raw API caller can never invoke web egress on a scan
+# both defensively - a raw API caller can never invoke web egress on a scan
 # that didn't opt in.
 
 
@@ -265,7 +265,7 @@ def web_tools_allowed(scan_id: int) -> bool:
     """Both gates: the scan's web-research opt-in AND an Active search engine.
 
     Shared by ``chat.py`` (decides whether the web tools are offered at all)
-    and the tool handlers (defense in depth). Never raises — a missing scan
+    and the tool handlers (defense in depth). Never raises - a missing scan
     or store simply denies.
     """
     from app.db import SessionLocal
@@ -286,7 +286,7 @@ def web_tools_allowed(scan_id: int) -> bool:
 
 def _deny_web() -> ToolError:
     return ToolError(
-        "web research is not enabled for this scan — turn on the Agent dock "
+        "web research is not enabled for this scan - turn on the Agent dock "
         "🌐 toggle (and make sure a search engine is Active in Settings -> "
         "Search & research)"
     )
@@ -308,7 +308,7 @@ def web_search(scan_id: int, query: str) -> list[dict]:
     backend = get_search_store().active()
     if backend is None:
         raise ToolError(
-            "no Active search engine — enable one in Settings -> Search & research"
+            "no Active search engine - enable one in Settings -> Search & research"
         )
     try:
         return search_query(backend, query, limit=_MAX_WEB_RESULTS)
@@ -319,7 +319,7 @@ def web_search(scan_id: int, query: str) -> list[dict]:
 def web_fetch(scan_id: int, url: str) -> dict:
     """Fetch one page (bounded, SSRF-guarded) and extract article text.
 
-    Returns ``{"url", "title", "text"}`` — the model cites the post-redirect
+    Returns ``{"url", "title", "text"}`` - the model cites the post-redirect
     URL. Static pages only in v1; JS-rendered pages degrade cleanly.
     """
     if not web_tools_allowed(scan_id):
@@ -336,7 +336,7 @@ def web_fetch(scan_id: int, url: str) -> dict:
 
 
 # ---- M8 edit tools (Android-only, decode-ready gated) -----------------------
-# The editable surface is the apktool tree (smali*/res/AndroidManifest.xml —
+# The editable surface is the apktool tree (smali*/res/AndroidManifest.xml -
 # see editable.can_edit), NOT the jadx sources the Layer 2 tools search. These
 # tools read the *effective* content (baseline + newest applied edit, the same
 # overlay the viewer shows) so a proposal stacks on the current state, and
@@ -346,7 +346,7 @@ def web_fetch(scan_id: int, url: str) -> dict:
 def edit_tools_allowed(scan_id: int) -> bool:
     """Both gates: the scan is Android AND the on-demand apktool decode is
     ready. Shared by ``chat.py`` (decides whether the edit tools are offered
-    at all) and the tool handlers (defense in depth — a raw API caller can
+    at all) and the tool handlers (defense in depth - a raw API caller can
     never propose on an undecoded/iOS scan). Never raises; a missing scan
     simply denies."""
     from app.db import SessionLocal
@@ -366,7 +366,7 @@ def edit_tools_allowed(scan_id: int) -> bool:
 
 def _deny_edit_tools() -> ToolError:
     return ToolError(
-        "edit tools need the smali decode — open the Smali view first "
+        "edit tools need the smali decode - open the Smali view first "
         "(the apktool decode runs once and is cached per scan)"
     )
 
@@ -390,13 +390,13 @@ def find_smali_sibling(scan_id: int, path: str) -> dict:
     scan = _load_scan(scan_id)
     if not path.startswith("sources/"):
         raise ToolError(
-            f"{path!r} is not a sources/ class path — pass the jadx path "
+            f"{path!r} is not a sources/ class path - pass the jadx path "
             "from search_code (e.g. 'sources/com/foo/AuthManager.java')"
         )
     sibling = smali_map.java_to_smali(scan, path)
     if sibling is None:
         raise ToolError(
-            f"{path} has no decoded smali sibling — this class was not "
+            f"{path} has no decoded smali sibling - this class was not "
             "decoded by apktool (jadx-fallback smali is read-only)"
         )
     return {"sibling": sibling}
@@ -404,7 +404,7 @@ def find_smali_sibling(scan_id: int, path: str) -> dict:
 
 def read_editable_file(scan_id: int, path: str) -> str:
     """Read one **editable** file (apktool-root-relative: ``smali/...``,
-    ``res/...``, ``AndroidManifest.xml``) with the applied-edit overlay — the
+    ``res/...``, ``AndroidManifest.xml``) with the applied-edit overlay - the
     model sees exactly what a rebuild would compile, so a proposal stacks on
     the current state. Traversal-guarded; binary files refused; content
     capped. Android + decode-ready gated."""
@@ -421,7 +421,7 @@ def read_editable_file(scan_id: int, path: str) -> str:
         raise ToolError(f"path escapes the apktool tree: {path!r}")
     if not editable.can_edit(scan, path):
         raise ToolError(
-            f"{path!r} is not editable — only smali, res/, and the decoded "
+            f"{path!r} is not editable - only smali, res/, and the decoded "
             "AndroidManifest.xml can be edited"
         )
     if not target.is_file():
@@ -431,7 +431,7 @@ def read_editable_file(scan_id: int, path: str) -> str:
     except OSError as exc:
         raise ToolError(f"cannot read {path}: {exc}") from exc
     if b"\x00" in data[: _BINARY_SNIFF_BYTES]:
-        raise ToolError(f"{path} is a binary file — no editable text content")
+        raise ToolError(f"{path} is a binary file - no editable text content")
     text = data.decode("utf-8", errors="replace")
 
     # Phase B overlay: the model must read the CURRENT state (newest applied
@@ -454,7 +454,7 @@ def propose_smali_edit(
     scan_id: int, path: str, instruction: str, new_content: str
 ) -> dict:
     """Store an **agent** edit proposal (``status=proposed``) + its generated
-    unified diff — never auto-applied (decision 7: the human reviews and
+    unified diff - never auto-applied (decision 7: the human reviews and
     applies file-by-file in the UI). Returns ``{edit_id, file_path,
     instruction, status, unified_diff}`` (the diff is capped for the model;
     the full diff is in the DB + review panel).
@@ -470,7 +470,7 @@ def propose_smali_edit(
     scan = _load_scan(scan_id)
     if not editable.can_edit(scan, path):
         raise ToolError(
-            f"{path!r} is not editable — only smali, res/, and the decoded "
+            f"{path!r} is not editable - only smali, res/, and the decoded "
             "AndroidManifest.xml can be edited"
         )
     if len(new_content) > editable.MAX_EDIT_CHARS:
@@ -489,7 +489,7 @@ def propose_smali_edit(
             raise ToolError(str(exc)) from exc
         except (tree.TreeError, FileNotFoundError) as exc:
             raise ToolError(str(exc)) from exc
-        # Read the column values BEFORE the session closes — commit expires
+        # Read the column values BEFORE the session closes - commit expires
         # the instance and a post-close read would DetachedInstanceError.
         diff = edit.unified_diff or ""
         return {
@@ -504,7 +504,7 @@ def propose_smali_edit(
 
 
 # ---- M6 app-oriented tools (platform-aware by design) ------------------------
-# Unlike the Layer 2/3 tools, these intentionally know the platform — the
+# Unlike the Layer 2/3 tools, these intentionally know the platform - the
 # contract is ``read_manifest`` = AndroidManifest.xml / Info.plist and
 # ``get_permissions`` = uses-permission set / usage-description keys. The
 # platform-only filter (``_ANDROID_ONLY_TOOLS`` + ``schemas_for_platform``)
@@ -549,7 +549,7 @@ def _shrink_list_fields(value: dict, max_chars: int) -> dict:
 
 
 def read_manifest(scan_id: int) -> dict:
-    """Bounded manifest summary — Android: decompiled AndroidManifest.xml;
+    """Bounded manifest summary - Android: decompiled AndroidManifest.xml;
 iOS: Info.plist. Different shapes per platform (see the TOOL_SCHEMAS
 description); both are JSON-safe and capped."""
     scan = _load_scan(scan_id)
@@ -675,11 +675,11 @@ def get_decompiled_class(scan_id: int, fqcn: str) -> str:
     """Android only: decompiled source of one class from its fully-qualified
     name (``com.app.Foo`` → ``sources/com/app/Foo.java``; inner classes keep
     ``$``). Bounded source; clean not-found error. iOS gets an explicit
-    "no decompiled source" error — there is no Swift/ObjC source in v1."""
+    "no decompiled source" error - there is no Swift/ObjC source in v1."""
     scan = _load_scan(scan_id)
     if scan.platform != "android":
         raise ToolError(
-            "no decompiled source on iOS — get_decompiled_class is Android-only "
+            "no decompiled source on iOS - get_decompiled_class is Android-only "
             "(use read_manifest / get_permissions / search_strings on the bundle)"
         )
     if not fqcn or ".." in fqcn or fqcn.startswith("/"):
@@ -705,9 +705,9 @@ def get_permissions(scan_id: int) -> list[dict]:
 
     Android: every ``<uses-permission>`` from the decompiled manifest with
     its ``maxSdkVersion`` and a ``dangerous`` flag (the app's curated risky
-    set — ``analysis/manifest.py::RISKY_PERMISSIONS``, not the full SDK
+    set - ``analysis/manifest.py::RISKY_PERMISSIONS``, not the full SDK
     permission database). iOS: declared usage-description keys (camera,
-    microphone, location, …) — the same ``SENSITIVE_API_KEYS`` surface
+    microphone, location, …) - the same ``SENSITIVE_API_KEYS`` surface
     ``read_manifest`` uses, so the two tools never disagree.
     """
     scan = _load_scan(scan_id)
@@ -775,7 +775,7 @@ def run_secrets_scan(scan_id: int, path: str = "") -> list[dict]:
     """On-demand gitleaks re-run over a targeted directory in the scan tree.
 
     The full persisted secrets scan is already in the findings context (Layer
-    1) — this re-runs the M1 gitleaks wrapper over a narrower path (e.g. a
+    1) - this re-runs the M1 gitleaks wrapper over a narrower path (e.g. a
     resource dir the scan skipped) with a per-call timeout + size guard.
     Wraps ``analysis/gitleaks.py::scan_directory``; the agent layer never
     invokes gitleaks directly.
@@ -839,7 +839,7 @@ def _guard_secrets_target(target: Path) -> None:
         files += 1
         if files > _SECRETS_SCAN_MAX_FILES:
             raise ToolError(
-                f"secrets scan target has more than {_SECRETS_SCAN_MAX_FILES} files — "
+                f"secrets scan target has more than {_SECRETS_SCAN_MAX_FILES} files - "
                 "pick a narrower path"
             )
         try:
@@ -848,13 +848,13 @@ def _guard_secrets_target(target: Path) -> None:
             continue
         if total_bytes > _SECRETS_SCAN_MAX_MB * 1024 * 1024:
             raise ToolError(
-                f"secrets scan target exceeds {_SECRETS_SCAN_MAX_MB} MB — "
+                f"secrets scan target exceeds {_SECRETS_SCAN_MAX_MB} MB - "
                 "pick a narrower path"
             )
 
 
 def search_strings(scan_id: int, pattern: str, max_hits: int = _MAX_SEARCH_HITS) -> list[dict]:
-    """Regex search restricted to resource/string files — same result shape
+    """Regex search restricted to resource/string files - same result shape
     as ``search_code`` (``[{file, line, snippet}]``). Targets strings.xml /
     layouts / plists / JSON+text resources on both platforms."""
     seen: set[tuple[str, int]] = set()
@@ -880,7 +880,7 @@ def _graph_path(scan_id: int) -> Path:
     path = graphify.graph_path_for(scan_id)
     if not path.is_file():
         raise ToolError(
-            f"no code graph for scan {scan_id} at {path} — run the graph build first "
+            f"no code graph for scan {scan_id} at {path} - run the graph build first "
             "(Android only; iOS has no decompiled source tree)"
         )
     return path
@@ -986,7 +986,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "Android only. Read the decompiled source of one class from its "
                 "fully-qualified name (e.g. 'com.app.LoginActivity'; inner classes "
                 "keep the $, e.g. 'com.app.Foo$Inner'). iOS has no decompiled "
-                "source — the tool errors explicitly; use read_manifest / "
+                "source - the tool errors explicitly; use read_manifest / "
                 "search_strings there instead."
             ),
             "parameters": {
@@ -1025,7 +1025,7 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "On-demand secrets (gitleaks) re-run over a targeted directory "
                 "inside the scan tree (e.g. 'res' or 'assets'). The persisted "
-                "secrets scan is already in the findings context — use this only "
+                "secrets scan is already in the findings context - use this only "
                 "to re-check a specific path. Bounded per call (~30s timeout, "
                 "size-guarded). Returns normalized findings."
             ),
@@ -1050,7 +1050,7 @@ TOOL_SCHEMAS: list[dict] = [
             "name": "search_strings",
             "description": (
                 "Regex search restricted to resource/string files (strings.xml, "
-                "layouts, plists, JSON/text resources) — same result shape as "
+                "layouts, plists, JSON/text resources) - same result shape as "
                 "search_code but scoped to app resources. Works for both "
                 "platforms."
             ),
@@ -1121,10 +1121,10 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Search the public web via the configured search engine "
                 "(SearXNG). Use ONLY when the question needs current or "
-                "external information the scan data cannot answer — CVE "
+                "external information the scan data cannot answer - CVE "
                 "lookups for detected library versions, OWASP MASTG "
                 "guidance, dependency advisories. Returns up to 10 results "
-                "with title, url, and snippet — always cite the source URLs "
+                "with title, url, and snippet - always cite the source URLs "
                 "you use. Queries leave this machine by design (the scan "
                 "opted in)."
             ),
@@ -1144,7 +1144,7 @@ TOOL_SCHEMAS: list[dict] = [
             "description": (
                 "Android only, smali decode ready. Read one EDITABLE file "
                 "(smali, res/, or the decoded AndroidManifest.xml) with the "
-                "current applied-edit state — exactly what a rebuild would "
+                "current applied-edit state - exactly what a rebuild would "
                 "compile. Use this BEFORE propose_smali_edit so the proposal "
                 "is a byte-exact edit of the current content. Returns the "
                 "full file text."
@@ -1175,7 +1175,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "'sources/com/foo/AuthManager.java') to its editable apktool "
                 "smali sibling path (e.g. 'smali/com/foo/AuthManager.smali'). "
                 "Use this AFTER search_code finds the class and BEFORE "
-                "read_editable_file/propose_smali_edit — the edit tools only "
+                "read_editable_file/propose_smali_edit - the edit tools only "
                 "work on the apktool tree (smali, res/, AndroidManifest.xml), "
                 "not the jadx sources."
             ),
@@ -1202,7 +1202,7 @@ TOOL_SCHEMAS: list[dict] = [
                 "Android only, smali decode ready. Propose an edit to an "
                 "editable file (smali, res/, AndroidManifest.xml) as a FULL "
                 "replacement file. The proposal is stored with a generated "
-                "unified diff for the human to review — it is NEVER applied "
+                "unified diff for the human to review - it is NEVER applied "
                 "automatically; the user applies/rejects it per file in the "
                 "Review edits panel. Read the file first "
                 "(read_editable_file) so the new content is a byte-exact "
@@ -1243,7 +1243,7 @@ TOOL_SCHEMAS: list[dict] = [
         "function": {
             "name": "web_fetch",
             "description": (
-                "Fetch one web page (static content only — no browser in "
+                "Fetch one web page (static content only - no browser in "
                 "v1) and extract its article text. Use on URLs from "
                 "web_search, e.g. a CVE advisory or MASTG docs page, then "
                 "cite the final URL in your answer. Size- and timeout-"
@@ -1273,13 +1273,13 @@ _HANDLERS = {
     "graph_query": lambda scan_id, a: graph_query(scan_id, a["question"], a.get("budget", 1500)),
     "graph_path": lambda scan_id, a: graph_path_between(scan_id, a["node_a"], a["node_b"]),
     "graph_explain": lambda scan_id, a: graph_explain_node(scan_id, a["node"]),
-    # M7: gated web tools — the handlers re-check both gates defensively, so
+    # M7: gated web tools - the handlers re-check both gates defensively, so
     # even a raw API caller can never trigger web egress on a non-opted-in scan.
     "web_search": lambda scan_id, a: web_search(scan_id, a["query"]),
     "web_fetch": lambda scan_id, a: web_fetch(scan_id, a["url"]),
-    # M8: gated edit tools — the handlers re-check the Android + decode-ready
+    # M8: gated edit tools - the handlers re-check the Android + decode-ready
     # gates defensively (a raw API caller can never propose on iOS/an
-    # undecoded scan), and proposals are stored as proposed rows — the human
+    # undecoded scan), and proposals are stored as proposed rows - the human
     # applies them (decision 7).
     "find_smali_sibling": lambda scan_id, a: find_smali_sibling(scan_id, a["path"]),
     "read_editable_file": lambda scan_id, a: read_editable_file(scan_id, a["path"]),
@@ -1298,19 +1298,19 @@ def schemas_for_platform(
     """Tool schemas offered to a model for a scan's platform + web gating.
 
     iOS never *sees* Android-only tools (``get_decompiled_class``), so the
-    model can't waste a round on a guaranteed-failing call — the same
+    model can't waste a round on a guaranteed-failing call - the same
     whitelist pattern as the Layer 1 findings-context tools
     (``context.py::platform_tools``). Android gets the full platform set.
 
     M7: the web tools (``web_search``/``web_fetch``) are appended only when
-    BOTH gates hold — the per-scan opt-in passed here AND an Active search
+    BOTH gates hold - the per-scan opt-in passed here AND an Active search
     engine (checked by the caller via ``web_tools_allowed``). Off = the
     model never even sees the schemas, so it cannot burn a round on a
     call the scan did not permit.
 
     M8: the edit tools (``read_editable_file``/``propose_smali_edit``) are
     appended only when ``edit_tools_enabled`` holds (Android + apktool decode
-    ready — ``edit_tools_allowed``) — same never-even-seen rule.
+    ready - ``edit_tools_allowed``) - same never-even-seen rule.
     """
     return [
         s

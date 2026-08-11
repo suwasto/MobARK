@@ -62,7 +62,7 @@ export function EmptyState({ onFile, error }: EmptyStateProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragOver, setDragOver] = useState(false)
   // Depth counter: dragleave fires when the cursor moves onto child elements
-  // of the dropzone — only drop the highlight once the whole zone is exited.
+  // of the dropzone - only drop the highlight once the whole zone is exited.
   const dragDepthRef = useRef(0)
 
   const services = servicesRow(health)
@@ -171,7 +171,7 @@ export function EmptyState({ onFile, error }: EmptyStateProps) {
         </div>
 
         <p className="mt-5 text-[11px] text-bone-faint">
-          Analysis stays on this machine by default — nothing uploads anywhere
+          Analysis stays on this machine by default - nothing uploads anywhere
           unless you turn on web research.
         </p>
       </div>

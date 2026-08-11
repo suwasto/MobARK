@@ -1,10 +1,10 @@
-"""Java⇄Smali mapping (M8 Phase B) — the Decompiler tab's view toggle.
+"""Java⇄Smali mapping (M8 Phase B) - the Decompiler tab's view toggle.
 
 Maps a tree path for a class between its jadx ``sources/.../*.java``
 representation and its apktool ``smali{,classesN}/.../*.smali`` sibling,
-**multidex-aware** (``smali`` first, then ``smali_classes2..N`` — first-found
+**multidex-aware** (``smali`` first, then ``smali_classes2..N`` - first-found
 wins, matching apktool's classes.dex -> smali layout). jadx's own fallback
-``.smali`` files inside ``sources/`` are never matched here — they stay
+``.smali`` files inside ``sources/`` are never matched here - they stay
 read-only (only apktool smali is editable, and the UI must not confuse the
 two).
 
@@ -16,13 +16,13 @@ bounded; a validated ``smali_mapping.json`` survives restarts).
 
 **M8 follow-up (Aug 11): smali-mode line anchors.** jadx renumbers source
 lines (a finding's ``line_number`` refers to the *jadx* output, and smali
-``.line`` directives carry the *original* source lines — the two don't
+``.line`` directives carry the *original* source lines - the two don't
 match), so statement-level mapping is impossible. Instead the smali rail
 notes are pinned at **method granularity**: ``compute_anchors`` finds the
 jadx method containing each finding's line and maps it to that method's
 ``.method`` line in the smali file (by name; constructors map to
 ``<init>``). The anchors ride the same cache as the mapping (immutable per
-scan — findings and the decoded tree never mutate).
+scan - findings and the decoded tree never mutate).
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ _SOURCES_ROOT = "sources"
 # ---- Finding→smali mapping cache --------------------------------------------
 # The mapping endpoint re-walks the filesystem per finding path on every
 # Decompiler open; the mapping is immutable per scan (findings are immutable
-# per scan id — re-runs create new scans — suppression never changes finding
+# per scan id - re-runs create new scans - suppression never changes finding
 # paths, and the decoded apktool tree never mutates: edits are DB diffs), so
 # it is cached once per scan. Keyed on the cache path + tree mtime (distinct
 # scans and test tmp dirs never collide); the persistent file is validated by
@@ -76,7 +76,7 @@ def _remember(
 ) -> None:
     _MAPPING_CACHE[key] = (tree_mtime, mapping, anchors)
     # Evict the oldest-inserted entry when over the bound (dicts preserve
-    # insertion order, so the first key is the oldest) — same rule as the
+    # insertion order, so the first key is the oldest) - same rule as the
     # graph explorer cache.
     while len(_MAPPING_CACHE) > _MAPPING_CACHE_MAX:
         _MAPPING_CACHE.pop(next(iter(_MAPPING_CACHE)))
@@ -88,7 +88,7 @@ def cached_mapping(scan_id: int) -> tuple[dict[str, str], dict[str, dict[str, in
 
     The caller gates on ``apktool.is_ready`` first; a vanished tree (mtime
     stat fails) reads as a miss. Persisted cache files are validated by
-    their stored tree mtime + version — a stale/torn file (older decode,
+    their stored tree mtime + version - a stale/torn file (older decode,
     shape change, partial write) recomputes instead of serving garbage.
     """
     key = str(mapping_cache_path(scan_id))
@@ -130,7 +130,7 @@ def compute_mapping(scan, paths: list[str]) -> dict[str, str]:
     synthetic root's single file (``AndroidManifest.xml/AndroidManifest.xml``).
     Everything else never maps.
 
-    The res/manifest identity entries do NOT touch the filesystem — they
+    The res/manifest identity entries do NOT touch the filesystem - they
     assume the decoded tree exists (callers gate on ``apktool.is_ready``
     before calling this / the route returns early for undecoded scans).
     """
@@ -153,7 +153,7 @@ def store_mapping(
     mapping: dict[str, str],
     anchors: dict[str, dict[str, int]] | None = None,
 ) -> None:
-    """Persist a computed mapping + anchors — in-memory + the on-disk cache
+    """Persist a computed mapping + anchors - in-memory + the on-disk cache
     file.
 
     Best-effort: a failed write (read-only FS etc.) still serves this process
@@ -190,7 +190,7 @@ def java_to_smali(scan, tree_path: str) -> str | None:
     """``sources/com/foo/AuthManager.java`` -> first-found smali sibling tree
     path (``smali/com/foo/AuthManager.smali`` or a ``smali_classesN/`` one),
     or None when the source has no decoded smali counterpart (only real apktool
-    smali — never jadx's fallback smali)."""
+    smali - never jadx's fallback smali)."""
     if getattr(scan, "platform", None) != "android":
         return None
     if not tree_path.startswith(f"{_SOURCES_ROOT}/"):
@@ -209,7 +209,7 @@ def java_to_smali(scan, tree_path: str) -> str | None:
 # ---- Method-level line anchors (Aug 11) ------------------------------------
 # jadx renumbers source lines (a finding's ``line_number`` refers to the
 # *jadx* output; smali ``.line`` directives carry the *original* source
-# lines — they don't match). The honest anchor is METHOD granularity: each
+# lines - they don't match). The honest anchor is METHOD granularity: each
 # finding's jadx line sits inside a jadx method; that method has a named
 # ``.method`` in the smali file at a physical line. The smali rail notes are
 # pinned there, so they scroll with the smali editor's own line numbers.
@@ -219,7 +219,7 @@ def java_to_smali(scan, tree_path: str) -> str | None:
 # jadx method declaration heuristics. A method starts at a line matching this
 # at class-body depth (see _jadx_methods), with the name captured. Control
 # keywords (if/for/while/switch/catch/try/do/synchronized...) are excluded by
-# name — a jadx method line always leads with modifiers + return type + name.
+# name - a jadx method line always leads with modifiers + return type + name.
 _JADX_METHOD_RE = re.compile(
     r"^\s*(?:(?:public|private|protected|static|final|synchronized|native|abstract|strictfp|default)\s+)*"
     r"(?:<[^>]*>\s+)?"  # type parameters
@@ -243,7 +243,7 @@ class _JadxMethod:
 
 def _jadx_methods(text: str) -> list[_JadxMethod]:
     """Brace-counted jadx method list: ``(name, start_line, end_line)`` (1-based,
-    inclusive). Only declarations at CLASS-BODY depth (1) are methods — control
+    inclusive). Only declarations at CLASS-BODY depth (1) are methods - control
     flow and anonymous classes live deeper, so their braces never confuse the
     walk. Multi-line throws clauses (the ``{`` lands on a later line) are
     handled by only closing a pending method once its body has actually opened
@@ -257,10 +257,10 @@ def _jadx_methods(text: str) -> list[_JadxMethod]:
         if pending is None and depth == 1:
             m = _JADX_METHOD_RE.match(stripped)
             # Exclude control flow (name in _CTRL_KEYWORDS), anonymous-class
-            # field initializers (``new Foo() {`` — jadx emits them at class
+            # field initializers (``new Foo() {`` - jadx emits them at class
             # depth and the name would be the anonymous class, not a method;
             # the anchor would map to nothing in smali anyway), and bodiless
-            # declarations (``;`` — abstract/interface methods AND field
+            # declarations (``;`` - abstract/interface methods AND field
             # initializers calling methods like ``String x = foo();`` would
             # otherwise open a phantom method that never closes).
             if (
@@ -277,21 +277,21 @@ def _jadx_methods(text: str) -> list[_JadxMethod]:
         if pending is not None:
             pending.end = lineno
             # The method body closed when depth dropped back to class depth
-            # (and it had opened — a header whose ``{`` is on a later line
+            # (and it had opened - a header whose ``{`` is on a later line
             # must not close on its own signature line).
             if opened and depth <= 1:
                 methods.append(pending)
                 pending = None
                 opened = False
             elif not opened and depth <= 1 and "{" in stripped:
-                # A single-line body — ``public int getX() { return 1; }`` —
+                # A single-line body - ``public int getX() { return 1; }`` -
                 # opened AND closed on the same line, so depth never rose
                 # above class level and ``opened`` stayed False. jadx emits
                 # compact one-line bodies for trivial accessors, so without
                 # this the method would never close and be dropped.
                 methods.append(pending)
                 pending = None
-        if depth < 0:  # pathological input — reset instead of corrupting
+        if depth < 0:  # pathological input - reset instead of corrupting
             depth = 0
     return methods
 
@@ -326,7 +326,7 @@ def compute_anchors(
     the jadx source, brace-count its methods, find the method containing each
     finding line, then map that method NAME to its ``.method`` line in the
     apktool smali sibling (constructors: the jadx name is the class simple
-    name -> smali ``<init>``). Unresolvable lines simply get no anchor — the
+    name -> smali ``<init>``). Unresolvable lines simply get no anchor - the
     caller stacks those notes from the top. Never raises; missing files /
     unparseable text degrade to empty anchors.
     """
@@ -363,7 +363,7 @@ def compute_anchors(
                 continue
             # jadx constructors carry the class simple name; smali calls it
             # <init>. Static-initializer blocks have no jadx method name at
-            # all, so they never anchor (acceptable — rare findings).
+            # all, so they never anchor (acceptable - rare findings).
             smali_name = "<init>" if name == class_name else name
             smali_line = smali_lines.get(smali_name)
             if smali_line is not None:

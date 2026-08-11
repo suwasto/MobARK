@@ -1,5 +1,5 @@
 /**
- * The MASA brand mark — inline vector geometry from
+ * The MASA brand mark - inline vector geometry from
  * docs/icons/masa_icon_only.svg (drop-shadow filters dropped; they only
  * matter at display sizes). Crisp at any size, zero network.
  */

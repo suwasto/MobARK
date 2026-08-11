@@ -41,7 +41,7 @@ function formatElapsed(totalSeconds: number): string {
 }
 
 interface ProgressScreenProps {
-  /** Dismiss the dialog — the scan keeps analyzing in the background and the
+  /** Dismiss the dialog - the scan keeps analyzing in the background and the
    * dashboard flips to it automatically when it finishes. */
   onClose: () => void
 }
@@ -49,7 +49,7 @@ interface ProgressScreenProps {
 /**
  * Scan-in-progress dialog (owner follow-up, Aug 8): the pipeline used to be a
  * full scrollable view, so on short screens the header/footer could end up
- * off-screen. Now it's a modal over the app shell — the top bar stays visible,
+ * off-screen. Now it's a modal over the app shell - the top bar stays visible,
  * the last completed scan's dashboard shows through the backdrop, and only the
  * dialog body scrolls (86vh cap) if the screen is really short.
  */
@@ -91,7 +91,7 @@ export function ProgressScreen({ onClose }: ProgressScreenProps) {
     }
   }, [onClose])
 
-  // Both stage lists are module constants — a plain per-render pick is
+  // Both stage lists are module constants - a plain per-render pick is
   // always correct (a useMemo with a missing dep would freeze the platform
   // flip that happens when a stage string first reveals the platform).
   const stages = platformRef.current === 'ios' ? IOS_STAGES : ANDROID_STAGES
@@ -102,7 +102,7 @@ export function ProgressScreen({ onClose }: ProgressScreenProps) {
     <div
       className="progress-overlay"
       onMouseDown={(e) => {
-        // Backdrop click dismisses (the scan keeps running) — same contract
+        // Backdrop click dismisses (the scan keeps running) - same contract
         // as the Settings modal.
         if (e.target === e.currentTarget) onClose()
       }}
@@ -143,8 +143,8 @@ export function ProgressScreen({ onClose }: ProgressScreenProps) {
           </div>
           <p className="mb-5 text-[11.5px] text-bone-faint">
             {activeScan?.status === 'queued'
-              ? 'Queued — waiting for a worker…'
-              : `${active.label} — ${active.sub}`}
+              ? 'Queued - waiting for a worker…'
+              : `${active.label} - ${active.sub}`}
           </p>
 
           {/* Bar */}
@@ -186,7 +186,7 @@ export function ProgressScreen({ onClose }: ProgressScreenProps) {
             </button>
           </div>
           <p className="mt-4 text-[11px] leading-relaxed text-bone-faint">
-            MASA keeps analyzing in the background — dismiss this dialog and
+            MASA keeps analyzing in the background - dismiss this dialog and
             keep using the last scan; this one appears in “Open a different
             scan” when it’s done.
           </p>

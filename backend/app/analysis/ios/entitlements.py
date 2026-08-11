@@ -4,21 +4,21 @@ LIEF exposes the embedded signature as ``code_signature``; we carve the
 entitlements out of the signature blob ourselves.
 
 The embedded signature is a ``0xfade0cc0`` **superblob** whose index entries
-are ``(slot, offset)`` pairs — slot numbers, not magic values:
+are ``(slot, offset)`` pairs - slot numbers, not magic values:
 
-- slot ``5`` (``CSSLOT_ENTITLEMENTS``) — the entitlements as a *plain* plist
+- slot ``5`` (``CSSLOT_ENTITLEMENTS``) - the entitlements as a *plain* plist
   (XML or binary) under a ``0xfade7171`` blob header. This is the common case
   for ad-hoc / Xcode-signed builds and is the primary carve path.
-- slot ``7`` (``CSSLOT_DER_ENTITLEMENTS``) — the entitlements as a
+- slot ``7`` (``CSSLOT_DER_ENTITLEMENTS``) - the entitlements as a
   DER-encoded plist under a ``0xfade7172`` header (best-effort).
-- slot ``0x10000`` (``CSSLOT_CMS_SIGNATURE``) — a ``0xfade0b01`` blob wrapper
+- slot ``0x10000`` (``CSSLOT_CMS_SIGNATURE``) - a ``0xfade0b01`` blob wrapper
   around CMS SignedData, where entitlements may appear only as signed
   attribute OID ``1.2.840.113635.100.9.1``. We parse the CMS with a small
   BER walker (handles the indefinite-length encoding Apple uses) and take
   the first attribute value that loads as a plist.
 
 This is deliberately best-effort for ad-hoc/resigned IPAs and *partial* for
-FairPlay-encrypted App Store binaries — both are surfaced as findings, not
+FairPlay-encrypted App Store binaries - both are surfaced as findings, not
 just docs lines.
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ CSSLOT_CMS_SIGNATURE = 0x00010000
 ENTITLEMENTS_OID = bytes([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x63, 0x64, 0x09, 0x01])
 
 # Entitlements whose presence is worth a finding (shipping-app hygiene).
-# Value is ``(label, severity)`` — per-entitlement calibration (owner
+# Value is ``(label, severity)`` - per-entitlement calibration (owner
 # review, Aug 7): get-task-allow is a debugger-attach exposure on a
 # shipping app (medium); aps-environment is routine, stays low.
 NOTABLE_ENTITLEMENTS = {
@@ -65,7 +65,7 @@ def _signature_blob(binary, exe_path: Path) -> bytes | None:
     """Fetch the embedded code-signature blob bytes for one slice.
 
     LIEF exposes ``code_signature.data`` (often just the blob header) plus
-    ``data_offset``/``data_size`` pointing at the full blob inside the file —
+    ``data_offset``/``data_size`` pointing at the full blob inside the file -
     read the file slice when that is available, falling back to ``.data``.
     """
     cs = binary.code_signature
@@ -88,7 +88,7 @@ def analyze_app_binary(app_root: Path) -> StageResult:
     result = StageResult()
     exe_path = macho._find_main_executable(app_root)
     if exe_path is None:
-        result.errors.append("no main executable — entitlement stage skipped")
+        result.errors.append("no main executable - entitlement stage skipped")
         return result
 
     try:
@@ -127,7 +127,7 @@ def analyze_app_binary(app_root: Path) -> StageResult:
             )
 
     # M4 Layer 1: the full entitlement set is agent context (answer source for
-    # "what entitlements does this app have") — not just the notable ones.
+    # "what entitlements does this app have") - not just the notable ones.
     if merged:
         result.findings.append(
             FindingOut(
@@ -144,7 +144,7 @@ def analyze_app_binary(app_root: Path) -> StageResult:
         result.findings.append(
             FindingOut(
                 tool=TOOL_LIEF,
-                title="Entitlements not extractable — code-signature coverage is best-effort",
+                title="Entitlements not extractable - code-signature coverage is best-effort",
                 severity="info",
                 category="MASVS-PLATFORM-1",
                 detail={

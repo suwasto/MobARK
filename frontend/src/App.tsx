@@ -22,7 +22,7 @@ function Shell() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // Progress is a dismissible dialog now — the scan keeps running in the
+  // Progress is a dismissible dialog now - the scan keeps running in the
   // background, and the dashboard flips to it automatically when it finishes.
   const [progressDismissed, setProgressDismissed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -37,7 +37,7 @@ function Shell() {
   useScanPolling(view === 'progress' || anyScanRunning, actions.refreshScans)
 
   // A newly active scan (new upload, or selecting another running scan)
-  // brings the dialog back — the dismiss flag is per-scan.
+  // brings the dialog back - the dismiss flag is per-scan.
   useEffect(() => setProgressDismissed(false), [activeScan?.id])
 
   // Backdrop for the progress dialog: the newest non-running scan's
@@ -55,7 +55,7 @@ function Shell() {
   const handleFile = async (file: File) => {
     setUploadError(null)
     if (!file.name.toLowerCase().endsWith('.apk') && !file.name.toLowerCase().endsWith('.ipa')) {
-      setUploadError('Unsupported file — expected .apk or .ipa')
+      setUploadError('Unsupported file - expected .apk or .ipa')
       return
     }
     setUploading(true)

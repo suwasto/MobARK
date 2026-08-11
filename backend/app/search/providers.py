@@ -1,16 +1,16 @@
-"""M7 search provider table — single source of truth for web-search engines.
+"""M7 search provider table - single source of truth for web-search engines.
 
 Mirrors ``model/providers.py`` (M3): one auditable place for each engine's
 base-URL posture, key requirement, and query style. v1 shipped SearXNG only
 (the bundled compose service + user-added custom SearXNG-compatible
-instances); Aug 9 owner follow-up adds the documented **keyed** rows —
-Brave, Serper, Mojeek — added via the same Settings form (base URL where
+instances); Aug 9 owner follow-up adds the documented **keyed** rows -
+Brave, Serper, Mojeek - added via the same Settings form (base URL where
 required + API key), each with a small query/parse branch in
 ``app/search/client.py`` (no universal search-API protocol exists, so every
-engine needs its own client — the table's ``query_style`` dispatches it).
+engine needs its own client - the table's ``query_style`` dispatches it).
 Ruled out as future providers (owner decision, Aug 9): Google CSE (closing
 to new customers Jan 2027), Bing v7 (dead, HTTP 410), DuckDuckGo (no
-official API — its HTML endpoint is unstable and keyless, the opposite of
+official API - its HTML endpoint is unstable and keyless, the opposite of
 this add-form).
 """
 from __future__ import annotations
@@ -28,10 +28,10 @@ class SearchProvider:
     key_env_var: str | None  # env var that seeds the API key (None: no key)
     default_base_url: str
     # Dispatches the query + normalize branch in ``app/search/client.py``:
-    #   "searxng" — GET {base}/search?q=…&format=json -> results[]
-    #   "brave"   — GET {base}/res/v1/web/search, X-Subscription-Token -> web.results[]
-    #   "serper"  — POST {base}/search, X-API-KEY, JSON {"q": …} -> organic[]
-    #   "mojeek"  — GET {base}/search?q=…&api_key=…&fmt=json -> response.results[]
+    #   "searxng" - GET {base}/search?q=…&format=json -> results[]
+    #   "brave"   - GET {base}/res/v1/web/search, X-Subscription-Token -> web.results[]
+    #   "serper"  - POST {base}/search, X-API-KEY, JSON {"q": …} -> organic[]
+    #   "mojeek"  - GET {base}/search?q=…&api_key=…&fmt=json -> response.results[]
     query_style: str = "searxng"
 
 
@@ -46,7 +46,7 @@ SEARCH_PROVIDERS: dict[str, SearchProvider] = {
             key_required=False,
             key_env_var=None,
             # Profile-gated compose service (``docker compose --profile web
-            # up -d searxng``) — see docker-compose.yml.
+            # up -d searxng``) - see docker-compose.yml.
             default_base_url="http://localhost:8888",
         ),
         SearchProvider(

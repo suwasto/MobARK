@@ -41,7 +41,7 @@ rules:
     severity: ERROR
     message: >
       [MASVS-NETWORK-3] Hostname verification disabled via
-      ALLOW_ALL_HOSTNAME_VERIFIER / null HostnameVerifier — MITM risk.
+      ALLOW_ALL_HOSTNAME_VERIFIER / null HostnameVerifier - MITM risk.
     pattern-either:
       - pattern: ALLOW_ALL_HOSTNAME_VERIFIER
       - pattern: $H.setHostnameVerifier(null)
@@ -51,7 +51,7 @@ rules:
     severity: ERROR
     message: >
       [MASVS-NETWORK-3] Custom X509TrustManager with empty
-      checkServerTrusted — certificate validation disabled.
+      checkServerTrusted - certificate validation disabled.
     patterns:
       - pattern: |
           class $TM implements X509TrustManager {
@@ -65,7 +65,7 @@ rules:
     # Owner calibration (Aug 7): hardcoded key material (MASVS-CRYPTO-1).
     severity: ERROR
     message: >
-      [MASVS-CRYPTO-1] Hardcoded key material passed to SecretKeySpec —
+      [MASVS-CRYPTO-1] Hardcoded key material passed to SecretKeySpec -
       keys must come from the Android Keystore, not source code.
     patterns:
       - pattern: new SecretKeySpec($KEY, $ALGO)

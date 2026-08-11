@@ -1,29 +1,29 @@
-"""Dependencies tab inventory — local-first, derived on demand.
+"""Dependencies tab inventory - local-first, derived on demand.
 
 Serves the dashboard's Dependencies tab entirely from data the scan pipeline
 already produced (nothing new is persisted, nothing leaves the machine):
 
-- **Android** — third-party Java/Kotlin package groups from the jadx
+- **Android** - third-party Java/Kotlin package groups from the jadx
   ``sources`` tree (grouped by library, the app's own package excluded),
   native ``lib/*.so`` shared libraries from the APK itself, and runtime
   framework markers (Flutter / React Native / Unity / ...). App metadata
   (package + SDK levels) comes from the jadx-decoded ``AndroidManifest.xml``.
-- **iOS** — linked dylibs from the persisted LIEF binary profile (system vs
+- **iOS** - linked dylibs from the persisted LIEF binary profile (system vs
   third-party) + embedded ``Frameworks/*.framework`` bundles; metadata from
   ``Info.plist``.
 
 Known-CVE research is deliberately NOT baked into this endpoint: per the M7
 owner reframe (Aug 9, 2026), "dependency CVE research" is the agent's
-on-demand web-research use case — the dock asks with 🌐 Web on and the
+on-demand web-research use case - the dock asks with 🌐 Web on and the
 agent decides when to search. This tab is the honest local inventory the
 agent works from (the UI's per-dependency "Check known CVEs" button pre-fills
 the dock question).
 
 The inventory is **cached per scan** (module + a validated
-``dependencies_cache.json`` beside the scan's trees — the same pattern as
+``dependencies_cache.json`` beside the scan's trees - the same pattern as
 tree_cache.json / smali_mapping.json) so repeated tab opens skip the
 source-tree walk + APK zip read entirely. Identity = platform + tree/bundle
-mtime + APK stat + a **findings fingerprint** — unlike the tree/mapping
+mtime + APK stat + a **findings fingerprint** - unlike the tree/mapping
 caches, suppression changes the inventory (finding counts), and the route
 passes the non-suppressed set, so any suppress/restore toggle flips the
 fingerprint and recomputes. Best-effort throughout: any failure recomputes,
@@ -46,7 +46,7 @@ from app.config import settings
 # The expensive parts (source-tree walk, APK zip namelist read) are immutable
 # per scan; the only mutable input is finding suppression, which the findings
 # fingerprint below captures. Module cache keyed by the cache path, bounded
-# (small payloads — 32 mirrors the smali_mapping cache); the persistent file
+# (small payloads - 32 mirrors the smali_mapping cache); the persistent file
 # is validated by a stored identity + shape version and survives restarts.
 _DEPENDENCIES_CACHE: dict[str, tuple[str, dict]] = {}
 _DEPENDENCIES_CACHE_MAX = 32
@@ -55,7 +55,7 @@ _DEPENDENCIES_CACHE_VERSION = 1
 
 
 def cache_path_for(scan_id: int) -> Path:
-    """Per-scan cache file next to the scan's trees (``work/<scan>/``) — a
+    """Per-scan cache file next to the scan's trees (``work/<scan>/``) - a
     SIBLING of ``decompiled/``/``bundle/`` so it is never mistaken for scan
     output."""
     return settings.data_dir / "work" / str(scan_id) / "dependencies_cache.json"
@@ -69,7 +69,7 @@ def _dir_mtime(path: Path) -> str:
 
 
 def _findings_fingerprint(findings) -> str:
-    """Cheap deterministic fingerprint of the passed findings — covers BOTH
+    """Cheap deterministic fingerprint of the passed findings - covers BOTH
     suppression toggles (the route passes the non-suppressed set, so a
     suppress/restore changes the set) and re-runs (new finding ids)."""
     h = hashlib.sha256()
@@ -79,7 +79,7 @@ def _findings_fingerprint(findings) -> str:
 
 
 def _cache_identity(scan, findings) -> str:
-    """Identity of every inventory input. Cheap stats only — never walks."""
+    """Identity of every inventory input. Cheap stats only - never walks."""
     parts = [scan.platform or "unknown"]
     work_dir = settings.data_dir / "work" / str(scan.id)
     if scan.platform == "android":
@@ -113,7 +113,7 @@ def _primary_tree_present(scan) -> bool:
 def _remember_cache(key: str, identity: str, payload: dict) -> None:
     _DEPENDENCIES_CACHE[key] = (identity, payload)
     # Evict the oldest-inserted entry when over the bound (dicts preserve
-    # insertion order, so the first key is the oldest) — same rule as the
+    # insertion order, so the first key is the oldest) - same rule as the
     # smali-mapping / graph explorer caches.
     while len(_DEPENDENCIES_CACHE) > _DEPENDENCIES_CACHE_MAX:
         _DEPENDENCIES_CACHE.pop(next(iter(_DEPENDENCIES_CACHE)))
@@ -124,7 +124,7 @@ def cached_inventory(scan, findings) -> dict | None:
 
     Identity-validated: a stale/torn file (shape change, partial write, or a
     suppression toggle since the cache was written) recomputes instead of
-    serving garbage. A vanished tree is always a miss — never stale-serving.
+    serving garbage. A vanished tree is always a miss - never stale-serving.
     """
     if not _primary_tree_present(scan):
         return None
@@ -151,7 +151,7 @@ def cached_inventory(scan, findings) -> dict | None:
 
 
 def store_inventory(scan, findings, payload: dict) -> None:
-    """Persist a computed inventory — in-memory + the on-disk cache file.
+    """Persist a computed inventory - in-memory + the on-disk cache file.
 
     Best-effort: a failed write (read-only FS etc.) still serves this process
     via the module cache; the next process recomputes. Atomic (tmp+rename) so
@@ -182,13 +182,13 @@ def store_inventory(scan, findings, payload: dict) -> None:
     except OSError:
         pass  # best-effort cache
 
-# Depth-2 grouping boundary: these top-level namespaces are umbrella roots —
-# com/google, org/apache, androidx/... — so the group is the SECOND segment;
+# Depth-2 grouping boundary: these top-level namespaces are umbrella roots -
+# com/google, org/apache, androidx/... - so the group is the SECOND segment;
 # a library that lives at the top level (okhttp3, retrofit2, rxjava) is its
 # own group.
 _GENERIC_TLDS = ("com", "org", "net", "io", "androidx", "kotlinx")
 
-# JDK/runtime namespaces that ship with every JVM — not app dependencies.
+# JDK/runtime namespaces that ship with every JVM - not app dependencies.
 _NOISE_GROUPS = frozenset({"java", "javax", "sun", "jdk", "dalvik", "kotlin"})
 
 # Known third-party libraries -> human label. Matched as the LONGEST ancestor
@@ -222,13 +222,13 @@ _KNOWN_ANDROID_LIBS: dict[str, str] = {
     "com.alibaba.fastjson": "Fastjson",
     "com.tencent": "Tencent SDKs",
     "com.android": "AOSP (com.android)",
-    # Pre-AndroidX support library — lives under android/support/... and is a
+    # Pre-AndroidX support library - lives under android/support/... and is a
     # real third-party dependency (bundled with the app), unlike the android.*
     # framework API itself.
     "android.support": "Android Support Library",
 }
 
-# Runtime framework markers — strong, file-name-based signals that the APK
+# Runtime framework markers - strong, file-name-based signals that the APK
 # embeds a cross-platform engine (checked against the APK's zip namelist).
 _RUNTIME_MARKERS: list[tuple[str, tuple[str, ...]]] = [
     ("Flutter", ("libflutter.so", "assets/flutter_assets/")),
@@ -240,7 +240,7 @@ _RUNTIME_MARKERS: list[tuple[str, tuple[str, ...]]] = [
 ]
 
 # iOS dylibs under these prefixes are Apple's own (the OS runtime); everything
-# else — @rpath/... frameworks, bundled .dylibs — is a third-party dependency.
+# else - @rpath/... frameworks, bundled .dylibs - is a third-party dependency.
 _IOS_SYSTEM_PREFIXES = ("/usr/", "/System/", "/Library/", "/private/")
 
 # Cap the source-tree walk so a pathological decompile can never hang the
@@ -253,7 +253,7 @@ def _group_key(rel_dir: str) -> str | None:
     group key.
 
     Dotted group names: a known-library ancestor wins (longest match),
-    otherwise the top-level segment — except the generic umbrella TLDs
+    otherwise the top-level segment - except the generic umbrella TLDs
     (com/google, org/apache, androidx) which group at the second segment.
     JDK/runtime namespaces return None (never shown as dependencies).
     """
@@ -270,7 +270,7 @@ def _group_key(rel_dir: str) -> str | None:
 
 
 def _in_app(group: str, app_package: str | None) -> bool:
-    """True when the group is (part of) the app's own package — never shown."""
+    """True when the group is (part of) the app's own package - never shown."""
     return bool(app_package) and (
         app_package == group or app_package.startswith(group + ".")
     )
@@ -310,7 +310,7 @@ def _walk_packages(sources: Path, app_package: str | None) -> tuple[dict[str, in
 def _finding_counts(findings, app_package: str | None) -> dict[str, dict[str, int]]:
     """Per-group finding tallies from the scan's semgrep findings.
 
-    Finding ``file_path``s are root-relative (``com/google/android/gms/...`` —
+    Finding ``file_path``s are root-relative (``com/google/android/gms/...`` -
     no ``sources/`` prefix), so they group with the same ``_group_key`` the
     tree walk uses. Suppressed findings are already filtered by the caller.
     """
@@ -390,7 +390,7 @@ def _runtime_markers(apk_path: Path) -> list[str]:
         return markers
     for label, needles in _RUNTIME_MARKERS:
         # Substring match against the full entry names: libflutter.so lives at
-        # lib/<abi>/libflutter.so — exact list membership would never hit.
+        # lib/<abi>/libflutter.so - exact list membership would never hit.
         if any(needle in name for name in names for needle in needles):
             markers.append(label)
     return markers
@@ -411,7 +411,7 @@ def _detail_dict(finding) -> dict:
 
 
 def _ios_app_root(work_dir: Path) -> Path | None:
-    """``bundle/Payload/*.app`` — the unpacked app bundle, if present."""
+    """``bundle/Payload/*.app`` - the unpacked app bundle, if present."""
     payload = work_dir / "bundle" / "Payload"
     if not payload.is_dir():
         return None
@@ -463,13 +463,13 @@ def _ios_frameworks(app_root: Path) -> list[str]:
     return sorted(out)
 
 
-# Kind ordering for the response (the UI groups by kind anyway — this keeps
+# Kind ordering for the response (the UI groups by kind anyway - this keeps
 # the payload stable and readable in tests/CLI).
 _KIND_RANK = {"package": 0, "native": 1, "framework": 2, "dylib": 3}
 
 
 def inventory(scan, findings) -> dict:
-    """Build the Dependencies tab payload for a scan (best-effort throughout —
+    """Build the Dependencies tab payload for a scan (best-effort throughout -
     a missing tree/APK/bundle degrades to an empty inventory, never a crash).
 
     ``findings`` must be the scan's NON-suppressed Finding rows (the caller
@@ -502,7 +502,7 @@ def _android_inventory(scan, findings) -> dict:
     items: list[dict] = []
     # The walk is the primary source, but a semgrep finding inside a package
     # is authoritative evidence of presence too (e.g. the walk hit its cap, or
-    # the file was filtered) — a finding-bearing group never disappears.
+    # the file was filtered) - a finding-bearing group never disappears.
     for group in sorted(set(packages) | set(counts)):
         n = packages.get(group, 0)
         c = counts.get(group, {})
@@ -517,7 +517,7 @@ def _android_inventory(scan, findings) -> dict:
                     f"{n} source file{'s' if n != 1 else ''} under "
                     f"sources/{group.replace('.', '/')}"
                     if n
-                    else "present — flagged by code findings"
+                    else "present - flagged by code findings"
                 ),
                 "file_count": n or None,
                 "finding_count": c.get("finding_count", 0),
@@ -534,7 +534,7 @@ def _android_inventory(scan, findings) -> dict:
                 {
                     "name": lib["name"],
                     "kind": "native",
-                    "evidence": f"APK lib/ — {' · '.join(lib['abis'])}",
+                    "evidence": f"APK lib/ - {' · '.join(lib['abis'])}",
                     "abis": lib["abis"],
                 }
             )

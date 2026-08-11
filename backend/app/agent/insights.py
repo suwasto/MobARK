@@ -7,7 +7,7 @@ so one model configured in Settings powers chat, explain, and summary alike.
 
 Failure contract for the API layer:
 - ``NoModelConfigured`` -> HTTP 400 (no chat model in Settings)
-- :class:`InsightError` -> HTTP 502 (the upstream LLM call itself failed —
+- :class:`InsightError` -> HTTP 502 (the upstream LLM call itself failed -
   the request was fine, the upstream wasn't)
 
 The functions mutate ``finding.explanation`` / ``scan.ai_summary`` in place;
@@ -36,7 +36,7 @@ _EXPLAIN_SYSTEM = (
     "static-analysis finding in plain language for a mobile pentester: what "
     "it means, why it is a risk in this app, and a concrete fix. Answer in "
     "3-6 sentences. Ground every claim in the finding data and source "
-    "context below — never invent files, lines, or mitigations."
+    "context below - never invent files, lines, or mitigations."
 )
 
 _SUMMARY_SYSTEM = (
@@ -86,7 +86,7 @@ def _source_context(scan_id: int, finding) -> str:
 
     ``finding.file_path`` is relative to the platform tree root for code
     findings; manifest-path findings (AndroidManifest.xml lives under the
-    ``resources`` root) may not resolve — that is fine, the caller's prompt
+    ``resources`` root) may not resolve - that is fine, the caller's prompt
     simply omits context for them.
     """
     if not finding.file_path or not finding.line_number:
@@ -127,7 +127,7 @@ def explain_finding(scan_id: int, finding, *, regenerate: bool = False) -> dict:
     Returns ``{explanation, cached, model, generated_at}``. Mutates
     ``finding.explanation`` on a fresh generation; the route commits.
     A cached explanation is returned without any LLM call unless
-    ``regenerate`` is set — the UI's Regenerate button is the explicit opt-in
+    ``regenerate`` is set - the UI's Regenerate button is the explicit opt-in
     that spends cost; the default path is always cache-first.
     """
     if finding.explanation and not regenerate:
@@ -165,12 +165,12 @@ def summarize_scan(
     """Executive summary of a whole scan (cached on ``scan.ai_summary``).
 
     Grounded in severity counts, total, security score (higher = better,
-    CVSS 4.0-driven — worst finding plus a breadth bonus within its
+    CVSS 4.0-driven - worst finding plus a breadth bonus within its
     severity band), and the top findings by severity.
     Returns ``{summary, cached, model, generated_at}`` and mutates
     ``scan.ai_summary``; the route commits. A cached summary is returned
     without any LLM call unless ``regenerate`` is set (the UI's Regenerate
-    button — explicit, cost-spending opt-in; default is cache-first).
+    button - explicit, cost-spending opt-in; default is cache-first).
     """
     if scan.ai_summary and not regenerate:
         return {

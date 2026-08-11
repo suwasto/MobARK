@@ -6,10 +6,10 @@ import type { ModelBackendRead } from '../../types'
  * Settings -> "Model backends" tab (mockup 1:1). One card per configured
  * backend: connection state, editable base URL, Test (full health probe),
  * model chips (set default), and an enable switch. Edits persist on
- * blur / action — the footer "Save changes" is a close that refreshes.
+ * blur / action - the footer "Save changes" is a close that refreshes.
  *
  * Model chips are CURATED by default (owner UX request, Aug 8): the
- * provider's suggested models that the backend actually serves — a
+ * provider's suggested models that the backend actually serves - a
  * "See all (N more)" chip reveals the full served list. The configured
  * default model is never hidden behind the fold.
  */
@@ -19,7 +19,7 @@ export function BackendsTab() {
     <div>
       <p className="field-hint" style={{ marginBottom: 16 }}>
         MASA talks to any locally-served, OpenAI-compatible endpoint. Point it
-        at Ollama or LM Studio — no cloud calls unless you enable one in
+        at Ollama or LM Studio - no cloud calls unless you enable one in
         &ldquo;Bring your own key&rdquo;.
       </p>
       {backends.map((b) => (
@@ -30,7 +30,7 @@ export function BackendsTab() {
 }
 
 // How many served models are shown by default for providers without a
-// curated list (local/custom) — the rest sit behind the "see all" reveal.
+// curated list (local/custom) - the rest sit behind the "see all" reveal.
 const CURATED_LIMIT = 6
 
 function BackendCard({ backend }: { backend: ModelBackendRead }) {
@@ -47,7 +47,7 @@ function BackendCard({ backend }: { backend: ModelBackendRead }) {
     setBaseUrl(backend.base_url)
   }, [backend.base_url])
 
-  // A fresh probe can shrink/grow the served list — collapse the "see all"
+  // A fresh probe can shrink/grow the served list - collapse the "see all"
   // reveal so the curated view is never left showing a stale count.
   const served = h?.models ?? []
   useEffect(() => {
@@ -64,7 +64,7 @@ function BackendCard({ backend }: { backend: ModelBackendRead }) {
           ? { cls: 'ok', text: '● Connected' }
           : { cls: 'off', text: '○ Not connected' }
 
-  // Green only when the probe (or a reachable pre-probe state) says so — a
+  // Green only when the probe (or a reachable pre-probe state) says so - a
   // failed completion probe stays a red/dim dot, never a green one.
   const dotOnline =
     h?.probe_ok === true || (h?.reachable === true && h?.probe_ok == null)
@@ -219,18 +219,18 @@ function BackendCard({ backend }: { backend: ModelBackendRead }) {
       {served.length === 0 && backend.enabled && (
         <p className="field-hint">
           {backend.local
-            ? 'No models listed — start the local server (or confirm the URL), '
+            ? 'No models listed - start the local server (or confirm the URL), '
               + 'then Test to populate the model list.'
-            : 'No models listed — confirm the provider key (or the URL for '
+            : 'No models listed - confirm the provider key (or the URL for '
               + 'custom endpoints), then Test.'}
         </p>
       )}
       {!backend.enabled && (
-        <p className="field-hint">Disabled — the agent will not use this backend.</p>
+        <p className="field-hint">Disabled - the agent will not use this backend.</p>
       )}
       {error && <p className="field-error">{error}</p>}
       {/* Probe diagnostics: the backend health carries *why* the test
-          failed (e.g. the model server can't load the model) — surface it
+          failed (e.g. the model server can't load the model) - surface it
           instead of leaving the failure at a bare red dot. */}
       {h?.error && <p className="field-error">{h.error}</p>}
     </div>

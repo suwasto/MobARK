@@ -5,20 +5,20 @@ import type { SearchBackendRead, SearchProviderRead } from '../../types'
 
 /**
  * Settings -> "Search & research" tab (M7, live). This tab owns the ENGINE
- * layer only — the per-scan opt-in lives EXCLUSIVELY on the Agent dock 🌐
+ * layer only - the per-scan opt-in lives EXCLUSIVELY on the Agent dock 🌐
  * toggle (owner decision, Aug 9: a Settings copy of the same switch was
  * redundant with the dock and was removed).
  *
  * One card per configured search backend carrying an Active/Inactive toggle
- * — exactly ONE Active at a time (enabling one disables the others; the
- * server enforces it via `enable_only`) — plus editable base URL + Test (a
+ * - exactly ONE Active at a time (enabling one disables the others; the
+ * server enforces it via `enable_only`) - plus editable base URL + Test (a
  * real search-query probe). Addable engines (Aug 9 follow-up): a custom
- * SearXNG-compatible instance (base URL, no key) or a keyed provider —
+ * SearXNG-compatible instance (base URL, no key) or a keyed provider -
  * Brave / Serper / Mojeek (API key, base URL optional with a per-provider
  * default). The add-form's provider picker comes from `GET /search/providers`
  * so the UI can never drift from the provider table.
  *
- * The Active toggle never auto-starts the SearXNG container — Active means
+ * The Active toggle never auto-starts the SearXNG container - Active means
  * "the configured engine"; reachability is probed separately (a failing
  * probe carries the `docker compose --profile web up -d searxng` hint).
  */
@@ -30,7 +30,7 @@ export function SearchTab() {
         <span className="mark2">⚠</span>
         <span>
           Even self-hosted, search queries leave this machine to reach public
-          search engines — a different privacy boundary than local model
+          search engines - a different privacy boundary than local model
           inference. Web research is opt-in per scan, and the dock toggle
           stays greyed until an engine here is Active <strong>and
           reachable</strong>.
@@ -39,7 +39,7 @@ export function SearchTab() {
 
       <p className="field-hint" style={{ marginBottom: 16 }}>
         Pick the search engine the agent uses when web research is enabled.
-        Only one engine can be Active at a time — enabling one turns the
+        Only one engine can be Active at a time - enabling one turns the
         others off. SearXNG ships bundled; start it with{' '}
         <code>docker compose --profile web up -d searxng</code>.
       </p>
@@ -50,7 +50,7 @@ export function SearchTab() {
 
       {searchBackends.length === 0 && (
         <p className="field-hint" style={{ marginTop: 8 }}>
-          No search engines configured — the bundled SearXNG entry was
+          No search engines configured - the bundled SearXNG entry was
           removed. Add one below (or delete the store file to reseed).
         </p>
       )}
@@ -65,7 +65,7 @@ export function SearchTab() {
  * Docker (the compose case): the start endpoint 502s carrying the manual
  * command, and the card turns into a copy-the-command + auto-detect flow
  * instead of just an error line (owner decision, Aug 10: guided start +
- * auto-detect — no Docker socket is mounted into the app container).
+ * auto-detect - no Docker socket is mounted into the app container).
  */
 type GuideState =
   | { mode: 'waiting'; command: string }
@@ -77,8 +77,8 @@ type GuideState =
  * message shape is pinned by backend tests, so the parse can't drift
  * silently. Anchored on `docker compose` (not the first backticked segment)
  * because the compose-failure format embeds the stderr tail BEFORE the
- * command — a backticked tail would otherwise win the parse. Returns null
- * when the failure carries no command (genuine errors — 404 etc. — keep the
+ * command - a backticked tail would otherwise win the parse. Returns null
+ * when the failure carries no command (genuine errors - 404 etc. - keep the
  * plain field-error surface). */
 function extractStartCommand(err: unknown): string | null {
   const msg = err instanceof Error ? err.message : String(err)
@@ -106,10 +106,10 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
 
   // M7 follow-up (Aug 11): the Active radio must not activate an engine that
   // can't search. SearXNG-style engines (bundled/custom) get a cheap
-  // reachability probe on EVERY list (even inactive — the list route now
+  // reachability probe on EVERY list (even inactive - the list route now
   // probes them regardless), so a dead engine's radio is disabled until it
-  // answers. Keyed engines can't be probed cheaply — their honest check is a
-  // real query — so their gate is the API key (the existing "No API key
+  // answers. Keyed engines can't be probed cheaply - their honest check is a
+  // real query - so their gate is the API key (the existing "No API key
   // set" hint explains). An ALREADY-Active engine stays toggleable so it can
   // be turned off even after going unreachable.
   const searxngStyle = backend.kind !== 'keyed'
@@ -151,7 +151,7 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
   // The radio: enabling one engine disables all others (server-side
   // `enable_only` keeps the invariant even for raw API clients).
   const toggleActive = async () => {
-    // Inert while disabled — a dead engine (or a keyless keyed engine) can't
+    // Inert while disabled - a dead engine (or a keyless keyed engine) can't
     // be activated, even by a stray click on the dimmed switch.
     if (radioDisabled) return
     setBusy('enable')
@@ -179,9 +179,9 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
 
   // One-click start for the bundled engine: the server runs the documented
   // compose command and waits for the engine to answer, then merges the fresh
-  // health back into the card (owner request, Aug 9 — no more copy-pasting
+  // health back into the card (owner request, Aug 9 - no more copy-pasting
   // the compose command when the probe fails). Inside the app container (no
-  // Docker on its host) the server 502s carrying the manual command — the
+  // Docker on its host) the server 502s carrying the manual command - the
   // card then switches to the guided flow: copy the command for the host
   // terminal + auto-detect when the engine comes up (owner decision, Aug 10).
   const startEngine = async () => {
@@ -211,9 +211,9 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
 
   // Auto-detect: while the guided flow waits, poll the lightweight
   // reachability check every 4s; when the engine answers, merge the fresh
-  // card (plus a best-effort real probe for the "Probe OK" line — a fresh
+  // card (plus a best-effort real probe for the "Probe OK" line - a fresh
   // boot can 503 the first real query, so failures are fine) and flip the
-  // panel to its success state. Stops at ~2 min or on unmount — the engine
+  // panel to its success state. Stops at ~2 min or on unmount - the engine
   // keeps booting regardless and the user can re-click Start / Test.
   const guideMode = guided?.mode ?? null
   useEffect(() => {
@@ -230,14 +230,14 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
           try {
             await testSearchBackend(backend.id)
           } catch {
-            // Lightweight reachability already merged — good enough.
+            // Lightweight reachability already merged - good enough.
           }
           if (cancelled) return
           setGuided((g) => (g ? { ...g, mode: 'up' } : g))
           return
         }
       } catch {
-        // Transient list/probe failure — keep polling.
+        // Transient list/probe failure - keep polling.
       }
       if (!cancelled && Date.now() - startedAt > 120_000) {
         setGuided((g) => (g ? { ...g, mode: 'stopped' } : g))
@@ -266,7 +266,7 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch {
-      // Clipboard blocked (non-secure context) — the code block is
+      // Clipboard blocked (non-secure context) - the code block is
       // selectable; the note below covers it.
     }
   }
@@ -283,7 +283,7 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
           <span className={`conn-status ${backend.enabled ? (h?.reachable ? 'ok' : 'off') : 'off'}`}>
             {backend.enabled ? 'Active' : 'Inactive'}
           </span>
-          {/* The Active/Inactive radio — one engine Active at a time. It is
+          {/* The Active/Inactive radio - one engine Active at a time. It is
               disabled (dimmed, click-inert) while the engine can't search:
               a SearXNG-style engine that the probe reports unreachable, or a
               keyed engine with no API key. An Active engine stays toggleable
@@ -296,10 +296,10 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
             title={
               radioDisabled
                 ? searxngStyle
-                  ? 'Engine unreachable — start it (▶ Start engine), then activate'
-                  : 'No API key set — add a key to use this engine'
+                  ? 'Engine unreachable - start it (▶ Start engine), then activate'
+                  : 'No API key set - add a key to use this engine'
                 : backend.enabled
-                  ? 'Active — the agent searches with this engine'
+                  ? 'Active - the agent searches with this engine'
                   : 'Set as the Active search engine (turns others off)'
             }
             className={`switch ${backend.enabled ? 'on' : ''}${radioDisabled ? ' disabled' : ''}`}
@@ -342,19 +342,19 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
 
       {h?.status === 'ok' && h?.result_count != null && (
         <p className="field-hint">
-          Probe OK — a test query returned {h.result_count} result
+          Probe OK - a test query returned {h.result_count} result
           {h.result_count === 1 ? '' : 's'}
           {h.sample_title ? ` (first: ${h.sample_title})` : ''}.
         </p>
       )}
       {!backend.enabled && (
-        <p className="field-hint">Inactive — the agent will not search with this engine.</p>
+        <p className="field-hint">Inactive - the agent will not search with this engine.</p>
       )}
-      {/* Keyed engines never expose the key — only whether one is set
+      {/* Keyed engines never expose the key - only whether one is set
           (same honesty rule as model backends). Change it: remove + re-add. */}
       {backend.kind === 'keyed' && (
         <p className="field-hint">
-          {backend.has_api_key ? 'API key set.' : 'No API key set — the agent cannot search with this engine yet.'}
+          {backend.has_api_key ? 'API key set.' : 'No API key set - the agent cannot search with this engine yet.'}
         </p>
       )}
       {error && <p className="field-error">{error}</p>}
@@ -363,7 +363,7 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
       {h?.error && <p className="field-error">{h.error}</p>}
       {/* One-click start (bundled engine only, and only while unreachable):
           run the documented compose command from the UI instead of just
-          showing its text — the card flips to "Probe OK" once the engine
+          showing its text - the card flips to "Probe OK" once the engine
           answers. Inside the app container (no Docker on its host) the
           server 502s with the manual command and the card switches to the
           guided flow below (copy + auto-detect). */}
@@ -385,7 +385,7 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
         </div>
       )}
       {/* Guided start (the compose-container case): the command to run on the
-          HOST terminal, a Copy button, and live auto-detect — the app polls
+          HOST terminal, a Copy button, and live auto-detect - the app polls
           reachability and flips to "Engine is up" on its own (Aug 10). */}
       {/* aria-live so the detecting→up flip is announced (review catch). */}
       {guided != null && (
@@ -405,14 +405,14 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
                 </button>
               </div>
               <p className="eg-note">
-                The app runs in a container without Docker — run this command
+                The app runs in a container without Docker - run this command
                 once in a <strong>terminal on this machine</strong> (the host
                 running Docker). The app checks every few seconds and picks
                 the engine up automatically.
               </p>
               {guideNote && <p className="eg-note eg-raw">{guideNote}</p>}
               <div className="eg-row">
-                <span className="eg-status">◌ Detecting — checking every 4s…</span>
+                <span className="eg-status">◌ Detecting - checking every 4s…</span>
                 <button
                   type="button"
                   className="link-btn"
@@ -427,7 +427,7 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
           )}
           {guided.mode === 'up' && (
             <p className="eg-note eg-ok">
-              ✓ Engine is up — SearXNG is reachable. Web research is ready to
+              ✓ Engine is up - SearXNG is reachable. Web research is ready to
               use; enable it per scan with the 🌐 toggle in the Agent dock.
             </p>
           )}
@@ -469,7 +469,7 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
 
 function SearchAddForm() {
   const { actions } = useApp()
-  // The addable engine set comes from the provider table — never hardcoded
+  // The addable engine set comes from the provider table - never hardcoded
   // here, so the UI can't drift from the backend (keyed providers are just
   // future table rows + a client branch).
   const [providers, setProviders] = useState<SearchProviderRead[] | null>(null)
@@ -503,7 +503,7 @@ function SearchAddForm() {
   const sel = providers?.find((p) => p.id === selected) ?? null
 
   // Custom instances need a base URL; keyed providers need a key. Keyed base
-  // URLs are optional — the provider default is used when left blank.
+  // URLs are optional - the provider default is used when left blank.
   const canAdd =
     !busy &&
     sel != null &&
@@ -522,7 +522,7 @@ function SearchAddForm() {
         api_key: sel.key_required ? apiKey.trim() : null,
       })
       setApiKey('')
-      setSuccess(`${sel.name} added — it is now the Active engine.`)
+      setSuccess(`${sel.name} added - it is now the Active engine.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -581,7 +581,7 @@ function SearchAddForm() {
             <div className="field-group" style={{ marginBottom: 10, marginTop: 10 }}>
               <input
                 className="field-input"
-                placeholder={`Base URL (optional — defaults to ${sel.default_base_url})`}
+                placeholder={`Base URL (optional - defaults to ${sel.default_base_url})`}
                 value={baseUrl}
                 disabled={busy}
                 spellCheck={false}

@@ -1,5 +1,5 @@
 /**
- * Security gauge — the Overview tab's SVG arc (mockup 1:1, re-themed).
+ * Security gauge - the Overview tab's SVG arc (mockup 1:1, re-themed).
  *
  * A 180° arc with a stroke-dasharray fill proportional to the score. The
  * score is the public-facing SECURITY score (100 - risk): higher is better.
@@ -8,16 +8,16 @@
  * CVSS 4.0 base score (high 8.0, medium 5.5, low 2.0, info 0) and the
  * overall risk is driven by the WORST finding plus a breadth bonus within
  * its severity band, capped at the band's CVSS 4.0 ceiling (high 89 ·
- * medium 69 · low 39 — the removed critical band is never re-introduced).
+ * medium 69 · low 39 - the removed critical band is never re-introduced).
  * 11 highs = 89 · 1 high = 80 · 16 mediums = 69 · 1 medium = 55. The label
- * follows the CVSS 4.0 qualitative bands of the underlying risk — a 60/100
+ * follows the CVSS 4.0 qualitative bands of the underlying risk - a 60/100
  * security score means risk 40 → CVSS 4.0 Medium → "Medium security" (not
  * "High").
  *
  * The arc color snaps to the CVSS 4.0 band of the underlying risk instead
  * of a continuous ramp, so the band boundaries read at a glance: risk
  * 70–89 crimson (worst) · 40–69 amber · 1–39 olive · 0 bright emerald
- * (owner decision, Aug 7 — discrete bands, not a gradient).
+ * (owner decision, Aug 7 - discrete bands, not a gradient).
  */
 
 const ARC_RADIUS = 60
@@ -38,13 +38,13 @@ function riskBand(risk: number): { band: RiskBand; label: string } {
  * scale (higher = better): high risk = solid red, none = bright green.
  */
 const BAND_COLOR: Record<RiskBand, string> = {
-  // security 20-30 (risk 70-80) — solid crimson
+  // security 20-30 (risk 70-80) - solid crimson
   High: 'var(--color-crimson)',
-  // security 31-60 (risk 40-69) — amber
+  // security 31-60 (risk 40-69) - amber
   Medium: 'var(--color-amber)',
-  // security 61-99 (risk 1-39) — muted green
+  // security 61-99 (risk 1-39) - muted green
   Low: 'hsl(70 55% 45%)',
-  // security 100 (risk 0) — bright emerald
+  // security 100 (risk 0) - bright emerald
   None: 'var(--color-emerald)',
 }
 
@@ -82,7 +82,7 @@ export function SecurityGauge({ score }: { score: number | null }) {
           strokeDasharray={`${dash} ${ARC_LENGTH}`}
           style={{ transition: 'stroke 0.3s ease, stroke-dasharray 0.5s ease' }}
         />
-        {/* Score centered INSIDE the bowl (below the curve) — an HTML
+        {/* Score centered INSIDE the bowl (below the curve) - an HTML
           * negative-margin overlay drifted up into the arc stroke and the
           * text corners collided with the curve (owner report, Aug 8). An
           * SVG <text> at (70, 64) with text-anchor=middle always sits in the
@@ -96,7 +96,7 @@ export function SecurityGauge({ score }: { score: number | null }) {
           fontWeight="700"
           fill={color}
         >
-          {score == null ? '—' : clamped}
+          {score == null ? '-' : clamped}
           <tspan fontSize="13" fontWeight="400" fill="var(--color-bone-faint)">
             /100
           </tspan>

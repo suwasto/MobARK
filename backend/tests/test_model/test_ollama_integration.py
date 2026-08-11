@@ -3,7 +3,7 @@
 Run with:  pytest -m integration
 Requires ``ollama serve`` on the host with at least one model pulled
 (``ollama pull qwen2.5-coder`` recommended). Mirrors the M2 deselected-by-
-default pattern — every test self-skips when localhost:11434 is unreachable.
+default pattern - every test self-skips when localhost:11434 is unreachable.
 """
 
 import httpx
@@ -34,7 +34,7 @@ def ollama_backend():
 
 def test_ollama_models_listing_live(ollama_reachable, ollama_backend):
     if not ollama_reachable:
-        pytest.skip("Ollama not running on localhost:11434 — start it with `ollama serve`")
+        pytest.skip("Ollama not running on localhost:11434 - start it with `ollama serve`")
     from app.model.health import list_models
 
     models, source, error = list_models(ollama_backend)
@@ -43,7 +43,7 @@ def test_ollama_models_listing_live(ollama_reachable, ollama_backend):
 
 def test_ollama_health_reachable(ollama_reachable, ollama_backend):
     if not ollama_reachable:
-        pytest.skip("Ollama not running on localhost:11434 — start it with `ollama serve`")
+        pytest.skip("Ollama not running on localhost:11434 - start it with `ollama serve`")
     from app.model.health import check_backend
 
     h = check_backend(ollama_backend)
@@ -54,9 +54,9 @@ def test_ollama_health_reachable(ollama_reachable, ollama_backend):
 
 def test_ollama_probe_never_raises(ollama_reachable, ollama_backend):
     """With no model configured the probe is skipped; with a pulled model it
-    must report ok/failed cleanly — either way it never raises."""
+    must report ok/failed cleanly - either way it never raises."""
     if not ollama_reachable:
-        pytest.skip("Ollama not running on localhost:11434 — start it with `ollama serve`")
+        pytest.skip("Ollama not running on localhost:11434 - start it with `ollama serve`")
     from app.model.health import check_backend
 
     h = check_backend(ollama_backend, probe=True)

@@ -21,7 +21,7 @@ export function TopBar({ onPickFile, uploading, onOpenSettings }: TopBarProps) {
       <div className="flex shrink-0 items-center gap-3">
         <ModelPicker />
 
-        <button className="btn" disabled title="Export report — ships in M9">
+        <button className="btn" disabled title="Export report - ships in M9">
           Export report
         </button>
         <button className="btn btn-primary" onClick={onPickFile} disabled={uploading}>

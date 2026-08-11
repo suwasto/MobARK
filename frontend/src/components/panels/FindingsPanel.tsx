@@ -12,7 +12,7 @@ interface FindingsPanelProps {
   scanId: number
   /** Non-suppressed findings (the real posture). */
   findings: FindingRead[]
-  /** Suppressed (false-positive) findings — shown by the review toggle. */
+  /** Suppressed (false-positive) findings - shown by the review toggle. */
   suppressed: FindingRead[]
   counts: SeverityCounts
   total: number
@@ -68,7 +68,7 @@ function FindingRow({
       }
       onChanged()
     } catch (err) {
-      // Never leave a silent failure — the row shows why the toggle didn't
+      // Never leave a silent failure - the row shows why the toggle didn't
       // apply (network down, backend error, scan no longer analyzed).
       setActionError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -132,7 +132,7 @@ function FindingRow({
             title={
               finding.suppressed
                 ? 'Restore this finding (it was reviewed out as a false positive)'
-                : 'Suppress this finding as a false positive — it stops driving the score'
+                : 'Suppress this finding as a false positive - it stops driving the score'
             }
             onClick={() => void toggleSuppressed()}
           >
@@ -256,7 +256,7 @@ export function FindingsPanel({
       {!loading && !error && visible.length === 0 && (
         <div className="text-[12px] italic text-bone-faint">
           {review
-            ? 'Nothing suppressed — every finding is active.'
+            ? 'Nothing suppressed - every finding is active.'
             : 'No findings match this severity.'}
         </div>
       )}

@@ -18,7 +18,7 @@ auto-detected from the file extension (``.apk`` -> android, ``.ipa`` -> ios).
 The ``model health`` path is the UI-free way to verify Ollama/LM Studio/BYOK
 connectivity (exit 0 = all requested backends reachable).
 
-The RAG/embedding pipeline was removed from v1 by owner decision — the agent
+The RAG/embedding pipeline was removed from v1 by owner decision - the agent
 layers are non-embedding: Layer 1 = full findings context, Layer 2 =
 search/read tools, Layer 3 = Graphify graph (Android). ``agent context`` is
 the LLM-free way to inspect exactly what the agent sees.
@@ -152,7 +152,7 @@ def cmd_graph_query(scan_id: int, question: str, budget: int = 1500) -> int:
 
     graph_path = graphify.graph_path_for(scan_id)
     if not graph_path.is_file():
-        print(f"no graph for scan {scan_id} at {graph_path} — run 'graph build' first")
+        print(f"no graph for scan {scan_id} at {graph_path} - run 'graph build' first")
         return 1
     result = graphify.query(graph_path, question, budget=budget)
     print(result["text"])
@@ -167,7 +167,7 @@ def cmd_graph_path(scan_id: int, node_a: str, node_b: str) -> int:
 
     graph_path = graphify.graph_path_for(scan_id)
     if not graph_path.is_file():
-        print(f"no graph for scan {scan_id} — run 'graph build' first")
+        print(f"no graph for scan {scan_id} - run 'graph build' first")
         return 1
     print(graphify.path_between(graph_path, node_a, node_b))
     return 0
@@ -179,14 +179,14 @@ def cmd_graph_explain(scan_id: int, node: str) -> int:
 
     graph_path = graphify.graph_path_for(scan_id)
     if not graph_path.is_file():
-        print(f"no graph for scan {scan_id} — run 'graph build' first")
+        print(f"no graph for scan {scan_id} - run 'graph build' first")
         return 1
     print(graphify.explain(graph_path, node))
     return 0
 
 
 def cmd_agent_context(scan_id: int, out: Path | None) -> int:
-    """Render the Layer 1 findings context — LLM-free inspection of the
+    """Render the Layer 1 findings context - LLM-free inspection of the
     exact findings set (and precision tags) the agent will see."""
     from app.agent.context import build_findings_context
     from app.db import SessionLocal
@@ -211,7 +211,7 @@ def cmd_agent_context(scan_id: int, out: Path | None) -> int:
 def cmd_agent_chat(scan_id: int, question: str, timeout: float | None) -> int:
     """Layers 1-3 grounded answer (needs a configured chat model).
 
-    ``--timeout`` is a hard overall deadline for the whole tool loop — a hung
+    ``--timeout`` is a hard overall deadline for the whole tool loop - a hung
     LLM call exits with an error instead of blocking forever.
     """
     from app.agent.chat import AgentTimeout, ChatNotConfigured, answer_question

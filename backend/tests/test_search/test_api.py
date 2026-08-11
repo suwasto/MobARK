@@ -1,4 +1,4 @@
-"""M7 search-backend API — CRUD + the one-Active radio enforced server-side
+"""M7 search-backend API - CRUD + the one-Active radio enforced server-side
 (no network; the store + health check are monkeypatched)."""
 
 import json
@@ -57,7 +57,7 @@ def test_put_enabled_false_then_active_none(api, store):
 
 def test_radio_two_puts_leave_one_active(api, store):
     """The Settings toggle is one UI over this path: PUT {enabled:true} on a
-    second engine turns the first off — the radio is server-enforced."""
+    second engine turns the first off - the radio is server-enforced."""
     api.post(
         "/api/v1/search/backends",
         json={"provider_id": "custom", "base_url": "http://searxng.example:8080"},
@@ -156,8 +156,8 @@ def test_test_endpoint_runs_full_probe(api):
 
 
 def test_disabled_searxng_backend_still_gets_lightweight_health(api, store):
-    """SearXNG-style engines are probed on the list even when INACTIVE — the
-    cheap base-URL check — so the Settings Active radio stays disabled until
+    """SearXNG-style engines are probed on the list even when INACTIVE - the
+    cheap base-URL check - so the Settings Active radio stays disabled until
     the engine is actually reachable (owner follow-up, Aug 11)."""
     api.put("/api/v1/search/backends/searxng", json={"enabled": False})
     data = api.get("/api/v1/search/backends").json()
@@ -169,7 +169,7 @@ def test_disabled_searxng_backend_still_gets_lightweight_health(api, store):
 
 def test_disabled_keyed_backend_has_no_health(api, store):
     """Keyed engines keep the enabled-only rule: their honest health check is
-    a real query (validates the key — the base URL has no meaningful root
+    a real query (validates the key - the base URL has no meaningful root
     endpoint), so an INACTIVE keyed engine is never probed on the list route.
     The (also inactive) bundled SearXNG still carries lightweight health."""
     api.post(
@@ -190,7 +190,7 @@ def test_disabled_keyed_backend_has_no_health(api, store):
 
 
 def test_providers_endpoint_lists_addable_engines(api):
-    """The Settings add-form picker — everything except the bundled SearXNG
+    """The Settings add-form picker - everything except the bundled SearXNG
     (always present, edited not re-added). Single source of truth."""
     r = api.get("/api/v1/search/providers")
     assert r.status_code == 200
@@ -214,7 +214,7 @@ def test_create_keyed_provider_with_key(api, store):
     assert body["kind"] == "keyed"
     assert body["has_api_key"] is True
     assert body["enabled"] is True  # radio: adding it turns the others off
-    # The key itself is never returned — only has_api_key (honesty rule).
+    # The key itself is never returned - only has_api_key (honesty rule).
     assert "api_key" not in body
     assert "bsk-secret" not in json.dumps(body)
     stored = store.get("brave")
@@ -257,7 +257,7 @@ def test_upsert_api_key_round_trips(api, store):
 
 def test_start_bundled_runs_compose_and_returns_health(api, monkeypatch):
     """The one-click start: compose up runs (fixed command), then the engine
-    wait returns the probed health — the card the Settings UI renders."""
+    wait returns the probed health - the card the Settings UI renders."""
     import app.api.routes.search as r
 
     calls: dict = {}
@@ -289,7 +289,7 @@ def test_start_bundled_runs_compose_and_returns_health(api, monkeypatch):
 
 
 def test_start_custom_backend_400(api):
-    """Custom instances are self-hosted — no start command."""
+    """Custom instances are self-hosted - no start command."""
     api.post(
         "/api/v1/search/backends",
         json={"provider_id": "custom", "base_url": "http://searxng.example:8080"},
@@ -301,13 +301,13 @@ def test_start_custom_backend_400(api):
 
 def test_start_failure_carries_manual_command(api, monkeypatch):
     """Docker unreachable / compose failed -> a 502 carrying the manual
-    command, never a raw 500 — the Settings card shows it under the button."""
+    command, never a raw 500 - the Settings card shows it under the button."""
     import app.api.routes.search as r
 
     def boom():
         raise r._StartError(
             502,
-            "Docker isn't reachable from this process — start the engine "
+            "Docker isn't reachable from this process - start the engine "
             "manually: `docker compose --profile web up -d searxng`",
         )
 

@@ -1,4 +1,4 @@
-"""M8 Phase A: on-demand apktool decode — RQ job + smali trigger/status API.
+"""M8 Phase A: on-demand apktool decode - RQ job + smali trigger/status API.
 
 Subprocess and Redis are mocked (no network); the decode state machine and
 its 409 guards are the units under test.
@@ -143,7 +143,7 @@ def test_job_decode_missing_apk_fails_cleanly(monkeypatch, db_session_factory, t
 
 def _craft_awkward_apk(path) -> None:
     """The Phase E awkward fixture: an APK-shaped ZIP that gets past upload
-    but trips apktool — a TEXT AndroidManifest.xml (apktool expects binary
+    but trips apktool - a TEXT AndroidManifest.xml (apktool expects binary
     AXML) + a corrupt resources.arsc. **Keep in sync with
     scripts/make_awkward_apk.py** (the container e2e runs the REAL apktool
     against the same fixture); here it proves the fail-loudly decode chain
@@ -173,7 +173,7 @@ def test_job_decode_awkward_apk_fails_loudly(
         session.commit()
 
     def real_decode_behavior(apk, out_dir, timeout=None):
-        # Host has no apktool — the subprocess boundary is mocked. The reason
+        # Host has no apktool - the subprocess boundary is mocked. The reason
         # is the EXACT text the real apktool reported in the containerized
         # e2e for this fixture (Unexpected chunk 0x6702 = corrupt ARSC).
         raise apktool.ApktoolError(
@@ -359,7 +359,7 @@ def test_smali_status_unknown_scan_404(client, tmp_path, monkeypatch):
 
 
 # ---- API: GET /scans/{id}/smali-mapping -------------------------------------
-# Java→Smali mapping for the scan's findings — Smali-mode dots + rail re-key
+# Java→Smali mapping for the scan's findings - Smali-mode dots + rail re-key
 # jadx findings onto their apktool smali siblings.
 
 
@@ -383,7 +383,7 @@ def _add_finding(db_session_factory, scan_id, file_path, severity="high"):
 def test_smali_mapping_returns_finding_siblings(
     client, db_session_factory, tmp_path, monkeypatch
 ):
-    """Finding file_paths are ROOT-RELATIVE (``com/foo/AuthManager.java`` —
+    """Finding file_paths are ROOT-RELATIVE (``com/foo/AuthManager.java`` -
     the ``sources/`` prefix is implied, matching the tree node paths the
     frontend dots/rail key on). The mapping returns full tree paths
     (``sources/...`` -> ``smali/...``), consistent with smali-sibling, plus
@@ -397,14 +397,14 @@ def test_smali_mapping_returns_finding_siblings(
     (root / "res" / "values").mkdir(parents=True)
     (root / "res" / "values" / "strings.xml").write_text("<resources/>")
     _add_finding(db_session_factory, scan_id, "com/foo/AuthManager.java")
-    # res/ findings map to THEMSELVES — the apktool res root serves the same
+    # res/ findings map to THEMSELVES - the apktool res root serves the same
     # relative path as the jadx resources tree.
     _add_finding(db_session_factory, scan_id, "res/values/strings.xml")
     # The manifest maps to the synthetic root's single file (full tree path).
     _add_finding(db_session_factory, scan_id, "AndroidManifest.xml")
     # A sources finding WITHOUT a decoded smali sibling maps to nothing.
     _add_finding(db_session_factory, scan_id, "com/foo/NoSmali.java")
-    # An asset path is neither source, res, nor manifest — never mapped.
+    # An asset path is neither source, res, nor manifest - never mapped.
     _add_finding(db_session_factory, scan_id, "assets/config.json")
 
     r = client.get(f"/api/v1/scans/{scan_id}/smali-mapping")
@@ -446,7 +446,7 @@ def test_smali_mapping_multidex_and_dedupe(
 def test_smali_mapping_empty_when_undecoded(
     client, db_session_factory, tmp_path, monkeypatch
 ):
-    """No apktool tree = no mapping at all — including the res/manifest
+    """No apktool tree = no mapping at all - including the res/manifest
     identity entries, which must not leak before the decode exists (the
     explicit is_ready gate). And no cache file is written."""
     from app.analysis import smali_map
@@ -493,7 +493,7 @@ def test_smali_mapping_second_call_served_from_cache(
     r2 = client.get(f"/api/v1/scans/{scan_id}/smali-mapping")
     assert r2.status_code == 200
     assert r2.json() == r1.json()
-    assert len(computes) == 1  # second call served from cache — no re-walk
+    assert len(computes) == 1  # second call served from cache - no re-walk
 
     cache = smali_map.mapping_cache_path(scan_id)
     assert cache.is_file()
@@ -511,7 +511,7 @@ def test_smali_mapping_stale_cache_rebuilds(
     client, db_session_factory, tmp_path, monkeypatch
 ):
     """A cache file from an OLDER decode (stale tree mtime) or a torn write
-    is never served — the endpoint recomputes and rewrites the file."""
+    is never served - the endpoint recomputes and rewrites the file."""
     from app.analysis import smali_map
 
     scan_id = _add_scan(db_session_factory)
@@ -535,7 +535,7 @@ def test_smali_mapping_stale_cache_rebuilds(
     assert data["tree_mtime"] == (root / "AndroidManifest.xml").stat().st_mtime
     assert data["mapping"] == {"sources/com/foo/A.java": "smali/com/foo/A.smali"}
 
-    # A torn cache file (invalid JSON) also degrades to a recompute — with
+    # A torn cache file (invalid JSON) also degrades to a recompute - with
     # the module cache cleared (a fresh process, where only the disk file
     # exists): the request recomputes AND rewrites the file.
     smali_map._MAPPING_CACHE.clear()
@@ -554,7 +554,7 @@ def test_smali_mapping_disk_cache_served_on_fresh_process(
     client, db_session_factory, tmp_path, monkeypatch
 ):
     """A VALID persisted cache file (matching version + tree mtime) is served
-    without recompute — the fresh-process path, where only the disk file
+    without recompute - the fresh-process path, where only the disk file
     exists (module cache empty)."""
     from app.analysis import smali_map
 
@@ -581,7 +581,7 @@ def test_smali_mapping_disk_cache_served_on_fresh_process(
     r = client.get(f"/api/v1/scans/{scan_id}/smali-mapping")
     assert r.status_code == 200
     assert r.json()["mapping"] == {"sources/com/foo/A.java": "smali/com/foo/A.smali"}
-    assert computes == []  # served from the disk file — no re-walk
+    assert computes == []  # served from the disk file - no re-walk
 
 
 def test_smali_mapping_409_ios(client, db_session_factory, tmp_path, monkeypatch):
@@ -706,7 +706,7 @@ def test_anchors_single_line_method_bodies(
     client, db_session_factory, tmp_path, monkeypatch
 ):
     """jadx emits compact one-line bodies for trivial accessors
-    (``public int getX() { return 1; }``) — the brace-counted parser must
+    (``public int getX() { return 1; }``) - the brace-counted parser must
     still capture the method (the body opens AND closes on the signature
     line, so depth never rises above class level)."""
     jadx = """\
@@ -767,7 +767,7 @@ def test_anchors_missing_sources_or_smali_are_empty(
     client, db_session_factory, tmp_path, monkeypatch
 ):
     """Missing jadx source or smali sibling degrades to no anchors (never a
-    crash) — the route gates on is_ready, and file absence is best-effort."""
+    crash) - the route gates on is_ready, and file absence is best-effort."""
     scan_id = _add_scan(db_session_factory)
     root = _make_decoded_tree(scan_id, tmp_path, monkeypatch)
     smali_dir = root / "smali" / "com" / "foo"

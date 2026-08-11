@@ -9,10 +9,10 @@
 @import "@fontsource/ibm-plex-mono/700.css";
 
 /* ---------------------------------------------------------------------------
- * M5 design tokens (Tailwind v4, CSS-first — no tailwind.config.js).
+ * M5 design tokens (Tailwind v4, CSS-first - no tailwind.config.js).
  *
  * Neutrals + severity colors come from the dashboard mockups
- * (docs/masa-dashboard-*.html). The primary accent — `steel` — is the MASA
+ * (docs/masa-dashboard-*.html). The primary accent - `steel` - is the MASA
  * brand emerald taken from docs/icons/masa_icon_only.svg (owner decision,
  * M5 Phase B): it replaces the mockup's blue #5C9BB8 so the whole UI reads
  * as the brand, while keeping the semantic severity hues intact.
@@ -26,7 +26,7 @@
   --color-bone: #e8e6df;
   --color-bone-dim: #9ba3a9;
   --color-bone-faint: #6c747a;
-  /* Brand emerald family (from masa_icon_only.svg) — primary accent. */
+  /* Brand emerald family (from masa_icon_only.svg) - primary accent. */
   --color-steel: #23cf92;
   --color-steel-dim: #018a5e;
   --color-emerald: #1ed394;
@@ -35,7 +35,7 @@
   --color-amber: #d98e3e;
   --color-crimson: #c1554a;
   --color-moss: #6b8f71;
-  /* Bundled via @fontsource — no Google Fonts CDN (local-first posture). */
+  /* Bundled via @fontsource - no Google Fonts CDN (local-first posture). */
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -182,7 +182,6 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     padding-left: 10px;
-    border-left: 1px solid var(--color-line);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -632,7 +631,7 @@
     overflow: hidden;
     height: 560px;
   }
-  /* M8 follow-up: minimized annotations rail — the splitter + rail are
+  /* M8 follow-up: minimized annotations rail - the splitter + rail are
      replaced by a slim restore strip (28px column) that re-expands on click.
      The saved rail width is untouched, so a restore returns to it. */
   .decomp-layout.rail-min {
@@ -736,7 +735,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* iOS hidden binary blobs under 'Binary (Mach-O)' — inert inventory rows. */
+  /* iOS hidden binary blobs under 'Binary (Mach-O)' - inert inventory rows. */
   .file-node.binary {
     cursor: default;
     color: var(--color-bone-faint);
@@ -773,6 +772,19 @@
     margin-bottom: 10px;
     flex-wrap: wrap;
   }
+  /* Sticky decompiler header region (owner request, Aug 11): the Java/Smali
+     toggle, the edit/recompile affordances and the view hint pin BELOW the
+     sticky tab bar (--tabbar-h is measured and set on <main> by
+     DashboardView) while the main area scrolls - the decode/recompile
+     controls stay reachable. Graphite background so scrolled panel content
+     slides under it, matching the tab bar; z-10 keeps it under the tab bar
+     (z-20) but above the panel content. */
+  .decomp-sticky {
+    position: sticky;
+    top: var(--tabbar-h, 0px);
+    z-index: 10;
+    background: var(--color-graphite);
+  }
   .view-toggle {
     display: flex;
     gap: 2px;
@@ -804,7 +816,7 @@
     cursor: not-allowed;
   }
 
-  /* M8 Phase A: live Smali chip states — in-chip decode spinner (busy),
+  /* M8 Phase A: live Smali chip states - in-chip decode spinner (busy),
      crimson failure (the reason lives in the title + hint-error box). */
   .vt-chip.busy:disabled {
     opacity: 0.8;
@@ -847,7 +859,7 @@
   .view-hint strong {
     color: var(--color-steel);
   }
-  /* Smali decode failure — the specific apktool reason, clearly not steel. */
+  /* Smali decode failure - the specific apktool reason, clearly not steel. */
   .view-hint.hint-error strong {
     color: var(--color-crimson);
   }
@@ -869,7 +881,7 @@
   }
   .code-file-path {
     /* Sticky over the scrolling lines. The lines are position:relative, so
-       an auto z-index would let them PAINT OVER the title (DOM order — they
+       an auto z-index would let them PAINT OVER the title (DOM order - they
        come after); z-index + the opaque pane background keep the title solid
        while code scrolls beneath it (owner report, Aug 10). The 18px
        padding-top is the pane's old spacer, moved IN here: the sticky bar
@@ -917,7 +929,7 @@
   }
 
   /* M8 Phase B: the plaintext editor for editable paths (smali/res/manifest).
-     A line-numbered textarea — no editor dependency (hljs lacks a smali
+     A line-numbered textarea - no editor dependency (hljs lacks a smali
      grammar). The gutter is a fixed box whose content translates with the
      textarea's scroll (identical line-height/metrics keeps them aligned). */
   .code-editor {
@@ -933,7 +945,7 @@
   .code-editor .editor-path {
     flex-shrink: 0;
   }
-  /* The editor's header is a flex row in a non-scrolling column — it never
+  /* The editor's header is a flex row in a non-scrolling column - it never
      needs the sticky top-spacer, so keep it flush like before the Aug 10
      viewer fix (the base .code-file-path now carries the 18px spacer). */
   .code-editor .code-file-path {
@@ -1026,7 +1038,7 @@
   .recompile-modal {
     width: 620px;
   }
-  /* Persistent, un-dismissable resigned-test-build label (decision 10) —
+  /* Persistent, un-dismissable resigned-test-build label (decision 10) -
      always visible, no close affordance; amber so it can't read as steel. */
   .recompile-warn {
     display: flex;
@@ -1304,7 +1316,7 @@
     color: var(--color-bone-faint);
   }
 
-  /* Review edits (n) — the proposed-edits badge in the decompiler toolbar
+  /* Review edits (n) - the proposed-edits badge in the decompiler toolbar
      and the dock's persistent Review pill (both open the same modal). */
   .review-btn {
     border-color: rgba(35, 207, 146, 0.35);
@@ -1341,7 +1353,7 @@
     background: rgba(35, 207, 146, 0.12);
     color: var(--color-bone);
   }
-  /* M8 Phase D: the "smali decode not ready yet" hint strip in the dock —
+  /* M8 Phase D: the "smali decode not ready yet" hint strip in the dock -
      points at the Decompiler's Smali chip so the edit-proposal flow is
      discoverable on fresh Android scans (amber, like the other "action
      needed" copy). */
@@ -1482,7 +1494,7 @@
     background: rgba(35, 207, 146, 0.18);
   }
 
-  /* M8 Phase D: the diff-review modal (D7) — per-file proposal cards with
+  /* M8 Phase D: the diff-review modal (D7) - per-file proposal cards with
      git-style colored unified diffs and Apply/Reject per file. */
   .proposals-modal {
     width: 680px;
@@ -1591,7 +1603,7 @@
   }
 
   /* One-scroll mirror (Aug 11): the rail shares the code pane's vertical
-     scroll — NO independent scrollbar (overflow hidden). The notes are
+     scroll - NO independent scrollbar (overflow hidden). The notes are
      pinned to their finding's line offset (.annot-rail-notes .note,
      absolute) and the notes column translates by the code's scrollTop via
      --rail-scroll (set directly on the DOM by DecompilerPanel, so
@@ -1606,7 +1618,7 @@
     display: flex;
     flex-direction: column;
   }
-  /* Fixed head — the translated notes scroll beneath it, so it needs an
+  /* Fixed head - the translated notes scroll beneath it, so it needs an
      opaque background + z-index to always paint on top (same rule as the
      code pane's sticky .code-file-path). */
   .annot-rail-label {
@@ -1633,6 +1645,17 @@
     flex: 1;
     min-height: 0;
     transform: translateY(var(--rail-scroll, 0px));
+  }
+  /* One-scroll overflow fallback (owner request, Aug 11): when the note
+     stack is TALLER than the code's content (dense findings on a short
+     file), the rail cannot mirror the code scroll - the bottom notes would
+     be clipped and unreachable. The notes column then gains its own
+     scrollbar and the code-scroll translation is frozen at 0 by the parent
+     (--rail-scroll: 0px), so every note is reachable via the rail's native
+     scroll. */
+  .annot-rail-notes.rail-overflow {
+    overflow-y: auto;
+    transform: none;
   }
   .annot-rail-notes .note {
     position: absolute;
@@ -1693,7 +1716,7 @@
     color: var(--color-bone-faint);
     line-height: 1.6;
     font-style: italic;
-    /* The rail no longer owns the padding (it moved to the head + notes) —
+    /* The rail no longer owns the padding (it moved to the head + notes) -
        the empty state pads itself. */
     padding: 6px 12px;
   }
@@ -1709,7 +1732,7 @@
     position: relative;
     /* Long unbroken tokens in finding titles (e.g. class paths like
        com.android.insecurebankv2.LoginActivity) and AI-explanation prose
-       must wrap inside the bubble instead of overflowing the rail — same
+       must wrap inside the bubble instead of overflowing the rail - same
        overflow-wrap: anywhere rule the chat bubbles use. */
     overflow-wrap: anywhere;
   }
@@ -2007,7 +2030,7 @@
     white-space: nowrap;
     min-width: 0;
   }
-  /* The clip+ellipsis lives on the TEXT node, not the flex container — on
+  /* The clip+ellipsis lives on the TEXT node, not the flex container - on
      the container it would also clip the dot's steel glow at the box edge,
      and text-overflow isn't spec-guaranteed on flex containers (review
      catch, Aug 9). Shrinking + clipping here is what stops "Agent · this
@@ -2145,7 +2168,7 @@
        otherwise push the row past .msg's max-width (owner report, Aug 9).
        The row caps each chip at the bubble width; the chip truncates its
        own text (the JS shortens paths first so the filename:line tail stays
-       visible — this is the belt-and-braces floor). */
+       visible - this is the belt-and-braces floor). */
     max-width: 100%;
   }
   .src-chip {
@@ -2178,7 +2201,7 @@
     word-wrap: break-word;
     color: var(--color-bone-dim);
     /* M8 follow-up (Aug 11): the streaming "thinking" preview is clamped to
-       4 lines like the Freebuff CLI thinking display — the streamed tokens
+       4 lines like the Freebuff CLI thinking display - the streamed tokens
        stay live, but the block never grows unbounded while a long answer or
        narration streams in. The FULL text lands in the finalized message
        once the turn completes (finalizeMessage), so nothing is lost. */
@@ -2376,7 +2399,7 @@
   .research-toggle:hover:not(.disabled) {
     color: var(--color-bone-dim);
   }
-  /* M7 live state: the per-scan opt-in is on — green like the switch. */
+  /* M7 live state: the per-scan opt-in is on - green like the switch. */
   .research-toggle.on {
     color: var(--color-steel);
   }
@@ -2422,7 +2445,7 @@
     filter: brightness(1.2);
   }
 
-  /* Thinking indicator: the bubble carries only the animated dots — the
+  /* Thinking indicator: the bubble carries only the animated dots - the
      stop affordance lives at the input row (owner follow-up, Aug 8). */
   .thinking-row {
     display: flex;
@@ -2451,7 +2474,7 @@
     font-size: 11px;
   }
 
-  /* No-model hint — amber so the disabled send button's reason is visible. */
+  /* No-model hint - amber so the disabled send button's reason is visible. */
   .hint.warn {
     color: var(--color-amber);
   }
@@ -2489,7 +2512,7 @@
   }
   /* Disabled switch (M7 follow-up, Aug 11): the Settings search-engine
      Active radio is dimmed + not-allowed while the engine can't search
-     (unreachable SearXNG / keyless keyed engine) — the user must make the
+     (unreachable SearXNG / keyless keyed engine) - the user must make the
      engine live before activating it. The dock's 🌐 toggle dims via its own
      .research-toggle.disabled parent; this class only applies where it is
      set explicitly. */
@@ -2513,13 +2536,13 @@
   .model-pill {
     cursor: pointer;
     position: relative;
-    /* Widened from 180px (owner follow-up, Aug 9) — the closed pill truncates
+    /* Widened from 180px (owner follow-up, Aug 9) - the closed pill truncates
        long model ids like `qwen2.5-coder:32b-instruct-q4_K_M`; the hover
        title carries the full id, and the wider cap keeps more of it visible. */
     max-width: 240px;
   }
 
-  /* Suppressed (false-positive) findings — the review queue is visually
+  /* Suppressed (false-positive) findings - the review queue is visually
      distinct from active findings (dimmed, dashed spine). */
   .finding.suppressed {
     opacity: 0.72;
@@ -2548,7 +2571,7 @@
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
-    /* Widened from 280px (owner follow-up, Aug 9) — roomier menu for long
+    /* Widened from 280px (owner follow-up, Aug 9) - roomier menu for long
        model ids now that the via column is gone from the rows. */
     width: 340px;
     max-height: 380px;
@@ -2590,7 +2613,7 @@
   .model-opt .mname {
     min-width: 0;
     color: var(--color-bone);
-    /* Model rows are name-only — the full id must stay readable, so wrap
+    /* Model rows are name-only - the full id must stay readable, so wrap
        instead of ellipsizing mid-id (owner follow-up, Aug 9). Short names
        stay single-line; only overflow wraps. */
     white-space: normal;
@@ -2651,7 +2674,7 @@
 
   /* Scan-in-progress dialog (owner follow-up, Aug 8): absolute within
      <main> (position: relative) instead of fixed, so the top bar stays
-     visible while a scan runs — the old full-view progress screen scrolled
+     visible while a scan runs - the old full-view progress screen scrolled
      header/footer off-screen on short viewports. Backdrop click dismisses. */
   .progress-overlay {
     position: absolute;
@@ -2817,7 +2840,7 @@
 
   /* Guided start for the bundled engine (Aug 10): the app container has no
      Docker, so "Start engine" turns into a copy-the-command + auto-detect
-     panel — the command for the HOST terminal, a Copy button, and a live
+     panel - the command for the HOST terminal, a Copy button, and a live
      "Detecting…" status that flips to a green success when the engine
      answers (the card polls lightweight reachability every 4s). */
   .engine-guide {
@@ -2964,7 +2987,7 @@
     border-color: var(--color-steel-dim);
     color: var(--color-steel);
   }
-  /* "See all (N more)" reveal — a control, not a model: dashed border,
+  /* "See all (N more)" reveal - a control, not a model: dashed border,
      muted color so it never reads as a selectable model chip. */
   .model-chip.see-all {
     border-style: dashed;
@@ -3168,7 +3191,7 @@
   padding: 1px 5px;
   border-radius: 2px;
   color: var(--color-bone);
-  /* file:line citations and URLs in answers are long unbroken runs — wrap
+  /* file:line citations and URLs in answers are long unbroken runs - wrap
      them inside the bubble instead of overflowing it (owner report, Aug 9).
      Same treatment as the model dropdown names. */
   overflow-wrap: anywhere;
@@ -3188,7 +3211,7 @@
   padding: 0;
   font-size: 11.5px;
   color: var(--color-bone-dim);
-  /* The inline-code wrap rule above must NOT reach fenced blocks — long
+  /* The inline-code wrap rule above must NOT reach fenced blocks - long
      lines there keep the pre's horizontal scroll (review catch, Aug 9). */
   overflow-wrap: normal;
   word-break: normal;

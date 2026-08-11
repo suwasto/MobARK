@@ -2,7 +2,7 @@
 export function formatRelative(iso: string, now: number = Date.now()): string {
   // SQLite drops tzinfo on round-trip, so legacy/no-offset timestamps may
   // arrive without a zone marker. The backend now serializes them as UTC,
-  // but tolerate naive strings by parsing them as UTC too — otherwise the
+  // but tolerate naive strings by parsing them as UTC too - otherwise the
   // displayed age is off by the local timezone offset (owner report, Aug 7).
   const hasZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso)
   const t = new Date(hasZone ? iso : `${iso}Z`).getTime()

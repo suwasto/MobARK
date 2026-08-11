@@ -1,4 +1,4 @@
-"""M7 search client — query normalization, bounded SSRF-guarded web_fetch,
+"""M7 search client - query normalization, bounded SSRF-guarded web_fetch,
 and the health probe. Network is monkeypatched (httpx) / mocked (trafilatura);
 the flagship e2e lives in test_agent/test_web_research.py."""
 
@@ -53,7 +53,7 @@ class _FakeResp:
 
 
 class _BoomJSONResp(_FakeResp):
-    """A response whose body is not JSON — ``.json()`` raises like httpx."""
+    """A response whose body is not JSON - ``.json()`` raises like httpx."""
 
     def json(self):
         raise ValueError("body is not valid JSON")
@@ -275,8 +275,8 @@ def test_keyed_without_key_raises_cleanly(monkeypatch):
 
 
 def test_keyed_401_surfaces_rejected_key_hint(monkeypatch):
-    """A 401/403 from a keyed engine is a rejected key — the most common
-    first-use failure — surfaced as a self-explaining hint, not a raw error."""
+    """A 401/403 from a keyed engine is a rejected key - the most common
+    first-use failure - surfaced as a self-explaining hint, not a raw error."""
 
     class _AuthFakeResp(_FakeResp):
         def raise_for_status(self):
@@ -297,7 +297,7 @@ def test_keyed_401_surfaces_rejected_key_hint(monkeypatch):
 
 
 def test_keyed_lightweight_probe_runs_real_query(monkeypatch):
-    """Keyed engines have no meaningful root endpoint — the lightweight probe
+    """Keyed engines have no meaningful root endpoint - the lightweight probe
     IS a real query (also validates the key)."""
     monkeypatch.setattr(
         search_client.httpx,
@@ -374,7 +374,7 @@ def test_web_fetch_extracts_and_returns_final_url(monkeypatch):
 
 
 def test_web_fetch_follows_redirect_with_guard(monkeypatch):
-    """Redirects are followed manually, validating EVERY hop — a redirect to
+    """Redirects are followed manually, validating EVERY hop - a redirect to
     a private host is refused even when the initial URL is public."""
     monkeypatch.setattr(
         search_client.httpx,
@@ -405,7 +405,7 @@ def test_web_fetch_refuses_private_hosts():
 
 
 def test_web_fetch_refuses_ipv4_mapped_ipv6_loopback():
-    """IPv4-mapped IPv6 (``::ffff:127.0.0.1``) connects to loopback — the
+    """IPv4-mapped IPv6 (``::ffff:127.0.0.1``) connects to loopback - the
     guard must refuse it (review catch: it slipped past the IPv6 net list)."""
     for url in ("http://[::ffff:127.0.0.1]/", "http://[::ffff:7f00:1]/"):
         with pytest.raises(SearchError, match="private-network"):
@@ -490,7 +490,7 @@ def test_check_backend_full_probe_failure(monkeypatch):
 def test_check_backend_probe_never_raises_on_bad_engine(monkeypatch):
     """The probe contract: an engine that returns a bizarre response degrades
     to an unreachable result, never a raised exception (which would 500 the
-    POST /search/backends/{id}/test endpoint — review catch)."""
+    POST /search/backends/{id}/test endpoint - review catch)."""
 
     class _Weird:
         def raise_for_status(self):

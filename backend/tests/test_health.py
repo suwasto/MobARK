@@ -1,6 +1,6 @@
 def test_root(client):
     """The root route serves the SPA shell when the frontend dist is bundled
-    (M5 Phase I — the container), otherwise the bare API banner
+    (M5 Phase I - the container), otherwise the bare API banner
     (backend-only dev)."""
     from pathlib import Path
 

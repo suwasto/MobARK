@@ -1,4 +1,4 @@
-"""Layer 2/3 + M6 tool tests — real temp trees, no network, no LLM, no
+"""Layer 2/3 + M6 tool tests - real temp trees, no network, no LLM, no
 graphify subprocess (graph wrappers stub the graphify module), gitleaks
 wrapper monkeypatched for run_secrets_scan.
 """

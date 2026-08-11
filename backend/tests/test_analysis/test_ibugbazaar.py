@@ -29,7 +29,7 @@ def ipa() -> Path:
 def test_ipa_is_pinned_artifact(ipa):
     digest = hashlib.sha256(ipa.read_bytes()).hexdigest()
     assert digest == IPA_SHA256, (
-        f"sample IPA sha256 mismatch: got {digest}, expected {IPA_SHA256} — "
+        f"sample IPA sha256 mismatch: got {digest}, expected {IPA_SHA256} - "
         "the vendored iBugBazaar artifact changed; update the pin in this test "
         "and docs/progress/M2.md"
     )

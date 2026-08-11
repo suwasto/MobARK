@@ -1,4 +1,4 @@
-"""Provider table invariants — single source of truth for M3 backends."""
+"""Provider table invariants - single source of truth for M3 backends."""
 
 import dataclasses
 
@@ -50,11 +50,11 @@ def test_live_listing_paths():
     assert PROVIDERS["ollama"].models_path == "/v1/models"
     for pid in ("lm-studio", "openai", "deepseek", "openrouter", "custom"):
         assert PROVIDERS[pid].models_path == "/models"
-    # Anthropic has a live List Models endpoint too (GET /v1/models) — its
+    # Anthropic has a live List Models endpoint too (GET /v1/models) - its
     # own auth style (x-api-key headers), OpenAI-shaped response.
     assert PROVIDERS["anthropic"].models_path == "/v1/models"
     assert PROVIDERS["anthropic"].list_style == "anthropic"
-    # Gemini has a live models.list too (GET /v1beta/models) — just a custom
+    # Gemini has a live models.list too (GET /v1beta/models) - just a custom
     # auth/parse, so it carries a list_style instead of a static-only posture.
     assert PROVIDERS["gemini"].models_path == "/models"
     assert PROVIDERS["gemini"].list_style == "gemini"

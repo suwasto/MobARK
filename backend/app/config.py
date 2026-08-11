@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     apktool_timeout_seconds: int = 1200
     # ---- M8 Phase C: rebuild pipeline tools + timings ----
     # zipalign + apksigner (Android build-tools 35.0.0, bundled under
-    # /opt/masa-tools/build-tools/) and keytool (ships in the bundled JRE —
+    # /opt/masa-tools/build-tools/) and keytool (ships in the bundled JRE -
     # no tools_subdir). Each can be overridden with a *_CMD env var.
     zipalign_cmd: str | None = None
     apksigner_cmd: str | None = None
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     lm_studio_base_url: str = "http://localhost:1234/v1"
 
     # BYOK providers (curated v1 set; keys can also be entered at runtime via
-    # the Settings modal / API — they seed the config store, not the app).
+    # the Settings modal / API - they seed the config store, not the app).
     openai_base_url: str = "https://api.openai.com/v1"
     anthropic_base_url: str = "https://api.anthropic.com"
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -77,7 +77,7 @@ class Settings(BaseSettings):
     default_chat_model: str = ""
 
     # ---- M4 Layer 3: Graphify code graph (Android) ----
-    # The RAG/embedding path was removed from v1 by owner decision — no
+    # The RAG/embedding path was removed from v1 by owner decision - no
     # embedding model or vector store config exists anymore.
     # graphify CLI (resolved from PATH when None, like jadx_cmd/gitleaks_cmd).
     graphify_cmd: str | None = None
@@ -86,10 +86,10 @@ class Settings(BaseSettings):
     # ---- M4/M6 agent chat ----
     # Dev-only fake LLM (M6 follow-up): MASA_FAKE_MODEL=1 seeds a
     # deterministic "fake" backend whose completions never touch a real
-    # server — the dock's live tool steps + token streaming can be demoed
+    # server - the dock's live tool steps + token streaming can be demoed
     # with zero Ollama. See app/model/fake.py for the script.
     # Alias note (live-verified Aug 9): pydantic-settings derives env names
-    # from FIELD NAMES — ``fake_model_enabled`` would silently become
+    # from FIELD NAMES - ``fake_model_enabled`` would silently become
     # MASA_FAKE_MODEL_ENABLED, not the documented MASA_FAKE_MODEL. The
     # string alias fixes the env name; pydantic-settings uses the raw alias
     # for env lookup (the MASA_ prefix is NOT re-applied to aliases).
@@ -98,7 +98,7 @@ class Settings(BaseSettings):
         validation_alias="MASA_FAKE_MODEL",
     )
     # Hard overall deadline (seconds) for the whole agent tool loop in
-    # answer_question — a hung LLM call can never block the API worker beyond
+    # answer_question - a hung LLM call can never block the API worker beyond
     # this. Per-request override: POST /scans/{id}/chat {timeout_seconds}.
     chat_timeout_seconds: int = 120
     # M6 Phase C: max tool-calling rounds before the context-only fallback.
@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     searxng_base_url: str = "http://localhost:8888"
     # Keyed search engines (Aug 9 follow-up): Brave/Serper/Mojeek. Keys seed
     # the search store only when set via env (mirrors the model BYOK
-    # seeding — no keyless entry is ever seeded); the Settings -> Search &
+    # seeding - no keyless entry is ever seeded); the Settings -> Search &
     # research add-form is the runtime path. Env names derive from the field
     # names: MASA_BRAVE_API_KEY, MASA_SERPER_API_KEY, MASA_MOJEK_API_KEY.
     brave_api_key: str | None = None

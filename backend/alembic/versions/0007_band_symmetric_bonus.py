@@ -8,16 +8,16 @@ Owner follow-up (Aug 8, 2026): the risk score's breadth bonus now applies
 to EVERY severity band, not just high. ``risk.py::compute_risk_score``
 scores ``round(10 × max_cvss)`` for the worst finding's band, plus ~1 point
 per extra finding at that band, capped at the band's CVSS 4.0 ceiling
-(high 89 · medium 69 · low 39 — the qualitative band tops 8.9/6.9/3.9 × 10).
+(high 89 · medium 69 · low 39 - the qualitative band tops 8.9/6.9/3.9 × 10).
 So clearing mediums now also rewards progress (16 mediums = 69 · 10 = 63 ·
 2 = 56 · 1 = 55) while bands never overlap: any high ≥ 80 > any no-high
 ≤ 69 > any low-only ≤ 39, and the gauge caption "CVSS 4.0 · risk n/100 ·
 band" stays literally true (each cap IS the band ceiling). Bulk bands
 saturate at their ceiling (446 mediums = 69 until the count drops below
-~16 — visible progress returns in the tail).
+~16 - visible progress returns in the tail).
 
 This migration re-scores every ``done`` scan under the extended model
-(same recompute pass as 0006). Self-contained — no app imports — and
+(same recompute pass as 0006). Self-contained - no app imports - and
 mirrors ``risk.py`` exactly (round-half-up on the 0.9 slope).
 """
 import sqlalchemy as sa
@@ -36,7 +36,7 @@ _SEVERITY_CVSS = {
     "medium": 5.5,
     "low": 2.0,
 }
-# Band -> (base risk, ceiling risk, bonus slope) — MUST match risk.py's
+# Band -> (base risk, ceiling risk, bonus slope) - MUST match risk.py's
 # _BAND_RISK. Ceilings are the CVSS 4.0 qualitative band tops × 10.
 _BAND_RISK = {
     "high": (80, 89, 0.9),
@@ -82,5 +82,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Data-only migration: prior values were overwritten and are not
-    # recoverable (same policy as 0005/0006) — nothing to undo.
+    # recoverable (same policy as 0005/0006) - nothing to undo.
     pass

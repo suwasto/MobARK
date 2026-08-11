@@ -5,11 +5,11 @@ import type { ModelBackendRead } from '../../types'
 /**
  * Settings -> "Bring your own key" tab (mockup 1:1, scoped to the v1
  * provider set). Pure add/remove: one row per configured cloud backend
- * (read-only Active/Inactive status + Remove — per-backend enable/disable
+ * (read-only Active/Inactive status + Remove - per-backend enable/disable
  * lives entirely in the Model backends tab, owner review Aug 8), and an
  * add-provider form for the BYOK providers plus a custom endpoint (base
  * URL + optional API key). BYOK backends are NOT seeded keyless (owner
- * decision, Aug 8 2026) — this menu is the only way to add a cloud
+ * decision, Aug 8 2026) - this menu is the only way to add a cloud
  * provider. Cloud backends surface as pickable providers in the top-bar
  * provider dropdown.
  */
@@ -41,7 +41,7 @@ export function BYOKTab() {
   const sel = ADDABLE_PROVIDERS.find((p) => p.id === selected) ?? ADDABLE_PROVIDERS[0]
 
   // BYOK providers need a key; custom endpoints need a base URL (its key is
-  // optional — some OpenAI-compatible endpoints are keyless).
+  // optional - some OpenAI-compatible endpoints are keyless).
   const canAdd =
     !busy &&
     (sel.needsBaseUrl ? baseUrl.trim().length > 0 : apiKey.trim().length > 0)
@@ -59,7 +59,7 @@ export function BYOKTab() {
       })
       setApiKey('')
       setBaseUrl('')
-      setSuccess(`${sel.name} added — you can now pick its models from the top bar.`)
+      setSuccess(`${sel.name} added - you can now pick its models from the top bar.`)
     } catch (err) {
       setFormError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -87,7 +87,7 @@ export function BYOKTab() {
         <span className="mark2">⚠</span>
         <span>
           Enabling a cloud key sends prompts (findings, code snippets, chat) to
-          that provider. Keep this off for confidential client engagements —
+          that provider. Keep this off for confidential client engagements -
           local backends stay fully on-device.
         </span>
       </div>
@@ -98,7 +98,7 @@ export function BYOKTab() {
 
       {cloud.length === 0 && (
         <p className="field-hint" style={{ marginTop: 8 }}>
-          No cloud providers configured yet — add one below.
+          No cloud providers configured yet - add one below.
         </p>
       )}
 
@@ -117,7 +117,7 @@ export function BYOKTab() {
           <div className="mcp-actions">
             {/* Read-only status: enable/disable lives in the Model backends
                 tab (the master and per-row switches were removed, owner
-                review Aug 8) — this tab is pure add/remove. */}
+                review Aug 8) - this tab is pure add/remove. */}
             <span className={`conn-status ${b.enabled && b.has_api_key ? 'ok' : 'off'}`}>
               {b.enabled && b.has_api_key ? 'Active' : 'Inactive'}
             </span>
@@ -183,7 +183,7 @@ export function BYOKTab() {
         <p className="field-hint" style={{ marginBottom: 10 }}>
           Any provider exposing an OpenAI-compatible{' '}
           <code>/v1/chat/completions</code> endpoint works via{' '}
-          &ldquo;Custom endpoint…&rdquo; — the base URL field appears when
+          &ldquo;Custom endpoint…&rdquo; - the base URL field appears when
           selected; its API key is optional for keyless endpoints.
         </p>
 

@@ -37,7 +37,7 @@ export function ExplainBox({ state, onRetry, className }: ExplainBoxProps) {
       {state.kind === 'no-model' && (
         <div className="flex items-start justify-between gap-4">
           <p>
-            No model connected yet — pick a backend and model in Settings
+            No model connected yet - pick a backend and model in Settings
             (top-right ⚙) and the explanation will appear here.
           </p>
           <button type="button" className="link-btn shrink-0" onClick={onRetry}>

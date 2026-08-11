@@ -1,19 +1,19 @@
-"""M5 risk/security scores — CVSS 4.0-based 0-100 aggregates.
+"""M5 risk/security scores - CVSS 4.0-based 0-100 aggregates.
 
 Single source of truth for the Overview gauge (and any future report
 surface): the dashboard, the API, and the scan job all read the same
 mapping. Owner decision (Aug 7, 2026): the scoring system is **CVSS 4.0**.
 
-- Every severity band maps to a representative CVSS 4.0 base score — the
+- Every severity band maps to a representative CVSS 4.0 base score - the
   midpoint of the qualitative band per the CVSS 4.0 specification
   (high 7.0-8.9, medium 4.0-6.9, low 0.1-3.9, none 0): high 8.0, medium
   5.5, low 2.0, info 0. Owner decision (Aug 8, 2026): the critical band
-  was removed from the findings vocabulary — high is the top severity.
+  was removed from the findings vocabulary - high is the top severity.
 - **risk = round(10 × max_cvss)** driven by the single worst finding, plus
   a **breadth bonus within the worst severity band** (owner decision Aug 7:
   max, not mean; follow-ups Aug 8: "worst + count", then band-symmetric):
   each additional finding at the worst band adds ~1 point of risk, capped
-  at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 — the
+  at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 - the
   qualitative band tops 8.9/6.9/3.9 × 10, so the removed critical band is
   never re-introduced and the gauge caption "CVSS 4.0 · risk n/100 · band"
   stays literally true in every band). Remediating/suppressing findings
@@ -21,12 +21,12 @@ mapping. Owner decision (Aug 7, 2026): the scoring system is **CVSS 4.0**.
   80 · none = 55; 16 mediums = 69 · 10 = 63 · 2 = 56 · 1 = 55), and
   worst-first ordering is preserved with no band overlap (any high ≥ 80 > any
   no-high ≤ 69 > any low-only ≤ 39). Bulk bands saturate at their ceiling
-  (446 mediums read 69 until the count drops below ~16 — visible progress
+  (446 mediums read 69 until the count drops below ~16 - visible progress
   returns in the tail). 0 when there is nothing to score.
-- **security = 100 - risk** — the public-facing score (owner decision, Aug
+- **security = 100 - risk** - the public-facing score (owner decision, Aug
   7: higher is better). An empty scan scores 100; risk 80 → security 20.
 - **Suppressed findings are excluded** (Aug 8, 2026): a false positive that
-  was suppressed must not drive the posture — ``compute_risk_score`` skips
+  was suppressed must not drive the posture - ``compute_risk_score`` skips
   any finding with ``suppressed=True`` (persisted ``Finding`` rows carry
   the flag; analysis-layer ``FindingOut`` objects don't, so ``getattr``
   keeps both call sites working).
@@ -47,8 +47,8 @@ SEVERITY_CVSS = {
 
 # Worst + breadth, band-symmetric (owner decisions, Aug 8 2026): each
 # additional finding at the worst severity band adds ~0.9 points of risk
-# (rounded) — the more independent paths of that severity an app has, the
-# worse the posture — capped at the band's CVSS 4.0 ceiling: (base
+# (rounded) - the more independent paths of that severity an app has, the
+# worse the posture - capped at the band's CVSS 4.0 ceiling: (base
 # representative risk, ceiling, bonus slope). Ceilings are the qualitative
 # band tops × 10 (high 8.9, medium 6.9, low 3.9) so the gauge caption stays
 # literally true, bands never overlap (any high ≥ 80 > any no-high ≤ 69 >
@@ -79,7 +79,7 @@ def compute_risk_score(findings) -> int:
     (11 highs = 89 · 9 = 87 · 1 = 80 · none = 55; 16 mediums = 69 · 10 = 63
     · 2 = 56 · 1 = 55), worst-first order is preserved with no band overlap,
     and the "CVSS 4.0 · risk n/100 · band" caption stays literally true.
-    ``findings`` is any iterable of objects exposing ``.severity`` — the
+    ``findings`` is any iterable of objects exposing ``.severity`` - the
     analysis layer's ``FindingOut`` dataclass and the persisted ``Finding``
     ORM both qualify. Unknown severities are ignored rather than crashing
     the scan or the dashboard. Suppressed findings (``suppressed=True`` on
@@ -98,7 +98,7 @@ def compute_risk_score(findings) -> int:
     worst_sev, worst_cvss = max(scored, key=lambda pair: pair[1])
     # Defensive: a severity that scores > 0 but has no band entry degrades to
     # its plain representative score rather than crashing the scan/dashboard
-    # (the module contract — unknown severities are ignored, never fatal).
+    # (the module contract - unknown severities are ignored, never fatal).
     base, ceiling, per_extra = _BAND_RISK.get(
         worst_sev, (round(10 * worst_cvss), round(10 * worst_cvss), 0.0)
     )
@@ -111,7 +111,7 @@ def compute_risk_score(findings) -> int:
 
 
 def compute_security_score(findings) -> int:
-    """0-100 security score — the public-facing complement of the risk score.
+    """0-100 security score - the public-facing complement of the risk score.
 
     Higher is better: ``security = 100 - risk``. An empty finding set has no
     risk, so it scores 100.
@@ -121,7 +121,7 @@ def compute_security_score(findings) -> int:
 
 def security_from_risk(risk_score: int | None) -> int | None:
     """Derive the security score from a persisted risk score (None in, None
-    out) — used by the Scan API read path so stored and derived values never
+    out) - used by the Scan API read path so stored and derived values never
     drift."""
     if risk_score is None:
         return None

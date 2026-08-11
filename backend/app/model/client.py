@@ -1,7 +1,7 @@
 """Thin wrappers over LiteLLM (M3 model client: ``chat()`` + ``model_string()``).
 
 The M4 embedding path (``embed_texts``) was removed from v1 by owner
-decision — RAG was replaced with non-embedding agent layers; no vector
+decision - RAG was replaced with non-embedding agent layers; no vector
 store exists anymore.
 """
 from __future__ import annotations
@@ -26,12 +26,12 @@ def model_arch_hint(message: str) -> str:
     """
     if "unknown model architecture" in message:
         return message + (
-            " — the model server cannot load this model's architecture; "
+            " - the model server cannot load this model's architecture; "
             "update the server (e.g. upgrade Ollama) or pick a model it supports"
         )
     if "no longer available to new users" in message:
         return message + (
-            " — this model is no longer served to this account; pick a model "
+            " - this model is no longer served to this account; pick a model "
             "the provider currently serves (Settings → model chip) or update "
             "the configured model"
         )
@@ -43,7 +43,7 @@ def model_string(backend: ModelBackend) -> str:
 
     Examples: ``ollama/qwen2.5``, ``openai/gpt-4o-mini``, ``my-model`` (custom).
 
-    Raises ValueError when no model is configured — callers decide how to
+    Raises ValueError when no model is configured - callers decide how to
     surface that (the health check treats it as "nothing to probe").
     """
     if not backend.model:
@@ -62,7 +62,7 @@ def _completion_kwargs(
 ) -> dict:
     """The litellm.completion kwargs shared by the buffered + streaming paths.
 
-    Ollama backends additionally send ``think: false`` — local thinking
+    Ollama backends additionally send ``think: false`` - local thinking
     models (e.g. Nanbeige4.2) would otherwise spend the whole agent budget
     inside ``<think>`` blocks and return near-empty content. Non-thinking
     models ignore the flag.
@@ -96,11 +96,11 @@ def chat(
     """Run a (buffered) chat completion against ``backend``.
 
     ``messages`` uses the standard OpenAI format. Returns the raw litellm
-    response object — callers read ``response.choices[0].message.content``.
+    response object - callers read ``response.choices[0].message.content``.
     Raises ValueError if no model is configured, or the underlying litellm
     error otherwise (M5's callers decide how to surface it).
 
-    The dev-only ``fake`` backend (M6 follow-up) is short-circuited here —
+    The dev-only ``fake`` backend (M6 follow-up) is short-circuited here -
     its completions never touch litellm.
     """
     from app.model.fake import fake_chat_response, is_fake
@@ -133,7 +133,7 @@ def chat_stream(
     Every chunk has the OpenAI ``ChatCompletionChunk`` shape litellm
     normalizes all providers to: ``chunk.choices[0].delta.content`` (text
     token or None) and ``delta.tool_calls`` (a list accumulating per
-    ``index`` — ``arguments`` must be concatenated per index until the
+    ``index`` - ``arguments`` must be concatenated per index until the
     stream ends, then parsed as JSON). Content and tool calls can arrive in
     the same stream (a model that "thinks aloud" before calling a tool).
 

@@ -1,20 +1,20 @@
-"""Subprocess wrapper over the graphify CLI (pinned 0.9.32) — M4 Layer 3.
+"""Subprocess wrapper over the graphify CLI (pinned 0.9.32) - M4 Layer 3.
 
 Per-scan code graph (FR-9i): deterministic AST extraction, zero LLM, zero
 network. Build runs ``graphify update <decompiled-dir> --no-cluster`` with
 cwd set to ``data/graphs/<scan_id>`` so output lands at
 ``data/graphs/<scan_id>/graphify-out/graph.json``; queries run
-``graphify query|path|explain|affected --graph <path>`` — the exact surface
+``graphify query|path|explain|affected --graph <path>`` - the exact surface
 the M4 agent tools ``graph_query``/``graph_path``/``graph_explain`` call.
 
 CLI-surface notes (validated on 0.9.32, recorded for the M4 plan):
 - There is **no ``extract`` or ``export`` subcommand**; ``update`` is the
   headless code-only build (its help text: "re-extract code files and update
   the graph (no LLM needed)"). ``--no-cluster`` skips community detection and
-  writes the raw ``graph.json`` — sufficient for query/path/explain; a
+  writes the raw ``graph.json`` - sufficient for query/path/explain; a
   ``cluster-only`` pass can add the report later (M9).
 - Natural-language ``query`` finds nothing on code-only AST graphs (nodes
-  carry identifier labels, not semantic text — e.g. ``query WebView`` works,
+  carry identifier labels, not semantic text - e.g. ``query WebView`` works,
   ``query "where is certificate pinning"`` does not). ``query()`` therefore
   falls back to a deterministic label/ID substring search over ``graph.json``
   so identifier-shaped and natural-language terms both resolve.
@@ -44,7 +44,7 @@ _SEARCH_LIMIT = 8
 # so the graph's source_file keeps that root prefix (e.g. `sources/com/...`)
 # while the Decompiler tree, agent citations, and code maps rows are all
 # root-relative. The tree resolves the root at open time, so node rows
-# normalize to root-relative — one path shape for every consumer.
+# normalize to root-relative - one path shape for every consumer.
 _JADX_ROOTS = {"sources", "resources"}
 
 
@@ -66,7 +66,7 @@ def _normalize_source_file(source_file: str | None) -> str | None:
 
 
 class GraphifyError(RuntimeError):
-    """graphify CLI failed or produced no graph — surfaced as a clear error."""
+    """graphify CLI failed or produced no graph - surfaced as a clear error."""
 
 
 @dataclass(frozen=True)
@@ -87,7 +87,7 @@ def build(scan_id: int, decompiled_root: Path, graphs_dir: Path) -> GraphStats:
     """Build the per-scan code graph; returns node/edge counts + graph path.
 
     graphify 0.9.32 writes its output into the INPUT directory
-    (``<decompiled>/graphify-out/``), not the cwd — verified empirically
+    (``<decompiled>/graphify-out/``), not the cwd - verified empirically
     (Aug 8: rc=0 builds produced ``graph.json`` inside the decompiled tree,
     never at ``<cwd>/graphify-out/``). After a successful run the whole
     ``graphify-out`` folder is therefore MOVED into the per-scan graphs dir
@@ -143,7 +143,7 @@ def count_graph(graph_path: Path) -> tuple[int, int]:
     is a streaming count of top-level array members rather than a full
     json.load (which would build the entire object graph in memory). The
     export uses networkx node-link format: nodes under ``"nodes"``, edges
-    under ``"links"`` (some versions use ``"edges"`` — accept both).
+    under ``"links"`` (some versions use ``"edges"`` - accept both).
     """
     text = graph_path.read_text(encoding="utf-8")
     nodes = _count_array_members(text, "nodes")
@@ -208,18 +208,18 @@ class ExplorerData:
 
 # graph_path -> (mtime, data). Keyed on absolute paths so distinct scans (and
 # test tmp dirs) never collide; mtime check picks up a rebuilt graph. Bounded
-# to the most-recently built graphs — each compact index is tens of MB in
+# to the most-recently built graphs - each compact index is tens of MB in
 # memory, so an unbounded cache would creep on a machine that scans many apps.
 _EXPLORER_CACHE: dict[str, tuple[float, ExplorerData]] = {}
 _EXPLORER_CACHE_MAX = 4
-# explorer.json shape version — bump when the row shape changes (Aug 9, 2026:
+# explorer.json shape version - bump when the row shape changes (Aug 9, 2026:
 # file normalized to root-relative) so a stale persisted index from an older
 # build is rebuilt instead of served as-is.
 _EXPLORER_INDEX_VERSION = 2
 
 
 def _row_from_node(node: dict) -> dict:
-    """Public-shape explorer row — the agent citation row plus file_type."""
+    """Public-shape explorer row - the agent citation row plus file_type."""
     row = _node_row(node)
     # _node_row keeps label/file optional (agent citations); the explorer
     # schema requires a label, so fall back to the id like the old builder.
@@ -233,7 +233,7 @@ def _build_explorer(graph_path: Path, index_path: Path) -> ExplorerData:
 
     Writes ``explorer.json`` next to ``graph.json`` (compact node rows +
     (source, target, relation) links) so later process starts skip the full
-    parse. ``json.load`` of the raw file is a few hundred MB peak — accepted
+    parse. ``json.load`` of the raw file is a few hundred MB peak - accepted
     for the local-first tool, and only happens once per graph.
     """
     with open(graph_path, encoding="utf-8") as fh:
@@ -274,9 +274,9 @@ def _load_explorer_index(index_path: Path) -> ExplorerData | None:
         with open(index_path, encoding="utf-8") as fh:
             data = json.load(fh)
     except (OSError, json.JSONDecodeError):
-        return None  # missing/torn index — caller rebuilds
+        return None  # missing/torn index - caller rebuilds
     if data.get("version") != _EXPLORER_INDEX_VERSION:
-        return None  # stale shape from an older build — caller rebuilds
+        return None  # stale shape from an older build - caller rebuilds
     nodes: list[dict] = []
     by_id: dict[str, int] = {}
     for row in data.get("nodes", []):
@@ -299,7 +299,7 @@ def explorer_data(graph_path: Path) -> ExplorerData:
     """Load (lazily building once) the compact explorer index for a graph.
 
     ``graph.json`` can be tens of MB (InsecureBankv2: 46k nodes / 116k edges
-    ≈ 64 MB) — far too heavy to parse per search. The first access compacts
+    ≈ 64 MB) - far too heavy to parse per search. The first access compacts
     it into ``explorer.json`` next to the graph and caches the result in
     memory (mtime-keyed, so a rebuilt graph re-compacts).
     """
@@ -329,7 +329,7 @@ def search(
     """Substring search over node labels/ids for the Code maps explorer.
 
     Tokens come from the query (camelCase/snake identifiers kept whole,
-    stopwords dropped — same tokenizer as ``search_labels``). A node matches
+    stopwords dropped - same tokenizer as ``search_labels``). A node matches
     when any token appears in its label or id; results rank label-prefix >
     label-substring > id-substring, then label asc. Returns ``(rows, total)``
     where ``total`` is the pre-limit match count.
@@ -406,7 +406,7 @@ def node_detail(
 
 
 def hubs(graph_path: Path, limit: int = 25) -> list[dict]:
-    """Most-connected nodes by link degree — the explorer's initial view."""
+    """Most-connected nodes by link degree - the explorer's initial view."""
     data = explorer_data(graph_path)
     rows: list[dict] = []
     for node_id, degree in sorted(data.degree.items(), key=lambda kv: -kv[1]):
@@ -460,7 +460,7 @@ def search_labels(graph_path: Path, question: str, limit: int = _SEARCH_LIMIT) -
     """Deterministic label/ID substring search over the graph JSON.
 
     Tokens come from the question (camelCase/snake identifiers are kept whole
-    — "NetworkSecurityConfig" stays one token). Stopwords are dropped so a
+    - "NetworkSecurityConfig" stays one token). Stopwords are dropped so a
     phrase like "where is X located" reduces to its identifier terms.
     """
     tokens = {
@@ -514,7 +514,7 @@ def _parse_query_nodes(out: str) -> list[dict]:
 
 
 def _render_search(rows: list[dict]) -> str:
-    lines = [f"{r['label']} — {r['file']}" + (f":{r['line']}" if r["line"] else "") for r in rows]
+    lines = [f"{r['label']} - {r['file']}" + (f":{r['line']}" if r["line"] else "") for r in rows]
     return "Matching nodes:\n" + "\n".join(lines)
 
 

@@ -1,7 +1,7 @@
-"""Dependencies tab — inventory unit tests + API surface.
+"""Dependencies tab - inventory unit tests + API surface.
 
 The inventory is derived on demand from scan output (jadx sources tree, the
-APK zip, the persisted LIEF profile, Info.plist) — no new persistence. Known-
+APK zip, the persisted LIEF profile, Info.plist) - no new persistence. Known-
 CVE research is deliberately the agent's M7 web-research use case, so these
 tests cover the local inventory only.
 """
@@ -48,7 +48,7 @@ def test_group_key_androidx():
 
 
 def test_group_key_support_library_is_not_the_framework():
-    # android/support/... is the pre-AndroidX Support Library — its own group
+    # android/support/... is the pre-AndroidX Support Library - its own group
     # (labelled), never the ambiguous bare "android" bucket.
     assert dependencies._group_key("android/support/v4/content") == "android.support"
     assert dependencies._group_key("android/support/annotation") == "android.support"
@@ -98,7 +98,7 @@ def _make_android_tree(scan_id, tmp_path, manifest="<manifest package=\"com.foo\
     res = work / "decompiled" / "resources"
     res.mkdir(parents=True)
     (res / "AndroidManifest.xml").write_text(manifest)
-    # a done Android scan always has a sources tree (even if empty here) — the
+    # a done Android scan always has a sources tree (even if empty here) - the
     # inventory cache gates on its presence (a vanished tree = cache miss)
     (work / "decompiled" / "sources").mkdir(parents=True, exist_ok=True)
     for rel in files:
@@ -138,11 +138,11 @@ def test_android_inventory_packages_labels_counts_and_natives(
         scan.id,
         tmp_path,
         files=[
-            "com/foo/LoginActivity.java",  # the app itself — excluded
+            "com/foo/LoginActivity.java",  # the app itself - excluded
             "com/google/android/gms/internal/zzgf.java",
             "com/google/android/gms/internal/zzhe.java",
             "okhttp3/internal/http/Call.java",
-            "java/lang/String.java",  # noise — excluded
+            "java/lang/String.java",  # noise - excluded
         ],
     )
     data = dependencies.inventory(scan, _findings_for(scan.id, db_session_factory))
@@ -171,7 +171,7 @@ def test_android_inventory_packages_labels_counts_and_natives(
     assert "java" not in deps
 
     # native libs: libfoo.so in two ABIs; flutter .so is not listed as a
-    # standalone native lib here because it is only under lib/ — it IS listed
+    # standalone native lib here because it is only under lib/ - it IS listed
     natives = {d["name"] for d in data["dependencies"] if d["kind"] == "native"}
     assert "libfoo.so" in natives
     libfoo = next(d for d in data["dependencies"] if d["name"] == "libfoo.so")
@@ -386,7 +386,7 @@ def test_cached_inventory_stale_identity_recomputes(
     raw = json.loads(cache_path.read_text())
     raw["identity"] = "stale|identity"
     cache_path.write_text(json.dumps(raw))
-    # Clear the module cache first — the in-memory entry (stored under the
+    # Clear the module cache first - the in-memory entry (stored under the
     # ORIGINAL identity) would otherwise shadow the tampered file.
     dependencies._DEPENDENCIES_CACHE.clear()
     assert dependencies.cached_inventory(scan, findings) is None
@@ -396,7 +396,7 @@ def test_cached_inventory_disk_serves_across_processes(
     tmp_path, monkeypatch, db_session_factory
 ):
     """The persisted file serves a fresh process (module cache cleared) with
-    no recompute — the cross-restart win."""
+    no recompute - the cross-restart win."""
     scan = _make_android_scan(tmp_path, monkeypatch, db_session_factory)
     _make_android_tree(scan.id, tmp_path)
     findings = _findings_for(scan.id, db_session_factory)
@@ -495,7 +495,7 @@ def test_dependencies_endpoint_caches_across_calls(
     client, db_session_factory, monkeypatch, tmp_path
 ):
     """The route computes the inventory once and cache-serves the second GET
-    (the walk + APK read only happens on the first — the route calls
+    (the walk + APK read only happens on the first - the route calls
     ``dependencies.inventory`` through the module, so counting its calls is
     the computes counter)."""
     import app.config
@@ -518,7 +518,7 @@ def test_dependencies_endpoint_caches_across_calls(
     r2 = client.get(f"/api/v1/scans/{scan_id}/dependencies")
     assert r2.status_code == 200
     # generated_at is a response-serialization timestamp (set fresh per
-    # response even on a cache hit) — the inventory payload itself is equal.
+    # response even on a cache hit) - the inventory payload itself is equal.
     def without_ts(body):
         body.pop("generated_at", None)
         return body

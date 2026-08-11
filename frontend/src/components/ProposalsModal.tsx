@@ -98,14 +98,14 @@ function ProposalCard({
       </div>
       <div className="proposal-actions">
         <span className="proposal-hint">
-          The agent never applies edits — you own this decision per file.
+          The agent never applies edits - you own this decision per file.
         </span>
         <button
           type="button"
           className="btn btn-primary"
           disabled={busy != null}
           onClick={() => void act('apply')}
-          title="Apply this edit — it becomes part of the effective content (and of the next rebuild)"
+          title="Apply this edit - it becomes part of the effective content (and of the next rebuild)"
         >
           {busy === 'apply' ? 'Applying…' : '✓ Apply'}
         </button>
@@ -114,7 +114,7 @@ function ProposalCard({
           className="btn"
           disabled={busy != null}
           onClick={() => void act('reject')}
-          title="Reject this proposal — it is discarded"
+          title="Reject this proposal - it is discarded"
         >
           {busy === 'reject' ? 'Rejecting…' : '✗ Reject'}
         </button>
@@ -124,7 +124,7 @@ function ProposalCard({
 }
 
 /**
- * M8 Phase D: diff-review modal — the human review surface for agent edit
+ * M8 Phase D: diff-review modal - the human review surface for agent edit
  * proposals (decision 7: apply/reject/revert are human API calls, never
  * agent tools). One agent turn may propose several files; each is reviewed
  * file-by-file (D7) with its own unified diff and Apply/Reject. Applying an
@@ -187,7 +187,7 @@ export function ProposalsModal({
             </div>
           )}
           <p className="proposals-intro">
-            These are <strong>agent proposals</strong> — stored as diffs, never
+            These are <strong>agent proposals</strong> - stored as diffs, never
             applied automatically. Review each file and Apply or Reject it.
             Applied edits join the effective content and are compiled by the
             next <strong>Edit &amp; recompile</strong> (signed with MASA&rsquo;s
@@ -195,7 +195,7 @@ export function ProposalsModal({
           </p>
           {proposals.length === 0 ? (
             <div className="recompile-empty">
-              No pending proposals — the agent&rsquo;s edit suggestions have all
+              No pending proposals - the agent&rsquo;s edit suggestions have all
               been reviewed.
             </div>
           ) : (

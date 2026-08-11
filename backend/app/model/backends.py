@@ -1,4 +1,4 @@
-"""Model backend config store — env-seeded, runtime-editable JSON in data_dir.
+"""Model backend config store - env-seeded, runtime-editable JSON in data_dir.
 
 Owner decisions (Aug 5, 2026):
 - Keys are stored plaintext in ``model_backends.json`` with ``0600`` perms;
@@ -58,7 +58,7 @@ class ModelBackend:
 
     @property
     def local(self) -> bool:
-        """True only for local inference backends — the "Local-only" indicator
+        """True only for local inference backends - the "Local-only" indicator
         (M5) must flip off the moment a BYOK/custom backend is enabled."""
         return self.kind == "local"
 
@@ -67,7 +67,7 @@ class ModelBackend:
 
 
 def _fake_backend(cfg: Settings) -> ModelBackend:
-    """The dev-only fake backend (M6 follow-up) — the one construction site
+    """The dev-only fake backend (M6 follow-up) - the one construction site
     shared by seeding and read-time reconciliation so the two can't drift."""
     from app.model.fake import FAKE_MODEL
 
@@ -86,13 +86,13 @@ def _seed_backends(cfg: Settings) -> list[ModelBackend]:
     """Build the initial backend list from the provider table + env/`Settings`.
 
     Local backends are always seeded (they need no key). BYOK backends are
-    seeded ONLY when an API key is configured via env/`Settings` — a keyless
+    seeded ONLY when an API key is configured via env/`Settings` - a keyless
     cloud entry is unusable and only confuses the Settings UI (owner
     decision, Aug 8 2026): add cloud providers with a key via the BYOK menu
     (POST /api/v1/model/backends) instead.
 
     The dev-only ``fake`` backend (M6 follow-up) is seeded ONLY when
-    ``cfg.fake_model_enabled`` (MASA_FAKE_MODEL=1) — it must never appear in
+    ``cfg.fake_model_enabled`` (MASA_FAKE_MODEL=1) - it must never appear in
     a real deployment. It is inserted FIRST so ``pick_chat_backend`` resolves
     it deterministically: with the knob on, chat/explain/summary all demo
     against the fake without touching a real model.
@@ -115,7 +115,7 @@ def _seed_backends(cfg: Settings) -> list[ModelBackend]:
         else:
             api_key = getattr(cfg, _API_KEY_FIELD.get(provider_id, ""), "") or None
             if api_key is None:
-                # No real key configured — don't seed an unusable cloud
+                # No real key configured - don't seed an unusable cloud
                 # entry. It appears only when added via the BYOK menu.
                 continue
         seeded.append(
@@ -206,7 +206,7 @@ class BackendStore:
     def add(self, backend: ModelBackend) -> None:
         """Append a new backend (custom / re-activated BYOK) and persist.
 
-        Raises ValueError when the id already exists — the API maps it to
+        Raises ValueError when the id already exists - the API maps it to
         409 so the caller can switch to PUT/upsert semantics.
         """
         backends = self.read()
@@ -218,7 +218,7 @@ class BackendStore:
     def remove(self, backend_id: str) -> bool:
         """Remove a backend entirely; returns False when unknown.
 
-        A later POST can re-add it (BYOK) — the store file, not the seed
+        A later POST can re-add it (BYOK) - the store file, not the seed
         table, is the source of truth after first read.
         """
         backends = self.read()
@@ -246,7 +246,7 @@ class BackendStore:
 
         The store file is the source of truth after first read, so flipping
         MASA_FAKE_MODEL later must still take effect: the knob ON adds a
-        missing fake entry, the knob OFF removes a stale one — each case
+        missing fake entry, the knob OFF removes a stale one - each case
         persists the reconciled list (idempotent, so a converged store never
         rewrites itself).
         """
@@ -265,5 +265,5 @@ def _backend_fields() -> set[str]:
 
 
 def get_store() -> BackendStore:
-    """Store over the app's data dir — used by API routes and the CLI."""
+    """Store over the app's data dir - used by API routes and the CLI."""
     return BackendStore(settings.data_dir, settings)

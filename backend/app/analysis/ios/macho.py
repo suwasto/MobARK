@@ -64,7 +64,7 @@ def analyze_app_binary(app_root: Path) -> StageResult:
     exe_path = _find_main_executable(app_root)
     if exe_path is None:
         result.errors.append(
-            "no main executable found in app bundle — Mach-O stage skipped"
+            "no main executable found in app bundle - Mach-O stage skipped"
         )
         return result
     result.meta["main_executable"] = str(exe_path.relative_to(app_root))
@@ -152,7 +152,7 @@ def _analyze_binary(binary, result: StageResult) -> None:
             result.findings.append(
                 FindingOut(
                     tool=TOOL_LIEF,
-                    title="FairPlay-encrypted binary (crypt_id != 0) — static coverage limited",
+                    title="FairPlay-encrypted binary (crypt_id != 0) - static coverage limited",
                     severity="info",
                     category="MASVS-CODE-4",
                     detail={
@@ -191,7 +191,7 @@ def is_macho(path: Path) -> bool:
 
 def _emit_profile_findings(result: StageResult, archs: list[str]) -> None:
     """Info findings describing the binary itself (architectures, linked
-    dylibs, exported symbols, ARC) — binary-level context for the agent.
+    dylibs, exported symbols, ARC) - binary-level context for the agent.
     Only emitted when the data is non-empty so quiet binaries stay quiet.
     """
     if archs:

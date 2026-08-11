@@ -8,7 +8,7 @@ pytestmark = pytest.mark.integration
 
 
 def test_dummy_job_returns_expected_result():
-    # Direct call — no Redis needed.
+    # Direct call - no Redis needed.
     assert dummy_job("direct") == {"echo": "direct", "processed": True, "status": "ok"}
 
 

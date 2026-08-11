@@ -1,12 +1,12 @@
 """M5 decompiler tab: file tree + guarded content reads.
 
-Serves the Decompiler tab from real scan output — no mockups. Two roots for
+Serves the Decompiler tab from real scan output - no mockups. Two roots for
 Android (jadx ``sources/`` Java/Kotlin + ``resources/`` incl.
 AndroidManifest.xml), one root for iOS (the unpacked ``Payload/*.app``
-bundle — no source, but plist/entitlements/strings are readable).
+bundle - no source, but plist/entitlements/strings are readable).
 
 The walk is **unbounded by default** (owner decision, Aug 10: the per-root
-1500-node cap was removed — it truncated real trees mid-branch, hiding app
+1500-node cap was removed - it truncated real trees mid-branch, hiding app
 code behind library subtrees). ``max_nodes`` remains as an explicit opt-in
 cap for callers that want one; ``max_depth`` stays as a safety guard against
 pathological/cyclic trees (symlinked dirs could otherwise recurse forever).
@@ -31,7 +31,7 @@ from app.models import Scan
 from app.schemas import FileContentResponse, FileNode, FileTreeRoot
 
 # Depth guard only (kept as a safety valve against pathological/symlink-
-# cyclic trees — the node cap was removed Aug 10 per owner decision, so real
+# cyclic trees - the node cap was removed Aug 10 per owner decision, so real
 # trees always serve in full). 16 comfortably exceeds any realistic APK
 # decompile tree (sources/com/... is ~5 levels).
 MAX_DEPTH = 16
@@ -41,15 +41,15 @@ _BINARY_SNIFF_BYTES = 8192
 # ---- Tree cache --------------------------------------------------------------
 # The tree payload is immutable per scan (jadx trees land at scan time; the
 # apktool roots land once at the on-demand decode; edits are DB diffs and
-# rebuilds copy to a pristine dir — nothing mutates the listing afterwards),
-# so it is computed once and cached per scan — the same pattern as the
+# rebuilds copy to a pristine dir - nothing mutates the listing afterwards),
+# so it is computed once and cached per scan - the same pattern as the
 # smali_mapping.json / graph explorer.json caches. Identity = the root-name
 # set (changes when the decode lands) + the decoded manifest's mtime (the
 # decode instance); a validated ``tree_cache.json`` survives restarts.
 # Best-effort throughout: any failure recomputes, never a wrong tree.
 _TREE_CACHE: dict[str, tuple[str, list[FileTreeRoot]]] = {}
 # Bounded small on purpose: each payload is a FULL tree (multi-MB on big
-# scans) — 8 mirrors the graph explorer cache's "4 most-recent" posture
+# scans) - 8 mirrors the graph explorer cache's "4 most-recent" posture
 # while tolerating a few active scans.
 _TREE_CACHE_MAX = 8
 # Bump when the stored payload shape changes so stale persisted files rebuild.
@@ -94,7 +94,7 @@ _LANGUAGES = {
 
 
 class TreeError(ValueError):
-    """Bad tree path (unknown root, escapes, binary file) — API maps to 400."""
+    """Bad tree path (unknown root, escapes, binary file) - API maps to 400."""
 
 
 def roots_for(scan: Scan) -> list[tuple[str, Path]]:
@@ -139,10 +139,10 @@ def list_tree(
     """Nested tree per root; unbounded by default (``max_nodes=None``).
 
     ``truncated`` is set only when an *explicit* cap is hit (a caller-passed
-    ``max_nodes`` or the ``max_depth`` safety guard) — the default serves the
+    ``max_nodes`` or the ``max_depth`` safety guard) - the default serves the
     full tree. iOS: the synthetic ``analysis`` root comes first, and the
-    app-bundle walk is curated to text-readable files (raw binaries — the
-    executable, images, .car, .nib — are hidden; the count lands in
+    app-bundle walk is curated to text-readable files (raw binaries - the
+    executable, images, .car, .nib - are hidden; the count lands in
     ``filtered_binaries`` so the UI can say how many were skipped).
     """
     roots: list[FileTreeRoot] = []
@@ -152,7 +152,7 @@ def list_tree(
             roots.append(analysis)
     for name, root_path in roots_for(scan):
         # M8: the decoded AndroidManifest.xml is a synthetic single-file root
-        # (its path IS the manifest file) — never walk the whole apktool dir.
+        # (its path IS the manifest file) - never walk the whole apktool dir.
         if name == editable.MANIFEST_ROOT:
             roots.append(
                 FileTreeRoot(
@@ -171,7 +171,7 @@ def list_tree(
             )
             continue
         counter = {"nodes": 0, "truncated": False, "filtered": 0, "filtered_paths": []}
-        # iOS only: hide binary blobs that the viewer cannot render — they
+        # iOS only: hide binary blobs that the viewer cannot render - they
         # surface as a collapsed "Binary (Mach-O)" entry instead of raw rows.
         keep_file = is_text_file if scan.platform == "ios" else None
         tree = _walk(
@@ -201,7 +201,7 @@ def list_tree(
 
 
 def tree_cache_path(scan_id: int) -> Path:
-    """Per-scan cache file next to the scan's trees (``work/<scan>/``) — a
+    """Per-scan cache file next to the scan's trees (``work/<scan>/``) - a
     SIBLING of ``decompiled/`` and ``apktool/`` so the rebuild's pristine-tree
     copy never includes it."""
     return apktool.decoded_root(scan_id).parent / "tree_cache.json"
@@ -209,7 +209,7 @@ def tree_cache_path(scan_id: int) -> Path:
 
 def _tree_identity(scan: Scan) -> str | None:
     """Cheap tree identity: the root names (which change the moment the
-    on-demand apktool decode lands — smali/res/manifest appear) plus the
+    on-demand apktool decode lands - smali/res/manifest appear) plus the
     decoded manifest's mtime (re-decode instance). The jadx trees are
     immutable per scan, so nothing else can change the listing. None when the
     scan has no roots yet (nothing to cache)."""
@@ -218,7 +218,7 @@ def _tree_identity(scan: Scan) -> str | None:
         return None
     # Note: the iOS synthetic ``analysis`` root is derived from DB findings
     # INSIDE list_tree (not part of roots_for), so it isn't literally covered
-    # by this identity — it stays correct because findings are immutable per
+    # by this identity - it stays correct because findings are immutable per
     # scan (the docs derive from lief/symbols rows that land before ``done``).
     parts = [name for name, _ in roots]
     if scan.platform == "android" and apktool.is_ready(scan.id):
@@ -242,7 +242,7 @@ def _remember_tree(key: str, identity: str, roots: list[FileTreeRoot]) -> None:
 
 
 def _store_tree(key: str, identity: str, roots: list[FileTreeRoot]) -> None:
-    """Persist a computed tree — in-memory + the on-disk cache file.
+    """Persist a computed tree - in-memory + the on-disk cache file.
 
     Best-effort: a failed write (read-only FS etc.) still serves this process
     via the module cache; the next process recomputes. Atomic (tmp+rename) so
@@ -267,7 +267,7 @@ def _store_tree(key: str, identity: str, roots: list[FileTreeRoot]) -> None:
 
 
 def cached_list_tree(scan: Scan) -> list[FileTreeRoot]:
-    """The scan's tree, served from cache when valid — the filesystem walk +
+    """The scan's tree, served from cache when valid - the filesystem walk +
     serialize runs ONCE per scan; later Decompiler opens (same process, or
     across restarts via the validated ``tree_cache.json``) read the cached
     payload. Identity-validated: a stale/torn file (pre-decode capture, shape
@@ -398,7 +398,7 @@ def read_tree_file(
     synthetic ``analysis`` root (iOS) generates its documents on read.
 
     M8 Phase B: ``effective=True`` (default) overlays the newest **applied**
-    edit's ``new_content`` for editable paths — the viewer shows the edited
+    edit's ``new_content`` for editable paths - the viewer shows the edited
     content, and the edit service calls ``effective=False`` for the pristine
     baseline. The on-disk apktool tree itself is never mutated.
     """
@@ -426,7 +426,7 @@ def read_tree_file(
         try:
             plist = plistlib.loads(data)
         except plistlib.InvalidFileException:
-            pass  # not a (parseable) plist — fall through to text read
+            pass  # not a (parseable) plist - fall through to text read
         else:
             import json
 
@@ -442,7 +442,7 @@ def read_tree_file(
 
     if not is_text_file(target):
         raise TreeError(
-            f"{path} is a binary file — no text content (use the findings / "
+            f"{path} is a binary file - no text content (use the findings / "
             "import-table scanner for binary-level evidence)"
         )
     text = data.decode("utf-8", errors="replace")
@@ -465,7 +465,7 @@ def read_tree_file(
 def _applied_edit_content(scan: Scan, edit_path: str) -> str | None:
     """Newest applied edit's ``new_content`` for a path, or None (baseline).
 
-    tree.py holds no DB session of its own; opens one defensively — a
+    tree.py holds no DB session of its own; opens one defensively - a
     stale/mismatched DB degrades to the baseline rather than 500 the viewer
     (same posture as ``_scan_findings``)."""
     from app.db import SessionLocal
@@ -551,7 +551,7 @@ def _generated_doc(path: str, content: str, language: str) -> FileContentRespons
 
 def _analysis_docs(scan: Scan) -> list[FileContentResponse]:
     """Generated documents for the iOS ``analysis`` root, built from the
-    persisted LIEF profile + import-table findings — the same binary-level
+    persisted LIEF profile + import-table findings - the same binary-level
     evidence the agent context sees, rendered as readable files so the
     Decompiler tab has meaningful content where Android has source.
     Returns [] when the scan produced no binary-level findings at all.
@@ -572,7 +572,7 @@ def _analysis_docs(scan: Scan) -> list[FileContentResponse]:
         "# Mach-O profile",
         "",
         "Binary-level analysis of the app's main executable (LIEF). No source",
-        "location exists for these artifacts — they describe the binary itself.",
+        "location exists for these artifacts - they describe the binary itself.",
         "",
     ]
     slices = find(lambda t: t.startswith("Binary slices"))
@@ -593,7 +593,7 @@ def _analysis_docs(scan: Scan) -> list[FileContentResponse]:
             f"- Stack canary: {'missing (finding present)' if canary else 'not flagged'}",
             f"- ARC: {'enabled (finding present)' if arc else 'not detected'}",
             "- FairPlay encryption: "
-            + ("yes — static coverage limited" if fairplay else "not flagged"),
+            + ("yes - static coverage limited" if fairplay else "not flagged"),
             "",
         ]
     dylibs = find(lambda t: t.startswith("Linked dylibs"))
@@ -626,7 +626,7 @@ def _analysis_docs(scan: Scan) -> list[FileContentResponse]:
         detail = _detail_dict(exp)
         count = detail.get("count") or 0
         sample = detail.get("sample") or []
-        lines = [f"# Exported symbols ({count}) — first {len(sample)} shown"] + [
+        lines = [f"# Exported symbols ({count}) - first {len(sample)} shown"] + [
             f"_{s}" for s in sample
         ]
         docs.append(
@@ -636,7 +636,7 @@ def _analysis_docs(scan: Scan) -> list[FileContentResponse]:
     # --- insecure-imports.txt (import-table scanner findings) ------------------
     if symbols:
         lines = [
-            "# Import-table findings (known-insecure APIs) — binary-level presence",
+            "# Import-table findings (known-insecure APIs) - binary-level presence",
             "# These prove the app links/calls the API somewhere in the binary;",
             "# there is no source location for them.",
             "",

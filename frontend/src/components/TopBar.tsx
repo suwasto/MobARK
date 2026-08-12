@@ -1,3 +1,6 @@
+import { useEffect, useRef, useState } from 'react'
+import { api } from '../api/client'
+import type { ScanRead } from '../types'
 import wordmarkUrl from '../assets/masa-wordmark.svg'
 import { ModelPicker } from './ModelPicker'
 
@@ -5,10 +8,38 @@ interface TopBarProps {
   onPickFile: () => void
   uploading: boolean
   onOpenSettings: () => void
+  /** The scan currently on screen - the Export button targets it and stays
+   *  disabled until it's a completed (done) scan. */
+  scan: ScanRead | null
 }
 
 /** App shell top bar: brand, provider+model pickers, actions. */
-export function TopBar({ onPickFile, uploading, onOpenSettings }: TopBarProps) {
+export function TopBar({ onPickFile, uploading, onOpenSettings, scan }: TopBarProps) {
+  // M9 Phase D: Export report is a dropdown of two download anchors (the
+  // same {stem}-report.md|pdf attachments the Report tab offers). Same
+  // outside-click + Escape close as the model pickers.
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!exportOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExportOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [exportOpen])
+
+  const exportable = scan?.status === 'done'
+
   return (
     <header className="flex items-center justify-between gap-4 border-b border-line bg-panel px-5">
       {/* Brand */}
@@ -21,9 +52,48 @@ export function TopBar({ onPickFile, uploading, onOpenSettings }: TopBarProps) {
       <div className="flex shrink-0 items-center gap-3">
         <ModelPicker />
 
-        <button className="btn" disabled title="Export report - ships in M9">
-          Export report
-        </button>
+        <div ref={exportRef} className="relative">
+          <button
+            type="button"
+            className="btn export-trigger"
+            disabled={!exportable}
+            aria-haspopup="menu"
+            aria-expanded={exportOpen}
+            title={
+              exportable
+                ? 'Download the assembled report as Markdown or PDF'
+                : 'Export report - needs a completed scan'
+            }
+            onClick={() => setExportOpen((o) => !o)}
+          >
+            Export report <span className="chev">▾</span>
+          </button>
+          {exportOpen && exportable && scan && (
+            <div className="export-menu" role="menu" aria-label="Export report">
+              <div className="model-group-label">Export report</div>
+              <a
+                className="model-opt"
+                role="menuitem"
+                href={api.reportExportUrl(scan.id, 'md')}
+                download
+                title="Download the assembled body as Markdown"
+              >
+                <span className="mname">Markdown</span>
+                <span className="via">.md</span>
+              </a>
+              <a
+                className="model-opt"
+                role="menuitem"
+                href={api.reportExportUrl(scan.id, 'pdf')}
+                download
+                title="Download the branded PDF report"
+              >
+                <span className="mname">PDF</span>
+                <span className="via">.pdf</span>
+              </a>
+            </div>
+          )}
+        </div>
         <button className="btn btn-primary" onClick={onPickFile} disabled={uploading}>
           {uploading ? 'Uploading…' : '+ New scan'}
         </button>

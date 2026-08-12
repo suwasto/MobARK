@@ -184,6 +184,25 @@ export function FindingsPanel({
     [source, filter],
   )
 
+  // Findings grouped by severity (mirroring the report body's structure -
+  // ``### High (7)`` etc.): the 'all' view renders one section per severity
+  // with a colored header instead of one flat list.
+  const groups = useMemo(() => {
+    const grouped: { sev: Severity; items: FindingRead[] }[] = []
+    const bySev = new Map<Severity, FindingRead[]>()
+    for (const f of visible) {
+      const sev = (f.severity in SEVERITY_CAP ? f.severity : 'info') as Severity
+      const list = bySev.get(sev)
+      if (list) list.push(f)
+      else bySev.set(sev, [f])
+    }
+    for (const sev of FILTER_ORDER) {
+      const items = bySev.get(sev)
+      if (items && items.length) grouped.push({ sev, items })
+    }
+    return grouped
+  }, [visible])
+
   const chips: { key: SeverityFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: review ? suppressed.length : total },
     ...FILTER_ORDER.map((sev) => ({
@@ -262,13 +281,23 @@ export function FindingsPanel({
       )}
       {!loading &&
         !error &&
-        visible.map((f) => (
-          <FindingRow
-            key={f.id}
-            scanId={scanId}
-            finding={f}
-            onChanged={onChanged}
-          />
+        groups.map(({ sev, items }) => (
+          <div key={sev} className="mb-5">
+            {/* Severity group header - colored like the report's h3 (the
+                same conventional palette as the sev-tag chips). */}
+            <div className={`sev-group-head ${sev}`}>
+              {SEVERITY_CAP[sev]}
+              <span className="sev-group-count">({items.length})</span>
+            </div>
+            {items.map((f) => (
+              <FindingRow
+                key={f.id}
+                scanId={scanId}
+                finding={f}
+                onChanged={onChanged}
+              />
+            ))}
+          </div>
         ))}
     </div>
   )

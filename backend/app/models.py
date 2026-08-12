@@ -50,6 +50,11 @@ class Scan(Base):
         String(16), nullable=False, default="not_started"
     )
     apktool_error: Mapped[str | None] = mapped_column(Text)
+    # When the decode was enqueued - the stuck-queue guard's clock: a
+    # ``queued`` state older than ``apktool_queue_stall_seconds`` means the
+    # RQ worker is not running (a decode that never executes looks exactly
+    # like a slow one), so smali-status reports ``stalled`` with guidance.
+    apktool_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow

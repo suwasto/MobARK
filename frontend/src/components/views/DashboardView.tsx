@@ -14,6 +14,7 @@ import { DecompilerPanel } from '../panels/DecompilerPanel'
 import { DependenciesPanel } from '../panels/DependenciesPanel'
 import { FindingsPanel } from '../panels/FindingsPanel'
 import { OverviewPanel } from '../panels/OverviewPanel'
+import { ReportPanel } from '../panels/ReportPanel'
 
 type Tab =
   | 'overview'
@@ -404,9 +405,16 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
               </div>
             )}
             <div className={tab !== 'report' ? 'hidden' : undefined}>
-              <PlaceholderPanel
-                title="Report"
-                note="AI-drafted report generation and export ship in M9. The tab is shown here as a placeholder only."
+              {/* Keyed per scan so the cached body never leaks from the
+                 previous scan (same remount pattern as the other tabs).
+                 `active` re-fetches on later activations - the panel stays
+                 mounted, so a findings change on another tab (suppress /
+                 restore invalidates the server cache identity) must show up
+                 without a scan remount. */}
+              <ReportPanel
+                key={current.id}
+                scanId={current.id}
+                active={tab === 'report'}
               />
             </div>
           </div>
@@ -454,17 +462,6 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
           onChanged={onProposalsChanged}
         />
       )}
-    </div>
-  )
-}
-
-function PlaceholderPanel({ title, note }: { title: string; note: string }) {
-  return (
-    <div className="rounded-md border border-line-soft bg-panel p-5">
-      <div className="mb-1 font-mono text-[11px] uppercase tracking-[0.08em] text-bone-faint">
-        {title}
-      </div>
-      <p className="text-xs leading-relaxed text-bone-dim">{note}</p>
     </div>
   )
 }

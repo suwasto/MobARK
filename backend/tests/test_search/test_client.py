@@ -132,8 +132,29 @@ def test_query_unreachable_raises_compose_hint(monkeypatch):
         raise httpx.HTTPError("connection refused")
 
     monkeypatch.setattr(search_client.httpx, "get", boom)
-    with pytest.raises(SearchError, match="docker compose --profile web up -d searxng"):
+    with pytest.raises(SearchError) as ei:
         query(_SEARXNG, "x")
+    # The hint carries the actionable compose command AND a friendly reason -
+    # never the raw exception text (owner report, Aug 12).
+    assert "docker compose --profile web up -d searxng" in str(ei.value)
+    assert "connection was refused" in str(ei.value)
+    assert "[Errno" not in str(ei.value)
+
+
+def test_query_unreachable_dns_error_is_friendly(monkeypatch):
+    """A DNS failure (the common container-not-running case) reads as a
+    friendly host-resolution clause, not the raw ``[Errno -2] Name or
+    service not known`` (owner report, Aug 12)."""
+    def boom(url, params=None, timeout=None):
+        raise httpx.ConnectError("[Errno -2] Name or service not known")
+
+    monkeypatch.setattr(search_client.httpx, "get", boom)
+    with pytest.raises(SearchError) as ei:
+        query(_SEARXNG, "x")
+    msg = str(ei.value)
+    assert "host name couldn't be resolved" in msg
+    assert "docker compose --profile web up -d searxng" in msg
+    assert "[Errno" not in msg
 
 
 def test_query_non_json_raises(monkeypatch):
@@ -459,6 +480,21 @@ def test_check_backend_lightweight_unreachable_has_hint(monkeypatch):
     h = check_backend(_SEARXNG, probe=False)
     assert h.reachable is False and h.status == "unreachable"
     assert "docker compose --profile web up -d searxng" in (h.error or "")
+    assert "[Errno" not in (h.error or "")
+
+
+def test_check_backend_lightweight_error_is_user_friendly(monkeypatch):
+    """The health card error carries the actionable hint plus a human reason
+    for the failure - never the raw socket error suffix (owner report)."""
+    def boom(url, timeout=None):
+        raise httpx.ConnectError("[Errno -2] Name or service not known")
+
+    monkeypatch.setattr(search_client.httpx, "get", boom)
+    h = check_backend(_SEARXNG, probe=False)
+    assert h.reachable is False
+    assert "host name couldn't be resolved" in (h.error or "")
+    assert "docker compose --profile web up -d searxng" in (h.error or "")
+    assert "[Errno" not in (h.error or "")
 
 
 def test_check_backend_full_probe_runs_real_query(monkeypatch):

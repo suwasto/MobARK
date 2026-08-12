@@ -8,6 +8,13 @@ When the user types `/graphify`, use the installed graphify skill or instruction
 Read docs/masa-prd.md, docs/masa-techstack.md, docs/masa-tasks.md
 before doing anything.
 
+NOTE (Aug 12, 2026): `docs/` is GITIGNORED/untracked (deliberate — ~44MB
+of sample APKs/IPAs/icons/mockups don't belong in git). The files remain
+on disk. READ them via explicit paths (read_files works regardless of
+gitignore — knowledge.md/masa-tasks.md name every relevant doc); SEARCH
+them with the `--no-ignore` rg flag (the default code-search respects
+.gitignore and will silently miss docs/).
+
 Hard constraints: Apache-2.0 license (was MIT — relicensed Aug 3 2026,
 copyright Anang Suwasto). GPL/LGPL tools (Semgrep, apktool,
 jadx, ldid) — subprocess only, never imported. Local-first, no
@@ -1415,6 +1422,29 @@ dock toggle with the disabled class in the no-model state. No server-side
 upsert enforcement (deliberate — the gate is the UI affordance; the store
 stays offline and raw-API activations are out of scope).
 
+**Follow-up (Aug 12, 2026 — dead bundled engine reads Inactive + friendly
+probe errors, owner report: "bundled searxng should be inactive and cannot
+be switched when searxng is unreachable... enhance error message"):**
+(1) **Frontend** `SearchTab.tsx` now derives `effectiveEnabled` — a
+SearXNG-style engine (bundled/custom) reads as **Active ONLY while it
+actually answers** (`backend.enabled && health.reachable`); an
+enabled-but-dead engine now renders as **Inactive with a fully disabled
+switch** (both ON and OFF directions — `radioDisabled = !engineLive`) so it
+can't be switched at all until it comes up; the recovery path is ▶ Start
+engine / Test, and the Inactive hint gains an "unreachable right now" note
+when the stored flag was on. (2) **Backend** `client.py`: new
+`_friendly_reason(exc)` translates raw transport exceptions into human
+clauses (DNS "host name couldn't be resolved", refused, timeout, network
+unreachable; unknown → truncated generic); `compose_hint(backend, exc=None)`
+and the health-error call sites no longer append the raw `([Errno -2] Name
+or service not known)` suffix — the Settings card shows the actionable hint
++ friendly reason. Start-endpoint failure messages unchanged (the
+`extractStartCommand` parser's backticked-command contract is untouched).
+Gates: **698 backend tests green (+2 — DNS-friendly + health-friendly) +
+ruff clean; tsc + vite build green**; live-verified with the bundled engine
+stored-enabled but unreachable: card shows Inactive, switch disabled,
+friendly error, ▶ Start engine present.
+
 **Follow-up (Aug 11, 2026 — Decompiler ONE-SCROLL annotation rail, owner
 request: "make the codeview and the annotation one scroll not separate
 scroll"):** the rail no longer has its own scrollbar — the code pane is
@@ -1611,3 +1641,217 @@ on :8000: `.stream-text` computed lineClamp=4 + overflow=hidden while a
 stream ran, short text unclipped, full 273-char final answer landed;
 fake chat sanity (streaming tools + answer) green after the change;
 app image rebuilt + recreated, `MASA_FAKE_MODEL=0`, health 200.
+
+M9 — Report generation; **COMPLETE (Aug 12, 2026) — Phases A–E all done,
+containerized contract-style e2e PASSED.** See
+`docs/progress/M9.md`. Phase A (deterministic assembly):
+`analysis/report.py` — `assemble_report(scan, findings, dependencies=…,
+builds=…, web_sources=…)` renders the body from persisted scan data ONLY
+(no LLM, no subprocess); sections: header (app/platform/date/security
+score + CVSS 4.0 band via `risk.py`), executive summary (cached
+`ai_summary`, blank→explicit no-AI note — the body never 400s, decision
+10), severity breakdown (risk.py source of truth), findings grouped by
+severity with MASTG tags + cached explanations, Android smali-edit note /
+iOS binary profile from the LIEF/symbols findings, dependencies payload,
+"Resigned test builds" (M8 builds rows), "External references" (M7 web
+sources). Phase B: `POST /scans/{id}/report/regenerate` — re-runs
+`insights.summarize_scan(regenerate=True)` (persisted to `ai_summary`) +
+fills ONLY missing explanations (`explanations=true` default, cached ones
+never re-spent), single all-or-nothing commit, M5 error contract. Phase C
+(export): `GET /scans/{id}/report` (cached body) + `GET
+/scans/{id}/report/export?format=md|pdf` (`{stem}-report.md|pdf`
+attachments, sanitized stem). PDF = **reportlab platypus** (BSD-3-Clause,
+decision 3 CORRECTED Aug 12) + **markdown==3.10.3** (BSD-3-Clause) over
+the SAME body — `analysis/report_pdf.py`: md→HTML fragment
+(python-markdown) parsed by a stdlib `html.parser` builder into
+Paragraphs/ListFlowable/one-cell Tables (severity `[HIGH]`→colored chip
+via `<font backColor>`, SecurityGauge palette mirrored server-side; page
+numbers + brand footer via a canvas callback — working; DejaVu Sans TTF
+`MASA_REPORT_FONT` default, Helvetica fallback when missing; `render_pdf`
+bounded: fragment size cap + thread timeout, `%PDF`+size gate — silent
+empty file is a 500, never a 200). **Why not xhtml2pdf: the Phase C
+pip-licenses audit found xhtml2pdf 0.2.17 imports LGPL python-bidi +
+LGPLv3 svglib (WeasyPrint's pyphen is LGPL/MPL too) — posture violation,
+owned decision to rewrite on reportlab; the xhtml2pdf/bidi/svglib/
+pyhanko tree was uninstalled.** Body cached per scan (`report_cache.json`,
+identity = platform/filename/risk/ai_summary + rich findings fingerprint +
+builds + web sources + deps hash) — a suppress toggle / regenerate /
+rebuild / web capture recomputes. Deps: `requirements.txt`
+reportlab+markdown pins, `requirements-dev.txt` pypdf (BSD-3-Clause, PDF
+heading extraction in tests), Dockerfile `fonts-dejavu-core`. Gates: **681
+backend tests green (+12 export tests) + ruff clean** (frontend untouched
+this phase).
+
+**Phase D (Report tab + Export button, frontend — done Aug 12):**
+`panels/ReportPanel.tsx` renders the assembled markdown (react-markdown,
+the dock's precedent) on an on-screen **paper card** (`.report-doc`)
+echoing the exported PDF's branding (white paper, ink #14171a headings,
+steel accent rule, tinted severity chips) — the tab previews the artifact
+being downloaded. Toolbar: **Export .md / Export PDF** download anchors
+(`api.reportExportUrl`) + **Regenerate** (POST, explicit cost opt-in;
+explanations_generated note · quiet no-model note · error+Retry) +
+loading/error/retry. `active` prop re-fetches on later tab activations
+(the panel stays mounted once visited, so a suppress/restore on another
+tab — which invalidates the server cache identity — must show up without
+a scan remount; review catch). TopBar **Export report** is now a dropdown
+(Markdown/.md + PDF/.pdf anchors, ModelPicker-style outside-click/Escape
+close), disabled until a done scan; `App` passes the currently-visible
+scan (progress backdrop's last completed scan, same `scanOverride ??
+activeScan` selection DashboardView renders). Gates: **682 backend tests +
+`tsc -b`/`vite build` green** (one TS catch: state field `generatedAt`, the
+footer read `generated_at`).
+
+**Phase E (hardening + containerized e2e — done Aug 12, PASSED):** open
+item 2 IMPLEMENTED — `assemble_report` gained `suppressed_count` (the
+route counts suppressed rows; cache identity rides along): a suppressed-
+only scan reads as zero counts + the one-line "Suppressed findings: n
+excluded (not scored, not listed below)" footnote instead of a clean bill
+of health. Edge tests (+4): suppressed-only scan (unit), empty-scan API +
+PDF export, suppressed-only API flow with unsuppress flip, iOS parity at
+the API layer (body + both exports). `scripts/e2e_report.sh` (committed)
+runs the real stack against the real samples: InsecureBankv2 (no-AI
+default, MASA_FAKE_MODEL=0) → report sections + **no-AI fallback note**
+(decision 10 live), md export = same cached body + `{stem}-report.md`
+attachment, pdf = `%PDF` + extractable headings + working page numbers,
+suppress toggle recomputes the body (decision 7) and flips the footnote;
+iBugBazaar iOS parity (binary-profile body + PDF, no Android section
+leak); restart with MASA_FAKE_MODEL=1 → `POST /report/regenerate` → the
+fake summary + explanations land in the body and the fallback note is
+gone. Run notes: first run hit two script bugs (bash `$(...)` strips
+final newlines so the md-body cmp diverged — now both sides stripped;
+post-restart regenerate raced app startup — now health-waited); the
+incremental image build exceeded the 600s basher cap but completed (the
+image was already tagged). Gates: **686 backend tests green (+4) + ruff
+clean; `tsc -b` + `vite build` green; image 3.54 GB content / 759 MB
+compressed** (M8: 3.47 / 783 — the delta is reportlab + markdown +
+fonts-dejavu-core, no new system libs). Remaining owner checkpoint (not a
+blocker): the manual review pass — does the AI-drafted report read like
+something a human pentester would ship? (M9.md Phase E, task-list item).
+**Repo hygiene (same session): docs/ is now GITIGNORED/untracked** (~44MB
+binaries — sample APK/IPA/icons/mockups — don't belong in git; the .md
+milestone docs moved out of version control too by owner decision). Files
+stay on disk; read via explicit paths; search with the `--no-ignore` rg
+flag (this knowledge.md carries the note at the top).
+
+**Manual-review follow-ups (Aug 12, 2026 — owner review pass DONE):**
+walked the REAL reports live (scan 30 Android, scan 31 iOS, scan 24 with
+M8 builds, + the 60-page PDF) against the pentester's yardstick — verdict:
+structurally ship-ready, but the Android body was drowned in third-party
+noise (467 of 522 findings were `android/support`/`com/google/android/gms`
+repeats) with no "what to fix first" section, and iOS listed dylibs three
+times. Three follow-ups (in `analysis/report.py`, cache bumped to v2):
+(1) **vendored-library roll-up** — findings inside bundled third-party
+libraries (the Dependencies tab's new public `group_for_finding(finding,
+app_package)` classification) collapse into per-library tallies in a
+`### Third-party library findings (N)` subsection; app-owned rows stay
+listed in full per severity; the severity breakdown still counts
+EVERYTHING (it must match the risk score). Live: scan 30 went **237 KB →
+19 KB**. (2) **Recommended priorities** — deterministic (no-LLM, decision
+10) top-10 of app-owned findings by severity (info never a priority) with
+file:line + MASTG tag + a static-only scope note. (3) **iOS dylib
+de-dupe** — dylibs render ONCE: the binary profile is authoritative (cap
+raised 20→60 for scan 31's 35 dylibs) and Dependencies points to it.
+Review catch applied: unknown severities (e.g. `warning`) land in the
+tally's explicit `other` bucket instead of silently vanishing. Gates: **689
+backend tests green (+3) + ruff clean**.
+
+**PDF redesign (Aug 12, 2026 — second follow-up session):**
+`analysis/report_pdf.py` was visually redesigned (fragment + reportlab
+unchanged): the **DejaVu family** is now registered (regular/bold/oblique/
+mono — the Phase C `_register_font()` only had the regular face, so
+`<b>/<i>` were fake-bold); a **cover page** (`_cover_meta` parses the
+assembled body's own header + breakdown lines — one body, two media, no
+parallel assembly): deep-emerald brand band (MASA wordmark, app, platform
+chip), canvas-drawn **security gauge** (frontend SecurityGauge contract —
+180° arc, discrete CVSS 4.0 band color, score/label/CVSS caption in the
+bowl), four severity count boxes (the `.sev-tag` tint+foreground
+contract), package/bundle + analyzed meta, suppressed-count note when
+anything was excluded, static-only scope footnote; body pages get a
+running emerald header + page-number footer, h2 emerald left bars, and
+**severity-colored h3 headings** (High amber / Medium steel / Low moss /
+Info gray / Third-party deep-emerald). Tests +4; live-verified in compose
+on scan 30 (7 pages, high-risk crimson gauge, all four severity tints
+pixel-probed in the raster). Gates: **693 backend tests green (+4) + ruff
+clean**; image rebuilt.
+
+**PDF follow-up 2 (owner direction, same session) — real wordmark +
+conventional severity palette:** the cover band now draws the ACTUAL MASA
+wordmark asset (`frontend/src/assets/masa-wordmark.svg`, the same file the
+TopBar renders) instead of plain text. `scripts/sync_wordmark.py` vendors
+it into `backend/app/analysis/wordmark_data.py` (the M1 MASTG-vendoring
+precedent — the app image only ships `backend/` + `frontend/dist`): vector
+logo paths (M/L/H/V/Z subset; gradients flattened to midpoints) + the
+white "MASA" raster text cropped to the SVG's pattern-visible region
+(computed from the pattern matrix), normalized to white glyphs +
+downscaled 4x → 9.6 KB module (vs 460 KB raw). `report_pdf.py`
+`_wordmark_path`/`_wordmark_art` (lock-guarded cache)/`_draw_wordmark`
+draw the logo as a reportlab Drawing (y-flip, aspect-preserved) and
+composite the raster with `mask='auto'`; ANY failure degrades to the text
+wordmark (never a crash). Staleness guard: `wordmark_data.SVG_SHA256` is
+tested against the live asset. Severity palette switched to conventional
+**High red · Medium amber · Low green · Info slate** (`_SEVERITY_STYLES` +
+`_SEV_TEXT`: chips, h3 headings, cover boxes), and a follow-up mirrored
+it into the frontend overview (`.sev-tag` / `.spine` / `.fdot` now use
+`--color-sev-red/amber(->amber var)/green/slate`), so the dashboard and
+the export read consistently as a standard pentest deliverable. Tests +3 (vendored data +
+staleness fingerprint, Drawing build, fallback) + updated color
+assertions; live-verified in compose on scan 30 (vector logo facets +
+white MASA text on the band, red/amber/green/slate severity boxes). Gates:
+**696 backend tests green (+3) + ruff clean**; image rebuilt.
+
+**Follow-up (Aug 12, 2026 — third session): MASTG v2 currency + smali decode UX + narrow testing.**
+
+1. **MASTG v2 is CURRENT but the report cited deprecated v1 ids.** The
+   vendored data is synced from OWASP/owasp-mastg @ `d7fd7d45` (2026-08-03)
+   — MASTG v2. The v1-era test ids (MASTG-TEST-0001..0093) are ALL
+   deprecated in v2 (superseded by atomic tests in the 0200+ range, e.g.
+   MASTG-TEST-0222/-0326, which reference MASWE weakness ids). 92/292 of
+   our mapped tests are deprecated (incl. MASTG-TEST-0007 the report cited
+   and MASTG-TEST-0073 in the M5 test fixtures). Fix: `mastg.py` gained
+   `active_test_ids_for_control` (excludes deprecated + placeholder); the
+   backfill (`orchestrator._fill_mastg_test_ids`) only assigns live ids;
+   the report's `_mastg_tag` drops deprecated ids from the findings tags
+   AND the Recommended-priorities cites (the MASVS v2 control always
+   renders) + a **Standards** provenance line in the header. NOTE: the v2
+   atomic tests carry no MASVS-control linkage in our mapping yet (they
+   reference MASWE; the control↔test edges live in the OWASP MAS
+   checklist), so findings now cite the control without a MASTG tag until
+   the checklist-linkage sync lands — which is also the prerequisite for
+   the DEFERRED **MAS-checklist L1/L2/R assessment** (owner chose
+   citations-only; recommended v1.1 work: vendor the checklist's
+   MASVS-ID ↔ MASTG-TEST-ID ↔ L1/L2/R/P columns).
+2. **Smali "takes forever" = no worker, not slow apktool.** The on-demand
+   decode job sat QUEUED forever because the RQ `worker` service wasn't
+   running (compose defines it; only `app redis` were up). Decode itself:
+   ~4s for the 3.4 MB InsecureBankv2 sample (measured in-container).
+   Fixes: **warm pre-decode** at scan completion (`apktool_predecode_enabled`
+   default on; enqueue failure rolls back to `not_started`, warning-only)
+   and a **stuck-queue guard**: `smali-status` reports `stalled` with a
+   "start it with `docker compose up -d worker`" hint after
+   `apktool_queue_stall_seconds` (legacy null-clock queued rows count too);
+   the frontend chip renders `stalled` like `failed` with ↻ Retry.
+   Migration **0010** adds `scans.apktool_queued_at`. OPERATIONAL RULE:
+   decode/rebuild need the worker — run `docker compose up -d` (all
+   services). Live-verified: stalled message worker-down; worker up → the
+   stale queued job decoded → `ready`.
+3. **No-AI executive summary (same session, owner: "the PDF report should
+   not depend on AI - the user may or may not use a model").** The export
+   never required a model (decision 10), but the no-AI summary rendered
+   "_No AI summary yet - configure a chat model..._" - a visible AI
+   dependency. `report.assemble_report` now falls back to a deterministic
+   auto-summary (`_auto_summary`): "This automated static assessment of
+   `<file>` (<platform>) found **N findings** (n high, n medium, ...),
+   touching **M MASVS controls** (...)" — pure persisted data, no model.
+   A cached AI narrative still replaces it when present (enhancement, not
+   requirement). Live-verified with scan 30's ai_summary nulled (markdown
+   + PDF both complete, cover intact), then restored. +1 golden test.
+4. **Testing convention (owner direction):** validate changed areas only —
+   `pytest <changed test files>` + `ruff` on changed files + `npm run build`
+   only when the frontend changed (full-suite runs are the exception).
+   Narrow gates for this session: `test_smali_api.py` (+5: stall incl.
+   legacy-null, trigger clock, warm pre-decode on/off), `test_mastg.py`
+   (+2 active-lookup), `test_report.py` (+1 active-vs-deprecated cite),
+   `test_ibugbazaar.py` (backfill now asserts live ids only),
+   `test_migrations.py`, `test_report_export.py`, `test_scan_api_m5.py`,
+   `test_worker.py`, `test_report_api.py` — **144 passed, ruff clean**;
+   frontend tsc + vite green.

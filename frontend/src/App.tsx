@@ -70,12 +70,19 @@ function Shell() {
 
   if (booting) return <BootSplash />
 
+  // The scan currently on screen - the TopBar Export button targets it. The
+  // progress backdrop shows the last completed scan (NOT the running one),
+  // so `scanOverride ?? activeScan` is the same selection DashboardView
+  // renders; exporting the running scan would 409 anyway.
+  const visibleScan = view === 'progress' ? backdropScan ?? activeScan : activeScan
+
   return (
     <div className="grid h-screen grid-rows-[52px_1fr]">
       <TopBar
         onPickFile={() => fileInputRef.current?.click()}
         uploading={uploading}
         onOpenSettings={() => setSettingsOpen(true)}
+        scan={visibleScan}
       />
 
       {/* `relative` scopes the progress-dialog overlay to the main area so

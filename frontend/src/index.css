@@ -32,7 +32,12 @@
   --color-emerald: #1ed394;
   --color-emerald-deep: #017452;
   /* Severity / status. */
+  /* Conventional severity palette (matches the exported report, see
+     analysis/report_pdf.py): high red, medium amber, low green, info slate. */
+  --color-sev-red: #e05b52;
   --color-amber: #d98e3e;
+  --color-sev-green: #6fbe86;
+  --color-sev-slate: #8b95a0;
   --color-crimson: #c1554a;
   --color-moss: #6b8f71;
   /* Bundled via @fontsource - no Google Fonts CDN (local-first posture). */
@@ -418,16 +423,16 @@
     flex-shrink: 0;
   }
   .spine.high {
-    background: var(--color-amber);
+    background: var(--color-sev-red);
   }
   .spine.medium {
-    background: var(--color-steel);
+    background: var(--color-amber);
   }
   .spine.low {
-    background: var(--color-moss);
+    background: var(--color-sev-green);
   }
   .spine.info {
-    background: var(--color-bone-faint);
+    background: var(--color-sev-slate);
   }
 
   .sev-tag {
@@ -441,20 +446,57 @@
     height: fit-content;
   }
   .sev-tag.high {
+    background: rgba(224, 91, 82, 0.15);
+    color: var(--color-sev-red);
+  }
+  .sev-tag.medium {
     background: rgba(217, 142, 62, 0.15);
     color: var(--color-amber);
   }
-  .sev-tag.medium {
-    background: rgba(35, 207, 146, 0.12);
-    color: var(--color-steel);
-  }
   .sev-tag.low {
-    background: rgba(107, 143, 113, 0.15);
-    color: var(--color-moss);
+    background: rgba(111, 190, 134, 0.14);
+    color: var(--color-sev-green);
   }
   .sev-tag.info {
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--color-bone-faint);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-sev-slate);
+  }
+
+  /* Findings grouped by severity (the report body's ``### High (7)``
+     structure mirrored on the tab) - a small colored header above each
+     severity's rows, using the same conventional palette as the chips. */
+  .sev-group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin: 2px 0 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding-left: 8px;
+    border-left: 3px solid;
+  }
+  .sev-group-head.high {
+    color: var(--color-sev-red);
+    border-left-color: var(--color-sev-red);
+  }
+  .sev-group-head.medium {
+    color: var(--color-amber);
+    border-left-color: var(--color-amber);
+  }
+  .sev-group-head.low {
+    color: var(--color-sev-green);
+    border-left-color: var(--color-sev-green);
+  }
+  .sev-group-head.info {
+    color: var(--color-sev-slate);
+    border-left-color: var(--color-sev-slate);
+  }
+  .sev-group-count {
+    font-weight: 400;
+    opacity: 0.65;
   }
 
   .switch-pill {
@@ -752,13 +794,13 @@
     flex-shrink: 0;
   }
   .fdot.high {
-    background: var(--color-amber);
+    background: var(--color-sev-red);
   }
   .fdot.medium {
-    background: var(--color-steel);
+    background: var(--color-amber);
   }
   .fdot.low {
-    background: var(--color-moss);
+    background: var(--color-sev-green);
   }
   .fdot.none {
     background: transparent;
@@ -3358,3 +3400,59 @@
   gap: 6px;
   flex-shrink: 0;
 }
+
+  /* ---- M9 Phase D: Report tab ---- */
+  /* Top-bar Export button dropdown (same surface as .model-dropdown - the
+     rows reuse .model-opt/.mname/.via). A same-origin anchor download per
+     format; the disabled state (no completed scan) is the .btn rule. */
+  .export-trigger .chev {
+    margin-left: 6px;
+    font-size: 10px;
+    opacity: 0.7;
+  }
+  .export-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 200px;
+    background: var(--color-panel-raised);
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+    padding: 6px;
+    z-index: 60;
+  }
+  .export-menu .model-opt {
+    text-decoration: none;
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+  }
+
+  /* The Report tab now embeds the BRANDED PDF itself (owner follow-up: the
+     on-screen preview used to re-render the markdown; it now loads the
+     actual exported artifact via the inline-disposition export route) -
+     the white document sits in a framed viewer like a preview pane. */
+  .report-preview {
+    position: relative;
+  }
+  .report-pdf-frame {
+    display: block;
+    width: 100%;
+    height: 72vh;
+    min-height: 420px;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  }
+  .report-pdf-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    background: #f6f6f2;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+  }

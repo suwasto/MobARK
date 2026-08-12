@@ -104,12 +104,39 @@ def run_scan(scan_id: int) -> dict:
                 )
                 scan.error = "\n".join(result.warnings)[:2000]
                 db.commit()
+        # M8 follow-up (Aug 12): WARM pre-decode. With the worker running,
+        # the apktool decode starts the moment analysis lands, so the Smali
+        # view is usually ALREADY ready when it is opened - the on-demand
+        # first-open wait disappears (a big APK decodes while the user reads
+        # the report). Config-gated; a failed enqueue rolls the queue row
+        # back to ``not_started`` and is a warning, never a scan failure.
+        decode_enqueued = False
+        if result.platform == "android" and settings.apktool_predecode_enabled:
+            from app.analysis import apktool
+
+            if not apktool.is_ready(scan_id):
+                scan.apktool_status = "queued"
+                scan.apktool_queued_at = utcnow()
+                scan.apktool_error = None
+                db.commit()
+                try:
+                    enqueue_apktool_decode(scan_id)
+                    decode_enqueued = True
+                except Exception as exc:  # noqa: BLE001 - warning only
+                    scan.apktool_status = "not_started"
+                    scan.apktool_queued_at = None
+                    result.warnings.append(
+                        f"smali pre-decode enqueue failed (analysis unaffected): {exc}"
+                    )
+                    scan.error = "\n".join(result.warnings)[:2000]
+                    db.commit()
         return {
             "ok": True,
             "scan_id": scan_id,
             "findings": len(result.findings),
             "warnings": result.warnings,
             "graph_build_enqueued": graph_enqueued,
+            "decode_enqueued": decode_enqueued,
         }
     except Exception as exc:
         scan = db.get(Scan, scan_id)
@@ -228,10 +255,12 @@ def run_apktool_decode(scan_id: int) -> dict:
             # regardless of what the column says.
             scan.apktool_status = "ready"
             scan.apktool_error = None
+            scan.apktool_queued_at = None
             db.commit()
             return {"ok": True, "status": "ready", "note": "already decoded"}
 
         scan.apktool_status = "decoding"
+        scan.apktool_queued_at = None  # the job started - the stall clock stops
         db.commit()
 
         storage = Path(scan.storage_path) if scan.storage_path else None
@@ -244,6 +273,7 @@ def run_apktool_decode(scan_id: int) -> dict:
         apktool.decode(artifact_path, apktool.decoded_root(scan_id))
         scan.apktool_status = "ready"
         scan.apktool_error = None
+        scan.apktool_queued_at = None
         db.commit()
         return {"ok": True, "status": "ready"}
     except Exception as exc:

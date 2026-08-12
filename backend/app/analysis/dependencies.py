@@ -276,6 +276,29 @@ def _in_app(group: str, app_package: str | None) -> bool:
     )
 
 
+def group_for_finding(finding, app_package: str | None) -> str | None:
+    """The third-party dependency group a finding lives in, or None.
+
+    Shared with the report's third-party roll-up (M9 manual-review
+    follow-up): a finding is "vendored" when its root-relative
+    ``file_path`` (e.g. ``com/google/android/gms/...``) groups to a
+    dependency group that is not the app's own package - the SAME
+    classification the Dependencies tab uses, so the report and the
+    inventory never disagree about what is the app's own code.
+    Manifest-level findings (``AndroidManifest.xml``) and JDK namespaces
+    have no group -> None (app-owned)."""
+    path = getattr(finding, "file_path", None)
+    if not path:
+        return None
+    rel = Path(path).parent.as_posix()
+    if rel == ".":
+        return None
+    group = _group_key(rel)
+    if group is None or _in_app(group, app_package):
+        return None
+    return group
+
+
 def _walk_packages(sources: Path, app_package: str | None) -> tuple[dict[str, int], bool]:
     """Count source files per dependency group under the jadx ``sources`` tree.
 

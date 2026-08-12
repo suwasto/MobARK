@@ -29,9 +29,16 @@ frontend/vite.config.d.ts
 graphify-out/
 /app_m2_test.py
 build.log
+frontend/vite.log
 
 # ---- OS / editors ----
 .DS_Store
 .idea/
 .vscode/
 *.swp
+
+# ---- M9 (Aug 12, 2026): docs/ is deliberately UNTRACKED ----
+# ~44MB of binaries (sample APKs/IPAs, icons, mockup HTMLs) do not belong in
+# git. The .md milestone docs also live there - read them via explicit paths
+# (knowledge.md points at them) and search with `--no-ignore` (rg).
+docs/

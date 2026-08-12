@@ -72,15 +72,44 @@ class SearchError(RuntimeError):
     """A web tool failed cleanly - surfaced to the model as an error result."""
 
 
-def compose_hint(backend: SearchBackend) -> str:
+def _friendly_reason(exc: Exception) -> str:
+    """Translate a raw transport exception into a user-friendly clause - the
+    Settings card shows the human reason, never the raw ``([Errno -2] Name
+    or service not known)`` suffix (owner report, Aug 12). Matches on the
+    httpx-wrapped message text (httpx wraps the underlying socket error, so
+    type checks alone miss it). Unknown errors keep a short generic clause
+    - the raw detail stays in the server log, not the UI."""
+    msg = str(exc).lower()
+    if "timed out" in msg or "timeout" in msg:
+        return "the connection timed out - the service may still be starting"
+    if (
+        "name or service not known" in msg
+        or "nodename nor servname" in msg
+        or "getaddrinfo failed" in msg
+    ):
+        return "the host name couldn't be resolved - the service isn't running, or the URL is wrong"
+    if "connection refused" in msg or "actively refused" in msg:
+        return (
+            "the connection was refused - the service isn't running, or a "
+            "firewall is blocking it"
+        )
+    if "network is unreachable" in msg:
+        return "the network is unreachable - check that the service is on a reachable host"
+    return f"could not connect ({msg.strip()[:80]})"
+
+
+def compose_hint(backend: SearchBackend, exc: Exception | None = None) -> str:
     """Actionable first-use hint for an unreachable engine - the self-
-    explaining posture shared with the Ollama arch hint (M6)."""
+    explaining posture shared with the Ollama arch hint (M6). ``exc`` (when
+    present) is translated to a user-friendly reason instead of the raw
+    exception text."""
+    reason = f" - {_friendly_reason(exc)}" if exc is not None else ""
     if backend.kind == "bundled":
         return (
-            f"SearXNG is unreachable at {backend.base_url} - start the search "
-            "service: `docker compose --profile web up -d searxng`"
+            f"SearXNG is unreachable at {backend.base_url}{reason} - start the "
+            "search service: `docker compose --profile web up -d searxng`"
         )
-    return f"search engine is unreachable at {backend.base_url}"
+    return f"search engine is unreachable at {backend.base_url}{reason}"
 
 
 def _keyed_hint(backend: SearchBackend, exc: Exception) -> str:
@@ -92,7 +121,7 @@ def _keyed_hint(backend: SearchBackend, exc: Exception) -> str:
             f"{backend.name} rejected the API key (HTTP {exc.response.status_code}) - "
             "check the key in Settings → Search & research"
         )
-    return f"search engine is unreachable at {backend.base_url}"
+    return compose_hint(backend, exc)
 
 
 def _require_key(backend: SearchBackend) -> None:
@@ -143,7 +172,7 @@ def _query_searxng(
         resp.raise_for_status()
         data = resp.json()
     except httpx.HTTPError as exc:
-        raise SearchError(f"{compose_hint(backend)} ({exc})") from exc
+        raise SearchError(compose_hint(backend, exc)) from exc
     except ValueError as exc:
         raise SearchError(
             f"search engine returned non-JSON at {backend.base_url}: {exc}"
@@ -462,7 +491,7 @@ def check_backend(backend: SearchBackend, *, probe: bool = False) -> SearchHealt
             reachable=False,
             status="unreachable",
             latency_ms=latency(),
-            error=f"{compose_hint(backend)} ({exc})",
+            error=compose_hint(backend, exc),
         )
     return SearchHealth(
         backend_id=backend.id,

@@ -56,6 +56,25 @@ def test_ids_for_control(control: str, platform: str = "android") -> list[str]:
     return _control_index().get((platform, control), [])
 
 
+def active_test_ids_for_control(control: str, platform: str = "android") -> list[str]:
+    """CURRENT (non-deprecated) MASTG v2 test ids for a MASVS v2 control.
+
+    The v1-era ids (``MASTG-TEST-0001..0093``) are all DEPRECATED in MASTG
+    v2 (superseded by the atomic tests in the 0200+ range) - citing one as
+    current would mislead a pentester. Findings carry the MASVS control
+    regardless; this drives the backfill so new scans only ever cite live
+    ids (owner follow-up, Aug 12: "the report cites MASTG-TEST-0007 which
+    is deprecated").
+    """
+    return [
+        test_id
+        for test_id in test_ids_for_control(control, platform)
+        # ``deprecated`` = the retired v1-era ids; ``placeholder`` = a
+        # not-yet-written atomic slot. Neither is a citable current test.
+        if (mastg_test(test_id) or {}).get("status") not in ("deprecated", "placeholder")
+    ]
+
+
 def source_metadata() -> dict:
     """Upstream ref/date recorded when the mapping was generated."""
     if not MAPPING_PATH.is_file():

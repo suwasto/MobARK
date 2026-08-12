@@ -302,6 +302,46 @@ class SummaryResponse(BaseModel):
         return _utc_aware(value) if value is not None else None
 
 
+class ReportRegenerateResponse(BaseModel):
+    """POST /scans/{id}/report/regenerate (M9 Phase B) - the explicit
+    Regenerate opt-in for the report's AI surfaces.
+
+    Re-runs the executive summary (``regenerate=True`` - the cost-spending
+    opt-in, mirroring the M5 summary button) and, on request, fills in the
+    explanations MISSING from the report's findings (existing cached
+    explanations are never re-spent - open item 4 default). Returns the
+    freshly generated summary plus how many per-finding explanations were
+    newly produced.
+    """
+
+    summary: str
+    # How many findings got a NEW explanation this call (cached ones are kept).
+    explanations_generated: int = 0
+    model: str | None = None
+    generated_at: datetime | None = None
+
+    @field_serializer("generated_at")
+    def _ser_generated_at(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None
+
+
+class ReportResponse(BaseModel):
+    """GET /scans/{id}/report - the assembled markdown body (cached).
+
+    The Report tab renders this (react-markdown, the dock precedent). The
+    body never 400s on a missing model - the AI sections render their
+    cached rows or the explicit no-AI note (decision 10); only the
+    regenerate POST is an AI route.
+    """
+
+    markdown: str
+    generated_at: datetime
+
+    @field_serializer("generated_at")
+    def _ser_generated_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+
 class FileNode(BaseModel):
     """One node of the bounded decompiler tree."""
 

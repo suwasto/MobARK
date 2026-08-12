@@ -300,6 +300,46 @@ def test_smali_trigger_409_already_ready(client, db_session_factory, tmp_path, m
         assert session.get(Scan, scan_id).apktool_status == "ready"
 
 
+def test_smali_trigger_reenqueues_when_stalled(
+    client, db_session_factory, tmp_path, monkeypatch
+):
+    """Review catch: the ↻ Retry chip must WORK for the exact state the stall
+    guard surfaces - a stalled scan (still ``queued`` in the DB) re-enqueues
+    with a fresh clock instead of 409-ing as 'in progress'."""
+    from datetime import timedelta
+
+    from app.api.routes import scans as routes
+    from app.models import utcnow
+
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(apktool.settings, "apktool_queue_stall_seconds", 60)
+    enqueued = []
+    monkeypatch.setattr(routes, "enqueue_apktool_decode", lambda sid: enqueued.append(sid))
+    scan_id = _add_scan(db_session_factory, apktool_status="queued")
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).apktool_queued_at = utcnow() - timedelta(seconds=120)
+        session.commit()
+
+    r = client.post(f"/api/v1/scans/{scan_id}/smali")
+    assert r.status_code == 202
+    assert enqueued == [scan_id]
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        assert scan.apktool_status == "queued"
+        assert scan.apktool_queued_at is not None
+        assert (
+            utcnow().replace(tzinfo=None)
+            - scan.apktool_queued_at.replace(tzinfo=None)
+        ).total_seconds() < 60  # fresh clock - no longer stalled
+
+    # A genuinely in-progress decode (fresh clock) still 409s.
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).apktool_queued_at = utcnow()
+        session.commit()
+    r = client.post(f"/api/v1/scans/{scan_id}/smali")
+    assert r.status_code == 409
+
+
 def test_smali_trigger_500_on_enqueue_failure(client, db_session_factory, monkeypatch, tmp_path):
     from app.api.routes import scans as routes
 
@@ -351,6 +391,119 @@ def test_smali_status_reports_column_states(
         session.commit()
     r = client.get(f"/api/v1/scans/{scan_id}/smali-status")
     assert r.json() == {"status": "failed", "error": "apktool timed out"}
+
+
+def test_smali_status_stalled_when_no_worker_consumes_queue(
+    client, db_session_factory, tmp_path, monkeypatch
+):
+    """Aug 12 follow-up: a decode enqueued but never picked up (the RQ worker
+    service is down) is reported as ``stalled`` with a start-the-worker hint -
+    not an eternal 'queued' spinner. A freshly enqueued decode still reports
+    queued."""
+    from datetime import timedelta
+
+    from app.models import utcnow
+
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(apktool.settings, "apktool_queue_stall_seconds", 60)
+    scan_id = _add_scan(db_session_factory, apktool_status="queued")
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).apktool_queued_at = utcnow() - timedelta(seconds=120)
+        session.commit()
+    r = client.get(f"/api/v1/scans/{scan_id}/smali-status")
+    body = r.json()
+    assert body["status"] == "stalled"
+    assert "docker compose up -d worker" in body["error"]
+
+    # Freshly queued (the worker just hasn't picked it up yet) stays queued.
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).apktool_queued_at = utcnow()
+        session.commit()
+    r = client.get(f"/api/v1/scans/{scan_id}/smali-status")
+    assert r.json()["status"] == "queued"
+
+    # A legacy ``queued`` row with no clock (enqueued before the guard
+    # existed, worker never ran) is stalled too.
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).apktool_queued_at = None
+        session.commit()
+    r = client.get(f"/api/v1/scans/{scan_id}/smali-status")
+    assert r.json()["status"] == "stalled"
+
+
+def test_smali_trigger_sets_stall_clock(client, db_session_factory, tmp_path, monkeypatch):
+    """The trigger stamps apktool_queued_at so the stall guard has a clock."""
+    from app.api.routes import scans as routes
+
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(routes, "enqueue_apktool_decode", lambda sid: None)
+    scan_id = _add_scan(db_session_factory)
+    r = client.post(f"/api/v1/scans/{scan_id}/smali")
+    assert r.status_code == 202
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        assert scan.apktool_status == "queued"
+        assert scan.apktool_queued_at is not None
+
+
+def test_run_scan_warm_predecodes_android(monkeypatch, db_session_factory, tmp_path):
+    """Aug 12 follow-up: an Android scan's completion chain warms the apktool
+    decode (config-gated) so the Smali view is usually ready before it opens.
+    The enqueue failure path rolls back to not_started (warning, never a scan
+    failure)."""
+    import types as _types
+
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    monkeypatch.setattr("app.db.SessionLocal", db_session_factory)
+    scan_id = _add_scan(db_session_factory)
+    storage = _make_apk_upload(scan_id, tmp_path)
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).storage_path = storage
+        session.commit()
+
+    enqueued = []
+    monkeypatch.setattr(jobs, "enqueue_apktool_decode", lambda sid: enqueued.append(sid))
+    monkeypatch.setattr(jobs, "enqueue_graph_build", lambda sid: None)
+    fake = _types.SimpleNamespace(platform="android", findings=[], warnings=[])
+    monkeypatch.setattr("app.analysis.orchestrator.run_analysis", lambda *a, **k: fake)
+
+    result = jobs.run_scan(scan_id)
+    assert result["ok"] is True
+    assert result["decode_enqueued"] is True
+    assert enqueued == [scan_id]
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        assert scan.status == "done"
+        assert scan.apktool_status == "queued"
+        assert scan.apktool_queued_at is not None
+
+
+def test_run_scan_predecode_disabled_skips_enqueue(
+    monkeypatch, db_session_factory, tmp_path
+):
+    import types as _types
+
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    monkeypatch.setattr(apktool.settings, "apktool_predecode_enabled", False)
+    monkeypatch.setattr("app.db.SessionLocal", db_session_factory)
+    scan_id = _add_scan(db_session_factory)
+    storage = _make_apk_upload(scan_id, tmp_path)
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).storage_path = storage
+        session.commit()
+
+    enqueued = []
+    monkeypatch.setattr(jobs, "enqueue_apktool_decode", lambda sid: enqueued.append(sid))
+    monkeypatch.setattr(jobs, "enqueue_graph_build", lambda sid: None)
+    fake = _types.SimpleNamespace(platform="android", findings=[], warnings=[])
+    monkeypatch.setattr("app.analysis.orchestrator.run_analysis", lambda *a, **k: fake)
+
+    result = jobs.run_scan(scan_id)
+    assert result["ok"] is True
+    assert result["decode_enqueued"] is False
+    assert enqueued == []
+    with db_session_factory() as session:
+        assert session.get(Scan, scan_id).apktool_status == "not_started"
 
 
 def test_smali_status_unknown_scan_404(client, tmp_path, monkeypatch):

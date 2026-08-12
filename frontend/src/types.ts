@@ -37,13 +37,17 @@ export interface ScanRead {
   created_at: string
 }
 
-/** M8 Phase A: on-demand apktool decode lifecycle (the Smali chip). */
+/** M8 Phase A: on-demand apktool decode lifecycle (the Smali chip).
+ * `stalled` (Aug 12): the decode was enqueued but no RQ worker consumed
+ * it in time - a missing worker, not a slow apktool. The chip renders it
+ * like a failure with the backend's start-the-worker hint. */
 export type ApktoolStatus =
   | 'not_started'
   | 'queued'
   | 'decoding'
   | 'ready'
   | 'failed'
+  | 'stalled'
 
 export interface SmaliStatus {
   status: ApktoolStatus
@@ -345,6 +349,24 @@ export interface ExplainResponse {
 export interface SummaryResponse {
   summary: string
   cached: boolean
+  model: string | null
+  generated_at: string | null
+}
+
+// ---- M9 report tab (deterministic assembly + cached AI commentary) ----
+
+export interface ReportResponse {
+  /** The assembled markdown body (cache-first, identity-validated
+   * server-side - a suppress/regenerate/rebuild/web-capture recomputes). */
+  markdown: string
+  generated_at: string
+}
+
+export interface ReportRegenerateResponse {
+  summary: string
+  /** How many findings got a NEW explanation this call (cached ones are
+   * kept - each is a separate LLM call, so only missing ones are spent). */
+  explanations_generated: number
   model: string | null
   generated_at: string | null
 }

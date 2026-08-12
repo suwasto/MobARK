@@ -29,6 +29,16 @@ httpx==0.28.1  # direct runtime dep since M3 (health model listing); was dev-onl
 # Apache-2.0; earlier versions were GPLv3+ (see docs/licenses.md).
 trafilatura>=1.8.0,<2.0
 
+# M9 — report export (Phase C). reportlab (BSD-3-Clause) platypus renders
+# the assembled body to a branded PDF; python-markdown (BSD-3-Clause)
+# converts the body to the constrained HTML the renderer lays out. The
+# original xhtml2pdf choice was DROPPED at the Aug 12 follow-up: its
+# transitive tree imports LGPL python-bidi + LGPLv3 svglib — a violation of
+# the permissive-only posture (see docs/licenses.md); reportlab is
+# permissive and verified.
+reportlab==4.5.1
+markdown==3.10.3
+
 # M4 — Graphify code graph, Layer 3 (pinned at install, Aug 6, 2026).
 # The RAG/embedding pipeline (chromadb, llama-index-core) was removed from
 # v1 by owner decision — Layers 1-3 are non-embedding.

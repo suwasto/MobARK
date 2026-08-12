@@ -32,9 +32,14 @@ COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # --- toolchain download deps ---
+# fonts-dejavu-core (M9 Phase C): the DejaVu Sans TTF bundled for Unicode
+# PDF text - /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf, the
+# MASA_REPORT_FONT default. Bitstream-Vera-licensed (permissive), no
+# license-posture change (see docs/licenses.md).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        unzip curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+        unzip curl ca-certificates fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
 
 # --- jadx (JVM CLI; ~33 MB zip) ---
 # Note: unzip -d only creates a single level, so /opt/masa-tools must

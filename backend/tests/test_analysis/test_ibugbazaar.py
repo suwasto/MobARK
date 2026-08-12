@@ -44,9 +44,16 @@ def test_full_ios_pipeline_on_sample(ipa, tmp_path_factory):
     assert all(f.severity in SEVERITIES for f in result.findings)
     assert all(f.static_only is True for f in result.findings)
 
-    # MASTG backfill ran for iOS findings (the vendored mapping has iOS tests).
-    backfilled = [f for f in result.findings if f.category and f.mastg_test_id]
-    assert backfilled, "expected MASTG test ids backfilled for iOS findings"
+    # MASTG backfill only ever assigns CURRENT v2 test ids (Aug 12 follow-up):
+    # the vendored mapping's v1-era ids (0001..0093) are deprecated in MASTG
+    # v2, so a finding either carries a live id or none - never a retired one.
+    from app.analysis.mastg import mastg_test
+
+    for f in result.findings:
+        if f.mastg_test_id:
+            info = mastg_test(f.mastg_test_id)
+            assert info is not None, "unknown backfilled test id"
+            assert info.get("status") != "deprecated", f.mastg_test_id
 
     meta = result.meta
     assert meta.get("bundle_identifier") == "com.payatu.BugBazar"

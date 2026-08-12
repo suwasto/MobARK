@@ -96,10 +96,10 @@ export function OverviewPanel({
           <SecurityGauge score={scan.security_score} />
         </div>
         <div className="grid h-full grid-cols-4 gap-3.5">
-          <StatBox n={counts.high} label="High" cls="text-amber" />
-          <StatBox n={counts.medium} label="Medium" cls="text-steel" />
-          <StatBox n={counts.low} label="Low" cls="text-moss" />
-          <StatBox n={counts.info} label="Info" cls="text-bone-faint" />
+          <StatBox n={counts.high} label="High" cls="text-sev-red" />
+          <StatBox n={counts.medium} label="Medium" cls="text-amber" />
+          <StatBox n={counts.low} label="Low" cls="text-sev-green" />
+          <StatBox n={counts.info} label="Info" cls="text-sev-slate" />
         </div>
       </div>
 

@@ -341,8 +341,12 @@ export function DecompilerPanel({
 
   // Poll while a decode is queued/running until it settles (ready/failed).
   const smaliBusy = smali?.status === 'queued' || smali?.status === 'decoding'
+  // `stalled` (Aug 12) keeps polling SLOWLY: the queued job completes on its
+  // own the moment a worker comes up, so the chip recovers without a click -
+  // fast while actively decoding, slow so a dead worker isn't hammered.
+  const smaliPolling = smaliBusy || smali?.status === 'stalled'
   useEffect(() => {
-    if (!smaliBusy) return
+    if (!smaliPolling) return
     let cancelled = false
     const t = window.setInterval(async () => {
       try {
@@ -351,12 +355,12 @@ export function DecompilerPanel({
       } catch {
         // Transient poll failure - keep polling; the next tick retries.
       }
-    }, 2000)
+    }, smali?.status === 'stalled' ? 15000 : 2000)
     return () => {
       cancelled = true
       window.clearInterval(t)
     }
-  }, [scanId, smaliBusy])
+  }, [scanId, smaliPolling, smali?.status])
 
   // Phase B: the moment a decode turns ready, refetch the file tree so the
   // apktool roots (smali, res, AndroidManifest.xml) appear - the tree was
@@ -661,7 +665,11 @@ export function DecompilerPanel({
   const platform = files?.platform ?? null
   const isAndroid = platform === 'android'
   const smaliReady = smali?.status === 'ready'
-  const smaliFailed = smali?.status === 'failed'
+  // `stalled` (Aug 12): the decode was enqueued but no RQ worker consumed
+  // it - the chip renders like a failure with the backend's friendly
+  // 'start the worker' hint, and the ↻ Retry decode button re-triggers it.
+  const smaliFailed =
+    smali?.status === 'failed' || smali?.status === 'stalled'
   // M8 toolbar gate: the WHOLE Java/Smali toggle (Java chip included) plus
   // the decode/recompile affordances are Android-only - fully hidden on iOS
   // (decision 5 - iOS keeps the read-only bundle view; no apktool/ldid in

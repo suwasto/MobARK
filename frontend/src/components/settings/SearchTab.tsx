@@ -110,13 +110,22 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
   // probes them regardless), so a dead engine's radio is disabled until it
   // answers. Keyed engines can't be probed cheaply - their honest check is a
   // real query - so their gate is the API key (the existing "No API key
-  // set" hint explains). An ALREADY-Active engine stays toggleable so it can
-  // be turned off even after going unreachable.
+  // set" hint explains).
+  // Owner report (Aug 12): the bundled engine showed "Active" while the
+  // container was down and its radio stayed toggleable. A SearXNG-style
+  // engine now reads as Active ONLY while it actually answers - the stored
+  // `enabled` flag is user intent, and an unreachable engine renders as
+  // Inactive with its switch disabled (both on AND off) until it comes up
+  // again; the recovery path is ▶ Start engine / Test, not flipping the
+  // switch.
   const searxngStyle = backend.kind !== 'keyed'
   const engineLive = searxngStyle
     ? (h?.reachable ?? false)
     : backend.has_api_key
-  const radioDisabled = !backend.enabled && !engineLive
+  const effectiveEnabled = searxngStyle
+    ? backend.enabled && engineLive
+    : backend.enabled
+  const radioDisabled = !engineLive
 
   useEffect(() => {
     setBaseUrl(backend.base_url)
@@ -272,25 +281,26 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
   }
 
   return (
-    <div className={`backend-card ${backend.enabled ? '' : 'opacity-70'}`}>
+    <div className={`backend-card ${effectiveEnabled ? '' : 'opacity-70'}`}>
       <div className="backend-card-head">
         <div className="name">
-          <span className={`dot ${backend.enabled ? (h?.reachable ? 'online' : 'off') : 'off'}`} />
+          <span className={`dot ${effectiveEnabled ? (engineLive ? 'online' : 'off') : 'off'}`} />
           <span className="truncate">{backend.name}</span>
           <span className="kind-tag">{backend.kind}</span>
         </div>
         <div className="right">
-          <span className={`conn-status ${backend.enabled ? (h?.reachable ? 'ok' : 'off') : 'off'}`}>
-            {backend.enabled ? 'Active' : 'Inactive'}
+          <span className={`conn-status ${effectiveEnabled ? (engineLive ? 'ok' : 'off') : 'off'}`}>
+            {effectiveEnabled ? 'Active' : 'Inactive'}
           </span>
           {/* The Active/Inactive radio - one engine Active at a time. It is
               disabled (dimmed, click-inert) while the engine can't search:
-              a SearXNG-style engine that the probe reports unreachable, or a
-              keyed engine with no API key. An Active engine stays toggleable
-              so it can be turned off even after going unreachable. */}
+              a SearXNG-style engine that the probe reports unreachable (even
+              if it was Active before going down), or a keyed engine with no
+              API key. The recovery for a dead bundled engine is ▶ Start
+              engine / Test, not flipping the switch. */}
           <span
             role="radio"
-            aria-checked={backend.enabled}
+            aria-checked={effectiveEnabled}
             aria-disabled={radioDisabled}
             aria-label={`${backend.name} active`}
             title={
@@ -298,11 +308,11 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
                 ? searxngStyle
                   ? 'Engine unreachable - start it (▶ Start engine), then activate'
                   : 'No API key set - add a key to use this engine'
-                : backend.enabled
+                : effectiveEnabled
                   ? 'Active - the agent searches with this engine'
                   : 'Set as the Active search engine (turns others off)'
             }
-            className={`switch ${backend.enabled ? 'on' : ''}${radioDisabled ? ' disabled' : ''}`}
+            className={`switch ${effectiveEnabled ? 'on' : ''}${radioDisabled ? ' disabled' : ''}`}
             onClick={() => void toggleActive()}
           />
         </div>
@@ -347,8 +357,14 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
           {h.sample_title ? ` (first: ${h.sample_title})` : ''}.
         </p>
       )}
-      {!backend.enabled && (
-        <p className="field-hint">Inactive - the agent will not search with this engine.</p>
+      {!effectiveEnabled && (
+        <p className="field-hint">
+          Inactive - the agent will not search with this engine.
+          {searxngStyle && backend.enabled && (
+            <> The engine is unreachable right now - start it or Test it to
+            reactivate.</>
+          )}
+        </p>
       )}
       {/* Keyed engines never expose the key - only whether one is set
           (same honesty rule as model backends). Change it: remove + re-add. */}

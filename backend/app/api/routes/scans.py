@@ -18,14 +18,15 @@ from __future__ import annotations
 
 import json
 import queue
+import re
 import threading
 import zipfile
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import case, select
+from fastapi.responses import FileResponse, Response, StreamingResponse
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.agent import insights
@@ -39,7 +40,18 @@ from app.agent.chat import (
     check_configured,
     request_cancel,
 )
-from app.analysis import apktool, dependencies, editable, edits, rebuild, smali_map, tree
+from app.analysis import (
+    apktool,
+    dependencies,
+    editable,
+    edits,
+    rebuild,
+    report,
+    report_pdf,
+    smali_map,
+    tree,
+    web_sources,
+)
 from app.analysis.risk import SEVERITY_ORDER, compute_risk_score, security_from_risk
 from app.config import settings
 from app.db import get_db
@@ -61,6 +73,8 @@ from app.schemas import (
     GraphHubsResponse,
     GraphNodeDetail,
     GraphSearchResponse,
+    ReportRegenerateResponse,
+    ReportResponse,
     ScanGraphState,
     ScanRead,
     SmaliMappingResponse,
@@ -372,6 +386,215 @@ def scan_summary(
     return SummaryResponse(**result)
 
 
+@router.post("/{scan_id}/report/regenerate", response_model=ReportRegenerateResponse)
+def regenerate_report(
+    scan_id: int,
+    db: DbSession,
+    explanations: bool = Query(default=True),
+) -> ReportRegenerateResponse:
+    """M9 Phase B: the report's explicit Regenerate opt-in (decision 10).
+
+    Re-runs the report's AI surfaces with the M5 regenerate semantics -
+    cache-first by default, and this POST is the explicit cost-spending
+    opt-in that bypasses the cache:
+    - the executive summary is ALWAYS regenerated (``summarize_scan`` with
+      ``regenerate=True``, persisted to ``scans.ai_summary``);
+    - per-finding explanations are filled in ONLY when missing
+      (``explanations=true``, the default - open item 4: "summary +
+      explicitly missing explanations"; existing cached explanations are
+      never re-spent, since each is a separate LLM call).
+
+    Deliberate all-or-nothing transaction: one commit at the end, so a
+    mid-loop explanation failure (502) discards the freshly generated
+    summary too - the M5 single-commit shape; retrying regenerates both
+    (the summary is re-spent either way, and already-explained findings are
+    skipped).
+
+    The report body itself (Phase A assembly) never 400s on a missing model
+    - only THIS AI route does, with the M5 error contract: 404 unknown scan
+    · 409 not analyzed · 400 no chat model configured (NoModelConfigured) ·
+    502 upstream LLM failure (InsightError).
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    # Suppressed false positives stay out of the summary AND the explanation
+    # pass (the risk/summary/agent convention).
+    findings = list(
+        db.scalars(
+            select(Finding)
+            .where(Finding.scan_id == scan_id, Finding.suppressed == False)  # noqa: E712
+        ).all()
+    )
+    risk = (
+        scan.risk_score
+        if scan.risk_score is not None
+        else compute_risk_score(findings)
+    )
+    try:
+        result = insights.summarize_scan(
+            scan, findings, security_from_risk(risk), regenerate=True
+        )
+        generated = 0
+        if explanations:
+            for finding in findings:
+                if not finding.explanation:
+                    insights.explain_finding(scan_id, finding)
+                    generated += 1
+    except NoModelConfigured as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except insights.InsightError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    db.commit()
+    return ReportRegenerateResponse(
+        summary=result["summary"],
+        explanations_generated=generated,
+        model=result.get("model"),
+        generated_at=result.get("generated_at"),
+    )
+
+
+def _report_stem(filename: str) -> str:
+    """Sanitized export-file stem - ASCII-safe so a hostile filename can
+    never smuggle quotes/CRLF into a Content-Disposition header."""
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(filename).stem).strip(".-")
+    return stem or "report"
+
+
+def _assembled_report(db: Session, scan: Scan) -> str:
+    """Assemble the scan's report body - cache-first (decision 7).
+
+    Shared by GET /report and the export endpoints. Reads only persisted
+    data: the non-suppressed findings, the cached dependencies inventory
+    (its own findings-fingerprint cache), the M8 builds, and the web-source
+    ledger. The body cache is identity-validated: a suppress toggle /
+    regenerate / rebuild / web capture recomputes lazily instead of serving
+    a stale body (the dependencies_cache pattern). Pure assembly - no LLM
+    and no model required (decision 10).
+    """
+    findings = list(
+        db.scalars(
+            select(Finding).where(
+                Finding.scan_id == scan.id, Finding.suppressed == False  # noqa: E712
+            )
+        ).all()
+    )
+    # Open item 2 footnote: how many findings suppression excluded (a
+    # suppressed-only scan would otherwise read as "zero findings" with no
+    # explanation). One count query - the rows themselves stay reviewable
+    # in the Findings tab's include_suppressed view.
+    suppressed_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(Finding)
+            .where(Finding.scan_id == scan.id, Finding.suppressed == True)  # noqa: E712
+        )
+        or 0
+    )
+    deps = dependencies.cached_inventory(scan, findings)
+    if deps is None:
+        deps = dependencies.inventory(scan, findings)
+        dependencies.store_inventory(scan, findings, deps)
+    builds = list(
+        db.scalars(
+            select(Build).where(Build.scan_id == scan.id).order_by(Build.id)
+        ).all()
+    )
+    sources = web_sources.sources_for(scan.id)
+    cached = report.cached_body(
+        scan,
+        findings,
+        dependencies=deps,
+        builds=builds,
+        web_sources=sources,
+        suppressed_count=suppressed_count,
+    )
+    if cached is not None:
+        return cached
+    body = report.assemble_report(
+        scan,
+        findings,
+        dependencies=deps,
+        builds=builds,
+        web_sources=sources,
+        suppressed_count=suppressed_count,
+    )
+    report.store_body(
+        scan,
+        body,
+        findings=findings,
+        dependencies=deps,
+        builds=builds,
+        web_sources=sources,
+        suppressed_count=suppressed_count,
+    )
+    return body
+
+
+@router.get("/{scan_id}/report", response_model=ReportResponse)
+def scan_report(scan_id: int, db: DbSession) -> ReportResponse:
+    """M9: the assembled report body (cached markdown) for the Report tab.
+
+    404 unknown scan · 409 not analyzed. The body NEVER 400s on a missing
+    model - the AI sections render their cached rows or the explicit no-AI
+    note (decision 10); only the regenerate POST is an AI route.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    return ReportResponse(markdown=_assembled_report(db, scan), generated_at=utcnow())
+
+
+@router.get("/{scan_id}/report/export")
+def export_report(
+    scan_id: int,
+    db: DbSession,
+    format: str = Query(default="md"),
+    inline: bool = Query(
+        default=False,
+        description="serve with Content-Disposition: inline (the Report tab's "
+        "live PDF iframe) instead of the download attachment",
+    ),
+) -> Response:
+    """M9 Phase C: export the assembled report as Markdown or branded PDF.
+
+    ``format=md`` streams the cached body itself with a ``{stem}-report.md``
+    attachment; ``format=pdf`` renders the SAME body through reportlab
+    platypus (BSD-3-Clause, decision 3) with a ``{stem}-report.pdf``
+    attachment - one body, two media. ``inline=1`` swaps the disposition to
+    inline (the Report tab renders the PDF in an iframe; the download anchors
+    keep the attachment default). 404 unknown scan · 409 not analyzed · 400
+    unknown format · 500 PDF render failure (timeout / size cap / invalid
+    output - never a silent empty file).
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    if format not in ("md", "pdf"):
+        raise HTTPException(
+            status_code=400, detail=f"unknown export format {format!r} (md | pdf)"
+        )
+    body = _assembled_report(db, scan)
+    stem = _report_stem(scan.filename)
+    disposition = "inline" if inline else "attachment"
+    if format == "md":
+        return Response(
+            content=body,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f'{disposition}; filename="{stem}-report.md"'
+            },
+        )
+    try:
+        pdf = report_pdf.render_pdf(body, stem=stem)
+    except report_pdf.ReportPdfError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{stem}-report.pdf"'
+        },
+    )
+
+
 @router.post("/{scan_id}/findings/{finding_id}/explain", response_model=ExplainResponse)
 def explain_finding(
     scan_id: int,
@@ -478,6 +701,30 @@ def scan_dependencies(scan_id: int, db: DbSession) -> DependenciesResponse:
 
 # ---- M8 Phase A: on-demand apktool decode (Smali view) ----------------------
 
+_STALL_HINT = (
+    "the decode job is queued but no background worker is picking it up - "
+    "the worker service may be down or busy. Start it with `docker compose "
+    "up -d worker` (or `docker compose up -d`); the queued job runs as soon "
+    "as a worker is available"
+)
+
+
+def _decode_stalled(scan) -> bool:
+    """Stuck-queue predicate (shared by smali-status AND the trigger): a
+    decode still ``queued`` with no worker consuming it. ``queued`` with a
+    NULL clock is a legacy stuck row (every enqueue path stamps it now); a
+    clock older than ``apktool_queue_stall_seconds`` is a worker that never
+    picked the job up. SQLite round-trips DateTime as naive, so compare both
+    sides naive UTC."""
+    if scan.apktool_status != "queued":
+        return False
+    queued_at = scan.apktool_queued_at
+    if queued_at is None:
+        return True
+    return (
+        utcnow().replace(tzinfo=None) - queued_at.replace(tzinfo=None)
+    ).total_seconds() > settings.apktool_queue_stall_seconds
+
 
 @router.post("/{scan_id}/smali", response_model=SmaliStatusResponse, status_code=202)
 def trigger_apktool_decode(scan_id: int, db: DbSession) -> SmaliStatusResponse:
@@ -504,7 +751,7 @@ def trigger_apktool_decode(scan_id: int, db: DbSession) -> SmaliStatusResponse:
         raise HTTPException(
             status_code=409, detail="apktool already decoded for this scan"
         )
-    if scan.apktool_status in {"queued", "decoding"}:
+    if scan.apktool_status in {"queued", "decoding"} and not _decode_stalled(scan):
         raise HTTPException(
             status_code=409,
             detail=f"apktool decode already in progress (status={scan.apktool_status})",
@@ -515,11 +762,18 @@ def trigger_apktool_decode(scan_id: int, db: DbSession) -> SmaliStatusResponse:
         )
     scan.apktool_status = "queued"
     scan.apktool_error = None
+    # The stall-guard clock: a ``queued`` state this old with no worker
+    # consuming it means the RQ worker isn't running, not that apktool is
+    # slow - smali-status reports ``stalled`` with a start-the-worker hint.
+    # A STALLED scan is re-triggerable here (the guard above lets it through):
+    # the ↻ Retry chip re-enqueues with a fresh clock instead of 409-ing.
+    scan.apktool_queued_at = utcnow()
     db.commit()
     try:
         enqueue_apktool_decode(scan_id)
     except Exception as exc:  # noqa: BLE001 - Redis down; never leave a phantom queue row
         scan.apktool_status = "failed"
+        scan.apktool_queued_at = None
         scan.apktool_error = f"decode job enqueue failed: {exc}"
         db.commit()
         raise HTTPException(
@@ -542,6 +796,11 @@ def smali_status(scan_id: int, db: DbSession) -> SmaliStatusResponse:
     scan = _get_scan_or_404(db, scan_id)
     if apktool.is_ready(scan.id):
         return SmaliStatusResponse(status="ready")
+    # Stuck-queue guard (M8 follow-up, Aug 12): a decode that was enqueued
+    # but never picked up is a missing RQ worker, not a slow apktool - the
+    # chip was spinning "forever" whenever the worker service was down.
+    if _decode_stalled(scan):
+        return SmaliStatusResponse(status="stalled", error=_STALL_HINT)
     return SmaliStatusResponse(status=scan.apktool_status, error=scan.apktool_error)
 
 
@@ -1009,6 +1268,10 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except ChatUpstreamError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # M9 open item 1: capture the web URLs the agent actually fetched this
+    # turn into the scan's ledger (the report's External references section) -
+    # best-effort, never affects the response.
+    web_sources.capture_from_turn(scan_id, result.tool_runs)
     # Shared with the SSE stream's final answer frame - one payload shape.
     return ChatResponse(**_chat_payload(result))
 
@@ -1063,6 +1326,9 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
                     on_event=on_event,
                     mentioned_files=payload.mentioned_files,
                 )
+                # M9 open item 1: same ledger capture as the buffered route -
+                # best-effort, never affects the stream.
+                web_sources.capture_from_turn(scan_id, result.tool_runs)
                 frames.put(_sse_frame("answer", _chat_payload(result)))
             except ChatNotConfigured as exc:
                 frames.put(_sse_frame("error", {"kind": "no-model", "detail": str(exc)}))

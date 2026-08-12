@@ -27,6 +27,8 @@ import type {
   ScanGraphState,
   ScanRead,
   DependenciesResponse,
+  ReportRegenerateResponse,
+  ReportResponse,
   SearchBackendCreate,
   SearchBackendRead,
   SearchBackendUpsert,
@@ -160,6 +162,34 @@ export const api = {
    * panel's "Check known CVEs" button pre-fills the dock question). */
   listDependencies: (scanId: number) =>
     request<DependenciesResponse>(`/scans/${scanId}/dependencies`),
+
+  // ---- M9 report tab (assembly + export) ----
+  /** The assembled report body (cached server-side; never 400s on a missing
+   * model - the AI sections render their cached rows or the explicit no-AI
+   * note). */
+  getReport: (scanId: number) => request<ReportResponse>(`/scans/${scanId}/report`),
+  /** M9 Phase B: the explicit Regenerate opt-in - re-runs the executive
+   * summary (persisted) and fills MISSING per-finding explanations (cached
+   * ones are never re-spent). 400 no model · 502 upstream. */
+  regenerateReport: (scanId: number) =>
+    request<ReportRegenerateResponse>(`/scans/${scanId}/report/regenerate`, {
+      method: 'POST',
+    }),
+  /** M9 Phase C: the export download URL. Same-origin, so a plain anchor
+   * with the `download` attribute works - the backend's Content-Disposition
+   * sets the `{stem}-report.md|pdf` attachment name anyway. */
+  reportExportUrl: (scanId: number, format: 'md' | 'pdf') =>
+    `${API_BASE}/scans/${scanId}/report/export?format=${format}`,
+  /** The Report tab's live PDF preview URL - the backend serves it with
+   * `Content-Disposition: inline` so an <iframe> renders it (attachment
+   * would trigger a download instead). The optional `nonce` cache-busts so
+   * a Regenerate / tab re-activation reloads the freshly assembled body. */
+  reportPdfUrl: (scanId: number, nonce?: number) =>
+    `${API_BASE}/scans/${scanId}/report/export?format=pdf&inline=1${
+      nonce ? `&t=${nonce}` : ''
+    }`,
+
+  // ---- M8 Phase A: on-demand apktool decode (Smali view) ----
 
   // ---- M8 Phase A: on-demand apktool decode (Smali view) ----
   /** Trigger the on-demand apktool decode (202 queued; 409 already

@@ -40,6 +40,17 @@ class Settings(BaseSettings):
     # resolves from PATH unless MASA_APKTOOL_CMD is set.
     apktool_cmd: str | None = None
     apktool_timeout_seconds: int = 1200
+    # M8 follow-up (Aug 12): warm pre-decode + stuck-queue guard. Pre-decode
+    # starts the apktool job in the background when an Android scan finishes,
+    # so the Smali view is usually already ready before it is opened (the
+    # on-demand first-open wait disappears; a big APK decodes while the user
+    # reads the report). The stall guard surfaces a queue no worker is
+    # consuming - a decode that never runs looks exactly like a slow one.
+    apktool_predecode_enabled: bool = True
+    # 120s: a decode queued this long with no pick-up is a missing/busy
+    # worker - but a busy worker (long graph build ahead of it) is common
+    # enough that a shorter window would cry wolf.
+    apktool_queue_stall_seconds: int = 120
     # ---- M8 Phase C: rebuild pipeline tools + timings ----
     # zipalign + apksigner (Android build-tools 35.0.0, bundled under
     # /opt/masa-tools/build-tools/) and keytool (ships in the bundled JRE -
@@ -124,6 +135,22 @@ class Settings(BaseSettings):
     web_fetch_timeout_seconds: int = 20
     # Hard cap on the raw HTML read into memory before trafilatura extraction.
     web_fetch_max_bytes: int = 1_000_000
+
+    # ---- M9 report export (Phase C) ----
+    # TTF bundled in the image for Unicode PDF text (DejaVu Sans from
+    # fonts-dejavu-core: /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf on
+    # Debian). Hosts/tests may point this at any TTF via MASA_REPORT_FONT;
+    # when the file is missing the PDF falls back to reportlab's built-in
+    # Helvetica (ASCII/Latin-1 still renders) - never a crash.
+    report_font_path: Path = Path(
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    )
+    # Bounded render: the md->HTML fragment handed to the renderer is
+    # size-capped (a huge scan can't balloon the render) and the render
+    # itself runs under a hard deadline (a stuck engine can never block the
+    # API worker forever).
+    report_pdf_max_html_bytes: int = 5_000_000
+    report_pdf_timeout_seconds: int = 60
 
     # ---- M5 dashboard ----
     # Upload size cap for POST /api/v1/scans (413 over the limit).

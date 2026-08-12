@@ -21,7 +21,7 @@ from pathlib import Path
 from app.analysis import gitleaks, jadx, manifest, semgrep
 from app.analysis.base import FindingOut, ScanResult
 from app.analysis.ios import entitlements, ipa, macho, plist, symbols
-from app.analysis.mastg import test_ids_for_control
+from app.analysis.mastg import active_test_ids_for_control
 from app.config import settings
 
 # M4 Layer 1: iOS string-level rules (kSecAttrAccessibleAlways) ride through
@@ -234,9 +234,16 @@ def _preflight_apk(apk_path: Path) -> None:
 
 
 def _fill_mastg_test_ids(findings: list[FindingOut], platform: str) -> None:
-    """Backfill mastg_test_id from the vendored mapping where a control is set."""
+    """Backfill mastg_test_id from the vendored mapping where a control is set.
+
+    Only CURRENT ids are cited (Aug 12 follow-up): the v1-era ids
+    (0001..0093) are deprecated in MASTG v2, and ``ids[0]`` used to land on
+    them (e.g. MASTG-TEST-0007) - the report read as citing a retired
+    standard. A control whose mapped tests are ALL deprecated simply carries
+    no MASTG tag; the MASVS control itself is always cited.
+    """
     for f in findings:
         if f.category and not f.mastg_test_id:
-            ids = test_ids_for_control(f.category, platform=platform)
+            ids = active_test_ids_for_control(f.category, platform=platform)
             if ids:
                 f.mastg_test_id = ids[0]

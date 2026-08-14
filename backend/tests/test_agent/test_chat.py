@@ -13,7 +13,7 @@ import pytest
 
 from app.agent import chat as chat_mod
 from app.agent.chat import ChatNotConfigured, answer_question
-from app.models import Finding, Scan
+from app.models import Edit, Finding, Scan
 
 
 @pytest.fixture()
@@ -881,7 +881,12 @@ def test_loop_exhaustion_falls_back_to_plain_chat(env, monkeypatch):
         return _resp(_msg("The WebView client lives in com/app/W.java:42."))
 
     monkeypatch.setattr(chat_mod, "client_chat", tool_loop_then_answer)
-    result = answer_question(scan_id, "where is the webview client?", timeout=60.0)
+    # Pin the round budget explicitly - the settings default is now the
+    # CLI-agent-like 20 (M9 follow-up), and this test asserts the exact
+    # round count of the exhaustion path.
+    result = answer_question(
+        scan_id, "where is the webview client?", timeout=60.0, max_tool_rounds=3
+    )
     assert "WebView client" in result.answer
     assert len(calls) == 5  # 4 tool rounds + 1 plain fallback
     # the fallback carries no tool schemas and replays the original 2-turn
@@ -912,7 +917,9 @@ def test_loop_exhaustion_fallback_failure_raises_upstream(env, monkeypatch):
 
     monkeypatch.setattr(chat_mod, "client_chat", tool_loop_then_boom)
     with pytest.raises(chat_mod.ChatUpstreamError, match="LLM call failed"):
-        answer_question(scan_id, "where is the webview client?", timeout=60.0)
+        answer_question(
+            scan_id, "where is the webview client?", timeout=60.0, max_tool_rounds=3
+        )
     assert calls["n"] == 5
 
 
@@ -935,7 +942,9 @@ def test_loop_exhaustion_empty_fallback_returns_graceful_message(env, monkeypatc
         return _resp(_msg("   "))
 
     monkeypatch.setattr(chat_mod, "client_chat", tool_loop_then_empty)
-    result = answer_question(scan_id, "where is the webview client?", timeout=60.0)
+    result = answer_question(
+        scan_id, "where is the webview client?", timeout=60.0, max_tool_rounds=3
+    )
     assert "tool-call limit" in result.answer
     assert "Try a more specific question" in result.answer
 
@@ -1141,6 +1150,223 @@ def test_plan_narration_regex_matches_real_wording(env, monkeypatch):
     ]
     for s in not_narration:
         assert not chat_mod._NARRATION_INTENT_RE.search(s), s
+
+
+# ---- M9 follow-up: edit-task nudges + history + review state ----------------
+
+# A decoded apktool tree (edit tools become allowed) - mirrors the
+# test_edit_tools.py helper, inlined so this module stays self-contained.
+_NUDGE_MANIFEST = """<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.example.demo">
+    <uses-sdk android:minSdkVersion="21"/>
+    <application android:allowBackup="true" android:debuggable="true">
+        <activity android:name=".MainActivity" android:exported="true"/>
+    </application>
+</manifest>
+"""
+
+
+def _apktool_tree(tmp_path, scan_id) -> None:
+    root = tmp_path / "work" / str(scan_id) / "apktool"
+    (root / "smali/com/foo").mkdir(parents=True)
+    (root / "AndroidManifest.xml").write_text(_NUDGE_MANIFEST)
+    (root / "smali/com/foo/AuthManager.smali").write_text(
+        ".class public Lcom/foo/AuthManager;\n.super Ljava/lang/Object;\n"
+    )
+
+
+def test_history_injected_before_question(env, monkeypatch):
+    """M9 follow-up: the client-side thread (history) is injected between the
+    system prompt and the current question - a 'continue' follow-up keeps the
+    original edit request without server persistence."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["messages"] = list(messages)
+        return _resp(_msg("ok"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(
+        scan_id,
+        "continue",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+    )
+    assert result.answer == "ok"
+    roles = [m["role"] for m in captured["messages"]]
+    assert roles == ["system", "user", "assistant", "user"]
+    assert captured["messages"][1]["content"] == "bypass the root check"
+    assert captured["messages"][2]["content"] == "Proposed edit #1 - review it."
+    assert captured["messages"][3]["content"] == "continue"
+
+
+def test_history_bad_roles_dropped(env, monkeypatch):
+    """History turns with unknown roles / blank content are dropped - a raw
+    API caller can't smuggle tool-role or empty turns into the prompt."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["messages"] = list(messages)
+        return _resp(_msg("ok"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    answer_question(
+        scan_id,
+        "q",
+        history=[
+            {"role": "tool", "content": "smuggle"},
+            {"role": "assistant", "content": "   "},
+            {"role": "user", "content": "the real prior ask"},
+        ],
+    )
+    roles = [m["role"] for m in captured["messages"]]
+    assert roles == ["system", "user", "user"]
+    assert captured["messages"][1]["content"] == "the real prior ask"
+
+
+def test_edit_review_state_attached_when_edit_tools_ready(
+    env, tmp_path, db_session_factory, monkeypatch
+):
+    """The EDIT REVIEW STATE section renders the scan's edits + verdicts into
+    the system prompt when the edit tools are allowed - so a 'continue' turn
+    knows what was applied/rejected and never re-proposes it."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content="a",
+                new_content="b",
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="applied",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["system"] = messages[0]["content"]
+        return _resp(_msg("ok"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    answer_question(scan_id, "continue")
+    assert "EDIT REVIEW STATE" in captured["system"]
+    assert "AndroidManifest.xml [applied]" in captured["system"]
+    assert "disable debuggable" in captured["system"]
+
+
+def test_edit_task_nudge_proposes_after_read(env, tmp_path, monkeypatch, db_session_factory):
+    """The 'ends on read' fix: a change request ("bypass the root check") whose
+    model searches/reads then writes a summary WITHOUT proposing is nudged
+    (bounded) to call propose_smali_edit - the turn ends with a real proposal
+    row instead of a read-only summary."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+    new_manifest = _NUDGE_MANIFEST.replace(
+        'android:debuggable="true"', 'android:debuggable="false"'
+    )
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        n = len(calls)
+        if n == 1:
+            # Round 1: the model searches - real tool execution against the
+            # jadx tree from the env fixture.
+            return _resp(
+                _msg(
+                    "Let me search the code for the root check.",
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "class W"})),
+                    ],
+                )
+            )
+        if n == 2:
+            # Round 2: the model STOPS with a summary - no proposal. The
+            # edit-task nudge must fire here.
+            return _resp(_msg("The root check lives in com/app/W.java:42."))
+        if n == 3:
+            # Round 3 (after the nudge): propose for real.
+            return _resp(
+                _msg(
+                    "Proposing the manifest change.",
+                    tool_calls=[
+                        _tool_call(
+                            "c3",
+                            "propose_smali_edit",
+                            json_args(
+                                {
+                                    "path": "AndroidManifest.xml",
+                                    "instruction": "disable debuggable",
+                                    "new_content": new_manifest,
+                                }
+                            ),
+                        )
+                    ],
+                )
+            )
+        # Round 4: final answer after the proposal.
+        return _resp(_msg("Done - proposed edit #1 for AndroidManifest.xml."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(scan_id, "bypass the root check", timeout=60.0)
+
+    assert "proposed edit #1" in result.answer
+    assert "propose_smali_edit" in result.tools_used
+    # The nudge was injected between rounds 2 and 3.
+    nudge_msgs = [m for m in calls[2]["messages"] if m["role"] == "user"]
+    assert any("propose_smali_edit NOW" in m["content"] for m in nudge_msgs)
+    # A real proposal row was stored (proposed, never applied).
+    with db_session_factory() as session:
+        rows = list(session.query(Edit).filter(Edit.scan_id == scan_id).all())
+        assert len(rows) == 1
+        assert rows[0].status == "proposed"
+        assert rows[0].file_path == "AndroidManifest.xml"
+
+
+def test_edit_nudge_not_for_plain_question(env, tmp_path, monkeypatch):
+    """A read-only question ("where is the webview?") is never pushed to
+    propose - the nudge requires change intent in the question."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "WebView"})),
+                    ],
+                )
+            )
+        return _resp(_msg("The WebView client is com/app/W.java:42."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(scan_id, "where is the webview?", timeout=60.0)
+    assert result.answer == "The WebView client is com/app/W.java:42."
+    assert len(calls) == 2  # search round + answer round - NO nudge round
+    assert "propose_smali_edit" not in result.tools_used
 
 
 def json_args(args: dict) -> str:

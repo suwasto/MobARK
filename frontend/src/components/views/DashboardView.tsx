@@ -4,7 +4,7 @@ import { api } from '../../api/client'
 import { useFindings } from '../../hooks/useFindings'
 import { formatRelative, platformLabel } from '../../lib/format'
 import { useApp } from '../../state/AppContext'
-import type { EditRead, ScanRead } from '../../types'
+import type { EditRead, FindingRead, ScanRead } from '../../types'
 import { ProposalsModal } from '../ProposalsModal'
 import { Splitter } from '../Splitter'
 import { TargetBar } from '../TargetBar'
@@ -108,10 +108,13 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
   }, [])
   // Citation-click -> decompiler: agent cites `file:line` paths relative to
   // the platform tree root; the Decompiler tab resolves them against the
-  // loaded tree and reports back via onRequestConsumed.
+  // loaded tree and reports back via onRequestConsumed. Finding jumps carry
+  // the finding id too so the rail note highlights + the code scrolls to the
+  // finding's line once the file content loads.
   const [fileRequest, setFileRequest] = useState<{
     file: string
     nonce: number
+    findingId?: number | null
   } | null>(null)
   // Dependencies tab -> Agent dock: the per-dependency "Check known CVEs"
   // button pre-fills the dock draft (nonce-guarded so repeat clicks always
@@ -133,6 +136,20 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
 
   const openInDecompiler = useCallback((file: string) => {
     setFileRequest((prev) => ({ file, nonce: (prev?.nonce ?? 0) + 1 }))
+    setTab('decompiler')
+  }, [])
+
+  // Findings tab -> Decompiler: a finding click jumps to its code. Same
+  // request path as citations, plus the finding id so the Decompiler can
+  // highlight the rail note and scroll the code to the finding's line.
+  const openFindingInCode = useCallback((finding: FindingRead) => {
+    if (!finding.file_path) return
+    const file = finding.file_path
+    setFileRequest((prev) => ({
+      file,
+      nonce: (prev?.nonce ?? 0) + 1,
+      findingId: finding.id,
+    }))
     setTab('decompiler')
   }, [])
 
@@ -189,9 +206,18 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
   )
   // Auto-close the review modal once the last proposal is resolved - the
   // apply/reject refresh lands with zero proposed and the empty state would
-  // otherwise linger.
+  // otherwise linger. M9 follow-up: that resolution ALSO resumes the edit
+  // task automatically ("continue") - the agent proposes the next file's
+  // edit without the user typing or clicking anything. The nonce is bumped
+  // here because the count dropping to 0 while the modal is open can only
+  // come from an Apply/Reject in the modal (proposals are agent-created;
+  // the pill/badge only open it with count > 0).
+  const [autoContinueNonce, setAutoContinueNonce] = useState(0)
   useEffect(() => {
-    if (proposalsOpen && proposedCount === 0) setProposalsOpen(false)
+    if (proposalsOpen && proposedCount === 0) {
+      setProposalsOpen(false)
+      setAutoContinueNonce((n) => n + 1)
+    }
   }, [proposalsOpen, proposedCount])
   // Open the review modal AFTER a fresh edits fetch so the just-landed
   // proposal is already listed (the dock calls this the moment a
@@ -365,6 +391,7 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
                 loading={loading}
                 error={error}
                 onChanged={onFindingsChanged}
+                onJumpToCode={openFindingInCode}
               />
             </div>
             <div className={tab !== 'dependencies' ? 'hidden' : undefined}>
@@ -448,6 +475,7 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
           proposedCount={proposedCount}
           onReviewProposals={onReviewProposals}
           presetDraft={dockPreset}
+          autoContinueNonce={autoContinueNonce}
         />
       </div>
 

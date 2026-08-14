@@ -1646,15 +1646,15 @@ M9 — Report generation; **COMPLETE (Aug 12, 2026) — Phases A–E all done,
 containerized contract-style e2e PASSED.** See
 `docs/progress/M9.md`. Phase A (deterministic assembly):
 `analysis/report.py` — `assemble_report(scan, findings, dependencies=…,
-builds=…, web_sources=…)` renders the body from persisted scan data ONLY
-(no LLM, no subprocess); sections: header (app/platform/date/security
+web_sources=…)` renders the body from persisted scan data ONLY (no LLM,
+no subprocess); sections: header (app/platform/date/security
 score + CVSS 4.0 band via `risk.py`), executive summary (cached
 `ai_summary`, blank→explicit no-AI note — the body never 400s, decision
 10), severity breakdown (risk.py source of truth), findings grouped by
 severity with MASTG tags + cached explanations, Android smali-edit note /
 iOS binary profile from the LIEF/symbols findings, dependencies payload,
-"Resigned test builds" (M8 builds rows), "External references" (M7 web
-sources). Phase B: `POST /scans/{id}/report/regenerate` — re-runs
+and "External references" (M7 web sources). Aug 14: no "Resigned test
+builds" section and no `builds` parameter — see item 10. Phase B: `POST /scans/{id}/report/regenerate` — re-runs
 `insights.summarize_scan(regenerate=True)` (persisted to `ai_summary`) +
 fills ONLY missing explanations (`explanations=true` default, cached ones
 never re-spent), single all-or-nothing commit, M5 error contract. Phase C
@@ -1675,8 +1675,9 @@ LGPLv3 svglib (WeasyPrint's pyphen is LGPL/MPL too) — posture violation,
 owned decision to rewrite on reportlab; the xhtml2pdf/bidi/svglib/
 pyhanko tree was uninstalled.** Body cached per scan (`report_cache.json`,
 identity = platform/filename/risk/ai_summary + rich findings fingerprint +
-builds + web sources + deps hash) — a suppress toggle / regenerate /
-rebuild / web capture recomputes. Deps: `requirements.txt`
+web sources + deps hash) — a suppress toggle / regenerate / web capture
+recomputes (the `builds` inputs left the identity Aug 14 with the
+Resigned test builds section — item 10). Deps: `requirements.txt`
 reportlab+markdown pins, `requirements-dev.txt` pypdf (BSD-3-Clause, PDF
 heading extraction in tests), Dockerfile `fonts-dejavu-core`. Gates: **681
 backend tests green (+12 export tests) + ruff clean** (frontend untouched
@@ -1688,9 +1689,11 @@ the dock's precedent) on an on-screen **paper card** (`.report-doc`)
 echoing the exported PDF's branding (white paper, ink #14171a headings,
 steel accent rule, tinted severity chips) — the tab previews the artifact
 being downloaded. Toolbar: **Export .md / Export PDF** download anchors
-(`api.reportExportUrl`) + **Regenerate** (POST, explicit cost opt-in;
-explanations_generated note · quiet no-model note · error+Retry) +
-loading/error/retry. `active` prop re-fetches on later tab activations
+(`api.reportExportUrl`) + loading/error/retry. (The **Regenerate** button
+— POST explicit cost opt-in with explanations note · no-model note ·
+error+Retry — was REMOVED Aug 14: the report is deterministic and does
+not depend on AI, so the AI-only regenerate affordance is gone; see item
+10. The backend route stays.) `active` prop re-fetches on later tab activations
 (the panel stays mounted once visited, so a suppress/restore on another
 tab — which invalidates the server cache identity — must show up without
 a scan remount; review catch). TopBar **Export report** is now a dropdown
@@ -1746,7 +1749,9 @@ app_package)` classification) collapse into per-library tallies in a
 `### Third-party library findings (N)` subsection; app-owned rows stay
 listed in full per severity; the severity breakdown still counts
 EVERYTHING (it must match the risk score). Live: scan 30 went **237 KB →
-19 KB**. (2) **Recommended priorities** — deterministic (no-LLM, decision
+19 KB**. **REMOVED Aug 14** (owner: "show every not suppressed finding,
+not just medium x count") — every non-suppressed finding is listed
+individually again; see item 10. (2) **Recommended priorities** — deterministic (no-LLM, decision
 10) top-10 of app-owned findings by severity (info never a priority) with
 file:line + MASTG tag + a static-only scope note. (3) **iOS dylib
 de-dupe** — dylibs render ONCE: the binary profile is authoritative (cap
@@ -1855,3 +1860,275 @@ white MASA text on the band, red/amber/green/slate severity boxes). Gates:
    `test_migrations.py`, `test_report_export.py`, `test_scan_api_m5.py`,
    `test_worker.py`, `test_report_api.py` — **144 passed, ruff clean**;
    frontend tsc + vite green.
+5. **Agent loop budget + sequential edit flow (Aug 13, owner report: "tool
+   calling timeout too short… ends on read, doesn't continue to propose").**
+   (a) **CLI-agent-like budget:** `settings.chat_timeout_seconds` 120→600
+   (10 min, the whole-loop hard deadline) and `settings.max_tool_rounds`
+   3→20 (the round ceiling that produced "I could not complete a grounded
+   answer within the tool-call limit" mid-task); `ChatRequest.max_tool_rounds`
+   schema cap 10→60. Loop-exhaustion tests pin `max_tool_rounds=3`
+   explicitly (they asserted the old default's exact round count).
+   (b) **"ends on read" nudge:** new `_EDIT_INTENT_RE` (change verbs:
+   bypass/disable/remove/…) + `_EDIT_PROPOSE_NUDGE` — when a change request
+   has run search/read tools but produced zero `propose_smali_edit` calls
+   and then writes a content-only answer, the loop nudges (bounded ×2,
+   mirroring the narration nudge) to propose or explicitly explain
+   read-only. Gated on `edit_allowed` + intent (inherited from history so a
+   bare "continue" follow-up keeps it). (c) **Sequential one-file-per-turn
+   contract:** `_M8_EDIT_PROMPT` now says change requests MUST end in a
+   proposal and multi-file requests are handled ONE FILE PER TURN —
+   propose → human reviews (apply/reject) → "continue" → next propose.
+   (d) **EDIT REVIEW STATE context:** `_load_edit_review_state` renders the
+   scan's recent edits + verdicts (`proposed/applied/rejected` + instruction)
+   into the system prompt when edit tools are ready, so a continue turn
+   never re-proposes a resolved file.   (e) **Client-side thread → backend:**
+   `ChatRequest.history` (`ChatHistoryTurn[]`, validated user/assistant,
+   capped 12) + frontend sends the last 6 turns with every send
+   (`useChat.buildHistory` — the backend never persisted chat); injected
+   between system prompt and current question. (f) **Automatic
+   continuation** (owner follow-up: "the continue should be automatic when
+   user accept or edit the proposal") — DashboardView bumps a nonce the
+   moment the review modal's pending count drops to 0 (an Apply/Reject in
+   the modal is the only way that happens); AgentDock consumes each nonce
+   exactly once (`seenContinueNonce` ref, so the follow-up turn that
+   re-proposes can't double-fire) and auto-sends "continue…" — the agent
+   proposes the next file or declares the task complete, no button, no
+   typing. Gates: **713 backend tests green** (+4 new: history injection,
+   bad-role drop, review state, edit nudge fires / not for plain questions)
+   + frontend tsc + vite build green.
+6. **Multi-session agent chat (Aug 13, owner: "lets plan to add multiple chat
+   session feature… add new session or delete previous session").** Decisions:
+   server-side DB (survives reloads, full history reaches the model), auto-title
+   from the first question + rename, per-scan scope (the dock is per-scan).
+   Migration **0011**: `chat_sessions` (scan_id FK cascade, title, created/updated)
+   + `chat_messages` (session_id FK cascade, role, content, tool_runs_json,
+   position). Migration **0012**: `chat_messages.citations_json` — assistant
+   turns persist their Citation-shaped chips (file/line/snippet) so a
+   reloaded session's history re-renders the clickable source chips exactly
+   like the live ChatResponse (owner follow-up: "persist citations with each
+   session message"; `ChatMessageRead.citations` + `useChat.toChatMessage`
+   maps them back; NULL on older rows renders without chips). Service `app/agent/sessions.py` — create/list (most-recently-used
+   first)/rename/delete/add_message (auto-titles on first question; touch
+   updated_at)/session_history/last_message/message_count. API: GET+POST
+   `/scans/{id}/chat/sessions`, POST `…/{sid}/rename`, DELETE `…/{sid}`, GET
+   `…/{sid}/messages` (tool_runs parsed back from JSON). `ChatRequest.session_id`
+   → `/chat` + `/chat/stream` load the session's FULL persisted thread (fed to
+   `answer_question` via the existing `history` param — the client's 6-turn
+   window is now a no-session fallback) and persist the user turn at start (an
+   interrupted turn still shows what was asked) + the assistant answer + tool
+   trace at completion; stream route validates the session pre-headers (404)
+   and the worker thread does its own DB work (`work_db = SessionLocal()` —
+   SQLite + threads). `chat.py _MAX_HISTORY_TURNS` 8→20 (wider window for
+   sessions). Frontend: `useChat` is session-aware — loads the per-scan list +
+   most-recent session's thread on mount (creates NOTHING on browse; the first
+   send creates on demand), `switchSession`/`newSession`/`deleteSession`/
+   `renameSession`, and every send runs inside the active session (local
+   message ids are NEGATIVE so they can never collide with server ids when a
+   thread is loaded). Dock session bar under the strips: a trigger + custom
+   dropdown (the model-picker pattern: outside-click + Escape close) listing
+   sessions with inline rename (input in the row; Enter saves / Escape
+   cancels) and a two-step inline delete confirm (first click arms
+   "Delete?", second deletes) - NO browser prompt/confirm dialogs (owner
+   follow-up); a pinned "＋ New session" row at the bottom; disabled while a
+   turn runs. Auto-continue (item 5f) now guards on `last.id < 0` — only a
+   LIVE proposal's review resumes the task; switching to an old session whose
+   last turn proposed cannot trigger an unsolicited continuation. Gates: **721   backend tests green** (+8 sessions tests) + ruff clean + frontend tsc +
+   vite build green.
+7. **Finding triage + dock web toggle (Aug 13, owner: "add tools to batch
+   suppress… too many instances of the MASVS-PLATFORM up-to-date-OS-version
+   finding, I want to suppress all; when searxng is not reachable the dock
+   web toggle should be disabled; when a finding is clicked jump to the
+   code").** (a) **Batch suppress/restore by title:** `POST
+   /scans/{id}/findings/suppress-batch` + `unsuppress-batch`
+   (`BatchSuppressRequest {title, category?}` — the MASTG rules emit ONE
+   finding per occurrence, so a check like the up-to-date-OS-version rule
+   surfaces dozens of identical rows); toggles the whole title group, stamps
+   /clears `suppressed_at`, recomputes risk ONCE (per-row toggles would
+   recompute n times), idempotent (0-count no-op, never an error). The
+   request is AND-composed (`title`/`category`/`severity`, ≥1 required — an
+   empty match is a 422, never a "clear everything"; a typo'd severity is a
+   400 like `list_findings`). Findings tab rows gain **"Suppress all (n)" /
+   "Restore all (n)"** — shown only when the title group has >1 row (a lone
+   finding would duplicate its own Suppress/Restore); counts are over the
+   current active/review list and the match is title-only so the label
+   always equals what actually toggles. The **severity group headers** gain
+   the same band action — "Suppress all (n)" / "Restore all (n)" pins right
+   in the colored header and bulk-clears a whole severity band (follow-up,
+   owner: "bulk-clear a whole severity band at once"). **Undo toast:**
+   `BatchSuppressResponse` now returns `finding_ids` (exactly which rows
+   THIS call toggled) and the request accepts `finding_ids` as a criterion
+   (≥1 criterion enforced — `[]` alone is a 422); after any band / title-
+   group toggle a fixed bottom-center toast offers **Undo**, which flips
+   back by those exact ids (`unsuppressFindingsByIds` /
+   `suppressFindingsByIds`) — a match-based restore would also flip earlier,
+   separately-suppressed rows, so undo is precise. Auto-dismisses after 6s
+   (failure keeps the toast, message becomes "Undo failed: …"); the toast
+   is panel-level so it survives the findings refetch that follows every
+   toggle.
+   (b) **Finding click → code:** the row title (plus an explicit "View code
+   ↗" button) jumps the Decompiler tab to the finding's file+line —
+   DashboardView's `fileRequest` now carries `findingId`, the Decompiler
+   resolves the tree path, sets `activeNoteId`, and the existing rail-note
+   scroll effect lands the line once the content renders (codeMetrics dep).
+   Findings without a `file_path` fall back to expanding the AI explanation.
+   (c) **Dock 🌐 Web toggle locked when no live engine:** `webLocked` is now
+   `!modelConnected || !liveEngine` (was `…|| (!liveEngine && !webResearch)`) —
+   the exact mirror of the Settings radio gate (SearchTab Aug 12), which
+   disables a dead SearXNG-style engine's switch on AND off until it answers
+   (recovery is ▶ Start engine / Test in Settings); `liveEngine` mirrors the
+   keyed-engine gate too (`has_api_key` — the honest check is a real query,
+   not a stale probe). The dock refreshes search-backend health whenever it
+   opens so the lock reflects CURRENT reachability, not the boot snapshot.
+   Gates: **734 backend tests green (+14 batch: title group, category
+   narrowing, severity band, combined AND, idempotency, returned toggled
+   ids, id-based undo restore, empty-ids 422, 409/400/422 contracts) + ruff
+   clean; frontend tsc + vite build green.**
+8. **Complete no-AI report + Markdown view in the Report tab (Aug 13,
+   owner: "how does MobSF generate reports - they don't depend on AI but
+   still have a complete report; I want a complete report not dependent on
+   AI; also in the report tab display the md, it is better").** MobSF's
+   answer (researched): a Django app whose static analyzers persist results
+   to its DB, and the report is pure TEMPLATE rendering of those rows into
+   HTML, converted to PDF via pdfkit/wkhtmltopdf — no LLM anywhere; our
+   M9 `assemble_report` already had the same architecture (deterministic
+   assembly from persisted scan data, `_auto_summary` exec-summary
+   fallback). The remaining AI-dependent surface was the per-finding
+   explanation (NULL without a model → findings rendered with no
+   explanatory text). Fix: `_auto_explanation(finding)` — a deterministic
+   paragraph (tool + severity + location + "mapped to MASVS control X and
+   OWASP MASTG test Y (title from the vendored mapping)" + the static-only
+   scope note) renders whenever `finding.explanation` is NULL; the cached AI
+   text still replaces it when present. Body cache bumped v2→v3 (assembly
+   changed).ReportPanel: the tab now defaults to the **Markdown source**
+view (a scrollable/selectable `<pre>` of exactly what Export .md
+downloads, + Copy markdown button) with a **Markdown ↔ PDF preview**
+toggle; helper text updated ("no AI required - the cached AI commentary
+replaces the factual fallbacks when a model has generated it"). (Aug 14:
+the Markdown view now RENDERS the body via react-markdown instead of the
+raw `<pre>` source — owner: "the report tab in markdown currently shows
+raw markdown, fix it"; Copy markdown stays; see item 10.) Gates:
+   **735 backend tests green (+1 no-AI explanation fallback) + ruff clean;
+   frontend tsc + vite build green.**
+   **Follow-up (same session, owner: "extend the deterministic explanation
+   with the rule's description from the semgrep YAML rules"):** new
+   `app/analysis/rule_meta.py` — `rule_description(check_id)` looks up the
+   vendored rules' `metadata.summary` (62 rules carry one; the 8
+   hand-curated MASA rules don't — their folded `message` IS the finding
+   title, so citing it would repeat the row, and they're skipped). The
+   report's `_auto_explanation` reads `detail.check_id` (JSON-text or dict
+   detail via a `_finding_detail` helper) for semgrep findings and cites
+   it: "This semgrep check (mastg-android-sdk-version: "This rule scans for
+   API that checks the version of the operating system") reported a …";
+   tolerates namespaced/path-prefixed check ids via a trailing-id fallback.
+   **Follow-up (same session, owner: "extend the deterministic explanation
+   to gitleaks findings using their detail.rule_id and a vendored gitleaks
+   rule description"):** gitleaks already persists `detail.rule_id` AND
+   `detail.rule_description` (captured from gitleaks' JSON report at scan
+   time - no new ruleset parsing needed); `_auto_explanation` cites both:
+   "This gitleaks check (google-api-key: A Google API key was detected)
+   reported a …". A gitleaks finding without a description (legacy row)
+   just omits the rule clause - the title already names the rule.
+   Gates: **740 backend tests green (+extended fallback test) + ruff
+   clean** (frontend untouched).
+   **Follow-up (same session, owner: "add the rule description to the
+   Findings tab's no-AI ExplainBox fallback so the app matches the
+   report"):** `_auto_explanation` + `_finding_detail` moved OUT of
+   `report.py` into a shared `app/analysis/auto_explain.py`
+   (`auto_explanation(finding)` - one source of truth for the report AND
+   the explain surface). `insights.explain_finding` now catches
+   `NoModelConfigured` and returns the deterministic paragraph marked
+   `fallback: true` (never persisted as the cached AI row) instead of
+   propagating a 400; `ExplainResponse.fallback: bool = False`;
+   `ExplainBox` labels it "deterministic · no AI required (same text as
+   the report)" and the Regenerate button reads "Regenerate with AI" -
+   works on BOTH surfaces (Findings rows + the Decompiler annotation rail
+   share ExplainBox/useExplain). The route's NoModelConfigured→400 catch
+   stays as defense (the summary route still 400s). Gates: **740 backend
+   tests green (no-model insights test now asserts the fallback) + ruff
+   clean; frontend tsc + vite build green.**
+9. **Semgrep rules license audit + GPL rewrite (Aug 13, owner: "check our
+   semgrep - are we really using tools only or include its rule… it's rule
+   licensed while mobsf only use tools and use java/kotlin rules; don't
+   modify, just analyze" then "rewrite the two GPL-derived MASTG rules so
+   the repo stays Apache-2.0-clean").** Audit verdict: we run the semgrep
+   ENGINE (LGPL-2.1 CLI, subprocess-only) against ONLY our local vendored
+   rule dirs (`--config app/analysis/rules/{masa,mastg}`) - never the
+   semgrep registry (`p/default`/`--config auto`/`r/…`), so Semgrep's own
+   restrictive "Semgrep Rules License v1.0" never applies (that's the
+   licensed-rule concern the owner remembered). Rules: 8 hand-curated in
+   `masa/` (Apache-2.0, project-owned) + 71 vendored verbatim from
+   OWASP/owasp-mastg @ `d7fd7d45` (CC BY-SA 4.0, `License.md` at the ref;
+   the `rules/` dir has no separate license file). Full-set audit (all 52
+   files incl. the `.yaml`-extension ones, every metadata key + comment
+   headers + URLs): the ONLY external-origin indicator beyond `summary`/
+   `masvs`/`references` (Android doc links) is `original_source` on exactly
+   TWO rules — both → **mindedsecurity/semgrep-rules-android-security,
+   which is GPL-3.0** (verified its LICENSE). Those two MASTG rules are
+   adapted derivatives of that repo's `rules/crypto/mstg-crypto-6.yaml`
+   (MASTG split the single MSTG-CRYPTO-6 rule; 3/7 and 2/7 of its pattern
+   atoms appear verbatim) — GPL-3.0-derived content vendored into an
+   Apache-2.0 repo = copyleft contamination against the project's hard
+   constraint. **Fix (owner-approved): rewrote both rules from scratch** —
+   same MASTG-CRYPTO-6 detection intent, ORIGINAL pattern expression: the
+   GPL file's `pattern-inside: $M(...){ ... }` method-body wrapper is gone
+   (matches anchor on the call sites themselves), `random-apis` now
+   enumerates the `java.util.Random` API methods explicitly instead of a
+   catch-all `$Y(...)`, `non-random-use` gained `getTimeInMillis()`;
+   `original_source` dropped (no longer derived). The id/message/summary
+   stay (MASTG CC BY-SA text, consistent with the other vendored files); a
+   comment header records the rewrite. Verified with the REAL engine:
+   `semgrep --validate` = 0 errors, and a smoke scan hit exactly the
+   intended lines (time sources 5–7, weak RNG 9–11) and skipped the benign
+   one. Gates: **740 backend tests green + ruff clean** (no test pinned the
+   old patterns).
+10. **Report surface rework (Aug 14, owner: "make the findings container
+   not clickable — it already has a view code button; the regenerate
+   button in the report tab is not necessary since it requests AI but our
+   report does not depend on AI; the report tab in markdown currently
+   shows raw markdown — fix it; in the pdf there is truncated text (the
+   cover scope line); remove the green color at the start of each title
+   like Executive summary; markdown and pdf should show every not
+   suppressed finding, not only just medium x count; the report has no
+   need for Resigned test builds").** Six changes:
+   (a) **Findings row container is no longer clickable** — the title row
+   is a plain div; only the "▸ AI explanation" (expand) and "View code ↗"
+   (jump to the Decompiler) buttons are interactive (`FindingsPanel.tsx`;
+   the old title-click also jumped, duplicating View code).
+   (b) **Regenerate removed from the Report tab** — the report is
+   deterministic (no AI dependency), so the AI-only Regenerate button and
+   its status lines are gone from `ReportPanel.tsx`; the unused
+   `api.regenerateReport` method + `ReportRegenerateResponse` type were
+   deleted. The backend `POST /scans/{id}/report/regenerate` route and its
+   tests stay (harmless; only the UI affordance was unwanted).
+   (c) **Markdown tab renders instead of showing raw source** — the
+   Markdown view now renders `body.markdown` through the existing
+   react-markdown `Markdown` component (`.md` typography) inside a
+   scrollable `.report-md-body` card; the raw-source `<pre>`
+   (`.report-md-source`) is gone; Copy markdown still copies the raw body.
+   (d) **PDF cover scope footnote wraps** — the cover's static-only scope
+   line was ONE `drawCentredString`, overflowed the page width, and got
+   CLIPPED at both edges (owner saw "…c analysis of the uploaded
+   artifact…" with the start and end cut off). New
+   `report_pdf._draw_wrapped_centered` word-wraps it into centered lines
+   (verified: two lines, both < the 499pt text width).
+   (e) **PDF h2 emerald LEFT BAR removed** — "remove the green color at
+   the start of each title like Executive summary": the h2 TableStyle
+   drops `LINEBEFORE` (the green underline `LINEBELOW` below the title
+   stays; h3 severity headings unchanged).
+   (f) **Every non-suppressed finding listed + no Resigned test builds** —
+   `assemble_report` no longer partitions findings by library: the
+   vendored per-library tally (`### Third-party library findings (N)`,
+   "n medium" style counts) is GONE — every finding renders individually
+   under its severity heading (`group_for_finding` import dropped; the
+   Recommended-priorities intro no longer mentions the tally). The
+   **"Resigned test builds" section is GONE too**: `builds` was removed
+   from `assemble_report`/`cached_body`/`store_body`/`_cache_identity`,
+   `_builds_fingerprint` deleted, and the route's `_assembled_report` no
+   longer queries `Build` rows (the Recompile modal still owns that
+   history). Body cache bumped v3→v4 (assembly changed). Tests: the
+   vendored roll-up test was rewritten to assert every finding lists
+   (`### High (2)`, `### Medium (1)`, `### Other (1)` …), the full-body
+   test dropped its Build rows + section assertions, and the PDF export
+   tests still pass with the new h2/cover rendering. Gates: **740 backend
+   tests green + ruff clean; frontend `tsc -b` + `vite build` green**
+   (report rendered-markdown styles in `index.css`).

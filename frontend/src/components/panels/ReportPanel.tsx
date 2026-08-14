@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, ApiError } from '../../api/client'
+import { api } from '../../api/client'
 import { formatRelative } from '../../lib/format'
+import { Markdown } from '../Markdown'
 
 interface ReportPanelProps {
   scanId: number
@@ -16,34 +17,43 @@ type BodyState =
   | { kind: 'ok'; markdown: string; generatedAt: string }
   | { kind: 'error'; message: string }
 
-type RegenState =
-  | { kind: 'idle' }
-  | { kind: 'running' }
-  | { kind: 'done'; note: string }
-  | { kind: 'no-model' }
-  | { kind: 'error'; message: string }
-
 /**
- * M9 Report tab: the assembled report body (deterministic assembly + cached
- * AI commentary - decision 2) with a LIVE PDF PREVIEW (owner follow-up: the
- * tab used to render markdown; it now embeds the branded PDF itself via the
- * inline-disposition export route), plus the export surface.
+ * M9 Report tab: the assembled report body - DETERMINISTIC (no model
+ * required; the cached AI commentary renders when present, and every
+ * finding carries a factual fallback explanation without one - the MobSF
+ * pattern). The Markdown view RENDERS the body via react-markdown (Aug 14
+ * owner follow-up: "the report tab in markdown currently shows raw
+ * markdown - fix it"); a toggle swaps in the LIVE PDF PREVIEW (the branded
+ * PDF itself via the inline-disposition export route).
  *
- * The body NEVER 400s on a missing model (decision 10) - the AI sections
- * render their cached rows or the explicit no-AI note inside the document;
- * only the Regenerate POST is an AI route (400 no-model → an inline note
- * near the button, mirroring the Overview summary's quiet state). Export is
- * a same-origin anchor download (`{stem}-report.md|pdf` attachments).
+ * The body NEVER 400s on a missing model (decision 10) - the AI surfaces
+ * degrade to deterministic text inside the document; there is no
+ * Regenerate button (Aug 14 owner follow-up: the report does not depend on
+ * AI, so the AI-only regenerate affordance is gone). Export is a
+ * same-origin anchor download (`{stem}-report.md|pdf` attachments).
  */
 export function ReportPanel({ scanId, active }: ReportPanelProps) {
   // ---- body (cache-first server-side) ----
   const [body, setBody] = useState<BodyState>({ kind: 'loading' })
   const requestIdRef = useRef(0)
+  // Markdown source (default) vs the branded PDF preview.
+  const [view, setView] = useState<'md' | 'pdf'>('md')
+  const [copied, setCopied] = useState(false)
   // The PDF iframe (src = inline export) is remounted/refetched whenever
-  // the body is re-fetched - Regenerate and tab re-activation change the
-  // server cache identity and must not leave a stale document up.
+  // the body is re-fetched - tab re-activation (or a suppress/restore on
+  // another tab) changes the server cache identity and must not leave a
+  // stale document up.
   const [pdfNonce, setPdfNonce] = useState(0)
   const [pdfLoaded, setPdfLoaded] = useState(false)
+
+  const copyMarkdown = useCallback(() => {
+    if (body.kind !== 'ok') return
+    void navigator.clipboard
+      ?.writeText(body.markdown)
+      .then(() => setCopied(true))
+      .catch(() => setCopied(false))
+    window.setTimeout(() => setCopied(false), 1500)
+  }, [body])
 
   const fetchReport = useCallback(() => {
     const id = ++requestIdRef.current
@@ -81,46 +91,18 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
     }
   }, [active, fetchReport])
 
-  // ---- regenerate (explicit cost-spending opt-in, decision 7) ----
-  const [regen, setRegen] = useState<RegenState>({ kind: 'idle' })
-
-  const regenerate = useCallback(async () => {
-    setRegen({ kind: 'running' })
-    try {
-      const res = await api.regenerateReport(scanId)
-      const note =
-        res.explanations_generated > 0
-          ? `Summary regenerated · ${res.explanations_generated} missing explanation${
-              res.explanations_generated === 1 ? '' : 's'
-            } filled`
-          : 'Summary regenerated (explanations were already cached)'
-      setRegen({ kind: 'done', note })
-      // The body's cache identity changed (ai_summary + explanations) -
-      // refetch so the document shows the fresh commentary.
-      void fetchReport()
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 400) {
-        setRegen({ kind: 'no-model' })
-      } else {
-        setRegen({
-          kind: 'error',
-          message: err instanceof Error ? err.message : String(err),
-        })
-      }
-    }
-  }, [scanId, fetchReport])
-
   return (
     <div>
       <div className="section-label">Report</div>
 
-      {/* Toolbar: export + the explicit Regenerate opt-in */}
+      {/* Toolbar: export (no Regenerate - the report is deterministic and
+          does not depend on AI, Aug 14 owner follow-up) */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-[560px] text-[11.5px] leading-relaxed text-bone-faint">
-          Assembled from the scan's persisted findings and the cached AI
-          commentary. Export as Markdown or the branded PDF; Regenerate
-          re-runs the executive summary and fills missing per-finding
-          explanations (spends model tokens).
+          Assembled deterministically from the scan's persisted findings - no
+          AI required (the cached AI commentary replaces the factual
+          fallbacks when a model has generated it). Export as Markdown or the
+          branded PDF.
         </p>
         <div className="flex shrink-0 items-center gap-2">
           <a
@@ -139,43 +121,33 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
           >
             Export PDF
           </a>
-          <button
-            type="button"
-            className="btn btn-primary"
-            disabled={regen.kind === 'running'}
-            title="Re-run the AI surfaces - bypasses the cached summary and fills missing explanations (explicit cost opt-in)"
-            onClick={() => void regenerate()}
-          >
-            {regen.kind === 'running' ? 'Regenerating…' : 'Regenerate'}
-          </button>
         </div>
       </div>
 
-      {/* Regenerate status line */}
-      {regen.kind === 'running' && (
-        <div className="mb-3 flex items-center gap-2 rounded border border-line-soft bg-panel-raised px-3 py-2 font-mono text-[10.5px] uppercase tracking-[0.06em] text-steel">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-steel" />
-          Regenerating summary…
-        </div>
-      )}
-      {regen.kind === 'done' && (
-        <div className="mb-3 rounded border border-moss/30 bg-moss/10 px-3 py-2 font-mono text-[11px] text-moss">
-          {regen.note}
-        </div>
-      )}
-      {regen.kind === 'no-model' && (
-        <div className="mb-3 rounded border border-dashed border-line bg-panel px-3 py-2 text-[12px] leading-relaxed text-bone-dim">
-          No chat model connected - pick a backend and model in Settings (top
-          right ⚙) to regenerate the AI summary. The report body is fully
-          local and renders regardless.
-        </div>
-      )}
-      {regen.kind === 'error' && (
-        <div className="mb-3 flex items-start justify-between gap-3 rounded border border-crimson/30 bg-crimson/10 px-3 py-2">
-          <p className="font-mono text-[11px] text-bone-dim">{regen.message}</p>
-          <button type="button" className="link-btn shrink-0" onClick={() => void regenerate()}>
-            Retry
+      {/* View toggle: rendered Markdown (default) ↔ the branded PDF preview */}
+      {body.kind === 'ok' && (
+        <div className="report-view-toggle">
+          <button
+            type="button"
+            className={`vt-chip ${view === 'md' ? 'active' : ''}`}
+            aria-pressed={view === 'md'}
+            onClick={() => setView('md')}
+          >
+            Markdown
           </button>
+          <button
+            type="button"
+            className={`vt-chip ${view === 'pdf' ? 'active' : ''}`}
+            aria-pressed={view === 'pdf'}
+            onClick={() => setView('pdf')}
+          >
+            PDF preview
+          </button>
+          {view === 'md' && (
+            <button type="button" className="link-btn" onClick={copyMarkdown}>
+              {copied ? 'Copied ✓' : 'Copy markdown'}
+            </button>
+          )}
         </div>
       )}
 
@@ -196,7 +168,21 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
           </button>
         </div>
       )}
-      {body.kind === 'ok' && (
+      {body.kind === 'ok' && view === 'md' && (
+        <div className="report-md-view">
+          {/* Rendered markdown (react-markdown + GFM) - the same body Export
+              .md downloads, presented as a document instead of raw source
+              (Aug 14 owner follow-up). */}
+          <div className="report-md-body">
+            <Markdown text={body.markdown} />
+          </div>
+          <div className="mt-3 border-t border-line-soft pt-2.5 font-mono text-[10px] text-bone-faint">
+            Assembled {formatRelative(body.generatedAt)} · MASA security
+            report · what Export .md downloads
+          </div>
+        </div>
+      )}
+      {body.kind === 'ok' && view === 'pdf' && (
         <div className="report-preview">
           <iframe
             key={pdfNonce}

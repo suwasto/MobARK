@@ -101,7 +101,21 @@ _M8_EDIT_PROMPT = (
     "bundle) say they are read-only and explain why. When the user "
     "@mentions a file (e.g. '@AndroidManifest.xml'), treat it as the target "
     "of the request - the file's current content is already attached in the "
-    "USER-MENTIONED FILES section."
+    "USER-MENTIONED FILES section.\n"
+    "CHANGE REQUESTS MUST END IN A PROPOSAL: when the user asks to change, "
+    "bypass, disable, remove, or patch something ('bypass the root check', "
+    "'disable certificate pinning'), your answer is NOT complete until you "
+    "call propose_smali_edit on the target file - or, when the target is not "
+    "editable, state that explicitly. Never finish such a request with a "
+    "read-only summary and no proposal.\n"
+    "ONE FILE PER TURN: a request that spans MULTIPLE files is handled one "
+    "file per turn - propose the FIRST file's edit, end your turn telling "
+    "the user it is stored for review (Review edits panel) and to reply "
+    "'continue' for the next file. Do NOT batch several files' proposals "
+    "into one turn: the human reviews each proposal before the next one is "
+    "made. Prior proposals and their verdicts are listed in the EDIT "
+    "REVIEW STATE section (when present) - never re-propose an "
+    "already-applied or rejected change to the same file."
 )
 
 
@@ -140,6 +154,52 @@ _NARRATION_NUDGE = (
     "read_editable_file) and answer from the real results - a plan without "
     "a tool call is not an answer."
 )
+
+
+# M8 follow-up (Aug 12): the "ends on read" problem - a change request
+# ("bypass the root check") would search + read the editable file, then write
+# a summary answer WITHOUT ever calling propose_smali_edit. When the question
+# asks for a change and the model has been reading/searching but produced
+# zero proposals, inject a bounded nudge that demands the proposal (or an
+# explicit read-only explanation). Mirror of the narration nudge: bounded, so
+# a model that cannot propose eventually gets its answer accepted.
+_EDIT_INTENT_RE = re.compile(
+    r"\b(bypass|by-pass|disable|enable|remove|delete|change|edit|patch|"
+    r"modify|fix|block|prevent|allow|skip|short[- ]circuit|neutralize|"
+    r"deactivate|turn off|turn on|strip out|make it|stop it from|get past|"
+    r"get around|re-enable)",
+    re.IGNORECASE,
+)
+# Tools whose execution counts as "the model already did the reading/search"
+# for the edit-task nudge - the change request has progressed but stalled.
+_EDIT_READ_TOOLS = frozenset(
+    {
+        "search_code",
+        "read_file",
+        "read_editable_file",
+        "find_smali_sibling",
+        "get_decompiled_class",
+        "read_manifest",
+    }
+)
+_MAX_EDIT_NUDGES = 2
+_EDIT_PROPOSE_NUDGE = (
+    "The user asked you to CHANGE code. You have already searched/read the "
+    "relevant files but proposed nothing. Call propose_smali_edit NOW with "
+    "the FULL edited content for the target file (read it first if you "
+    "haven't), or - if the target is genuinely not editable - state that "
+    "explicitly and end your turn."
+)
+
+
+# M8 follow-up (Aug 12): the client-side thread ships recent turns so a
+# follow-up ("continue the edit task") keeps the original request - the
+# backend never used to persist chat. Cap the injected history (turns +
+# per-turn chars) so a long dock thread can't balloon the prompt. M9
+# follow-up: sessions feed the FULL persisted thread through this same
+# path, so the window is wider (20 turns) than the old client-side 6.
+_MAX_HISTORY_TURNS = 20
+_MAX_HISTORY_CHARS = 24_000
 
 
 # M7: appended to the system prompt ONLY when the scan's web-research opt-in
@@ -596,6 +656,56 @@ def _load_mentioned_files(scan_id: int, paths: list[str]) -> str:
     )
 
 
+def _load_edit_review_state(scan_id: int) -> str:
+    """Render the EDIT REVIEW STATE section for the system prompt - the
+    scan's M8 edit proposals + their review verdicts, newest first.
+
+    This is what makes the sequential edit flow work across turns: when the
+    user says "continue" (or asks about prior edits), the agent sees which
+    proposals are still ``proposed`` (awaiting apply/reject), which were
+    ``applied``, and which were ``rejected`` - so it never re-proposes a
+    resolved file and knows what remains of the original task. Compact (12
+    newest rows, instruction truncated); empty string when there are no
+    edits. Only rendered when the edit tools are allowed (Android +
+    decode-ready), like the rest of the M8 surface.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Edit
+
+    db = SessionLocal()
+    try:
+        rows = list(
+            db.scalars(
+                select(Edit)
+                .where(Edit.scan_id == scan_id)
+                .order_by(Edit.id.desc())
+                .limit(12)
+            )
+        )
+    finally:
+        db.close()
+    if not rows:
+        return ""
+    lines: list[str] = []
+    for e in rows:
+        instruction = (e.instruction or "").strip().replace("\n", " ")[:120]
+        row = f"- edit #{e.id} {e.file_path} [{e.status}]"
+        if instruction:
+            row += f" \"{instruction}\""
+        lines.append(row)
+    return (
+        "\n\nEDIT REVIEW STATE - the M8 edit proposals for this scan and "
+        "their verdicts (the Review edits panel):\n"
+        + "\n".join(lines)
+        + "\n[proposed] = stored, NOT applied - the human has not reviewed it "
+        "yet. When the user says 'continue', review this list and propose the "
+        "NEXT file the original task needs (never re-propose a resolved "
+        "file), or say the task is complete."
+    )
+
+
 def answer_question(
     scan_id: int,
     question: str,
@@ -606,12 +716,18 @@ def answer_question(
     stream: bool = False,
     on_event: Callable[[AgentEvent], None] | None = None,
     mentioned_files: list[str] | None = None,
+    history: list[dict] | None = None,
 ) -> AgentResult:
     """Answer a question over Layers 1-3 (findings context + tools).
 
     The Layer 1 context is always present; tools are used only when the model
     emits tool calls. Returns cited answer + resolved citations + the tool
     run trace (``tool_runs``).
+
+    ``history`` is the recent client-side thread (``{role, content}`` turns)
+    injected before the current question - the backend never persists chat,
+    so a follow-up like "continue the edit task" needs the original request
+    to stay coherent. Capped in chat.py (turns + total chars).
 
     ``timeout`` is a hard *overall* deadline in seconds for the whole loop
     (default ``settings.chat_timeout_seconds``). Each round passes only the
@@ -677,15 +793,42 @@ def answer_question(
     # M8 follow-up: user @-mentions - the mentioned files' content is attached
     # so the model answers/proposes about them directly (no search round).
     mentioned_section = _load_mentioned_files(scan_id, mentioned_files or [])
+    # M8 follow-up (Aug 12): the EDIT REVIEW STATE section - the scan's
+    # proposals + verdicts - so a "continue" turn knows what was applied /
+    # rejected and proposes the next file of the original task. Only when
+    # the edit tools exist for this scan.
+    review_state = _load_edit_review_state(scan_id) if edit_allowed else ""
 
     messages: list[dict] = [
         {
             "role": "system",
-            "content": system_prompt + "\n\n" + context.rendered + mentioned_section,
+            "content": (
+                system_prompt
+                + "\n\n"
+                + context.rendered
+                + mentioned_section
+                + review_state
+            ),
         },
-        {"role": "user", "content": question},
     ]
-    # The original 2-turn prompt - used by the exhaustion fallback so the
+    # M8 follow-up: the client-side thread re-sent with a follow-up - recent
+    # user/assistant turns before the current question, capped so a long dock
+    # thread can't balloon the prompt. Lets "continue the edit task" keep the
+    # original request ("bypass the root check") without server persistence.
+    total = 0
+    for turn in (history or [])[-_MAX_HISTORY_TURNS:]:
+        role = turn.get("role") if isinstance(turn, dict) else None
+        content = (turn.get("content") if isinstance(turn, dict) else "") or ""
+        content = content.strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        if total >= _MAX_HISTORY_CHARS:
+            break
+        content = content[:4000]
+        total += len(content)
+        messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": question})
+    # The original grounded prompt - used by the exhaustion fallback so the
     # final plain-chat call never carries tool-role messages a server may
     # reject without a `tools` parameter.
     prompt = list(messages)
@@ -702,6 +845,25 @@ def answer_question(
     tool_runs: list[ToolRun] = []
     final_text = ""
     narration_nudges = 0
+    # M8 follow-up (Aug 12): edit-task loop state. ``edit_intent`` - the
+    # question asks to change code AND the edit tools exist - gates the
+    # "ends on read" nudge so normal Q&A is never pushed to propose.
+    # ``proposals_this_turn`` / ``edit_reads_this_turn`` track the executed
+    # tools; ``edit_nudges`` bounds the nudge like narration. A bare
+    # "continue" follow-up has no change verb of its own - inherit the
+    # intent from the client-side history (the original edit request) so the
+    # nudge keeps guarding the sequential flow across turns.
+    edit_intent = edit_allowed and bool(
+        _EDIT_INTENT_RE.search(question)
+        or any(
+            _EDIT_INTENT_RE.search(str(t.get("content") or ""))
+            for t in (history or [])
+            if isinstance(t, dict)
+        )
+    )
+    proposals_this_turn = 0
+    edit_reads_this_turn = 0
+    edit_nudges = 0
 
     cancel = _register_cancel(scan_id)
     try:
@@ -777,6 +939,23 @@ def answer_question(
                     # plan-narration (review catch, Aug 11).
                     final_text = ""
                     continue
+                # M8 follow-up (Aug 12): the "ends on read" fix - a change
+                # request whose model searched/read the code but wrote a
+                # summary without ever proposing. Nudge (bounded) toward
+                # propose_smali_edit; the nudge explicitly allows a read-only
+                # explanation so an unchangeable target isn't forced.
+                if (
+                    edit_intent
+                    and proposals_this_turn == 0
+                    and edit_reads_this_turn > 0
+                    and edit_nudges < _MAX_EDIT_NUDGES
+                    and content
+                ):
+                    edit_nudges += 1
+                    messages.append({"role": "assistant", "content": content or None})
+                    messages.append({"role": "user", "content": _EDIT_PROPOSE_NUDGE})
+                    final_text = ""
+                    continue
                 final_text = content
                 break
 
@@ -810,6 +989,8 @@ def answer_question(
                     args = {}
                 if name:
                     tools_used.append(name)
+                    if name in _EDIT_READ_TOOLS:
+                        edit_reads_this_turn += 1
                 _emit(
                     on_event,
                     "tool_start",
@@ -821,6 +1002,16 @@ def answer_question(
                     if name
                     else json.dumps({"error": "malformed tool call"})
                 )
+                # M8 follow-up: a SUCCESSFUL propose_smali_edit counts for the
+                # edit-task nudges (the sequential flow: one proposal per turn,
+                # then the human reviews and says "continue").
+                if name == "propose_smali_edit":
+                    try:
+                        parsed = json.loads(result)
+                    except json.JSONDecodeError:
+                        parsed = None
+                    if isinstance(parsed, dict) and "error" not in parsed:
+                        proposals_this_turn += 1
                 duration_ms = int((time.monotonic() - started) * 1000)
                 status, preview, error, count = _classify_tool_result(result)
                 tool_runs.append(

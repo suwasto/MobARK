@@ -1,3 +1,15 @@
+# mastg-android-random-apis-insufficient-entropy
+#
+# Rewritten from scratch (Aug 2026) to clear the GPL-3.0 derivation of the
+# previous pattern body, which traced to mindedsecurity/semgrep-rules-android-
+# security (rules/crypto/mstg-crypto-6.yaml) via `original_source`. Same
+# MASTG-CRYPTO-6 detection intent - Math.random() and java.util.Random are
+# non-cryptographic PRNGs (predictable with enough samples, no secure seed) -
+# but the pattern expression is newly written: instead of a method-body
+# wrapper with a catch-all `$Y(...)` receiver call, the java.util.Random API
+# surface is matched explicitly by method name plus the instantiation site.
+# The id / message / summary are MASTG-authored text (CC BY-SA, vendored via
+# scripts/sync_mastg.py).
 rules:
   - id: mastg-android-random-apis-insufficient-entropy
     severity: WARNING
@@ -5,13 +17,15 @@ rules:
       - java
     metadata:
       summary: This rule looks for common patterns including classes and methods.
-      original_source: https://github.com/mindedsecurity/semgrep-rules-android-security/blob/main/rules/crypto/mstg-crypto-6.yaml
     message: "[MASVS-CRYPTO-1] The application makes use of random number generators with insufficient entropy."
-
     pattern-either:
-        - patterns:
-            - pattern-inside: $M(...){ ... }
-            - pattern-either:
-                - pattern: Math.random(...)
-                - pattern: (java.util.Random $X).$Y(...)
-
+      - pattern: Math.random(...)
+      - pattern: new java.util.Random(...)
+      - pattern: (java.util.Random $R).next(...)
+      - pattern: (java.util.Random $R).nextInt(...)
+      - pattern: (java.util.Random $R).nextLong(...)
+      - pattern: (java.util.Random $R).nextBoolean(...)
+      - pattern: (java.util.Random $R).nextFloat(...)
+      - pattern: (java.util.Random $R).nextDouble(...)
+      - pattern: (java.util.Random $R).nextGaussian(...)
+      - pattern: (java.util.Random $R).nextBytes(...)

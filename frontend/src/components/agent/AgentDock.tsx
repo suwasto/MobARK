@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import type { FileNode, FileTreeRoot, ScanRead } from '../../types'
+import type { ChatSession, FileNode, FileTreeRoot, ScanRead } from '../../types'
 import { useChat, type ChatMessage, type ToolStep } from '../../hooks/useChat'
 import { useApp } from '../../state/AppContext'
 import { Markdown } from '../Markdown'
@@ -65,6 +65,11 @@ interface AgentDockProps {
    * research is the M7 web-research surface - the agent searches when the
    * scan's 🌐 Web toggle is on, else it answers from local context. */
   presetDraft?: { text: string; nonce: number } | null
+  /** M9 follow-up: bumped by the dashboard the moment the user resolves
+   * (applies/rejects) every proposal from the last agent turn - the dock
+   * then auto-sends "continue" so the agent proposes the next file's edit
+   * without any extra click/typing (the sequential edit flow). */
+  autoContinueNonce?: number
 }
 
 /** Compact args summary for a step row (first 2 keys, values truncated). */
@@ -318,8 +323,22 @@ export function AgentDock({
   proposedCount,
   onReviewProposals,
   presetDraft,
+  autoContinueNonce,
 }: AgentDockProps) {
-  const { messages, pending, sending, send, stop } = useChat(scan.id)
+  const {
+    messages,
+    pending,
+    sending,
+    sessions,
+    activeSessionId,
+    sessionsLoading,
+    send,
+    stop,
+    switchSession,
+    newSession,
+    deleteSession,
+    renameSession,
+  } = useChat(scan.id)
   const { backends, searchBackends, actions } = useApp()
   const [draft, setDraft] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -397,16 +416,109 @@ export function AgentDock({
   // never re-opens - the dashboard's onReviewProposals already refreshes the
   // edits list before opening, so the fresh proposal is listed).
   const handledProposalMsg = useRef<number | null>(null)
+  // M9 follow-up: whether the last agent message proposed an edit - gates
+  // both the auto-open (a landed proposal opens the review modal) and the
+  // auto-continue (a reviewed proposal resumes the task).
+  const lastProposed = useMemo(() => {
+    const last = messages[messages.length - 1]
+    return !!(
+      last &&
+      last.role === 'agent' &&
+      last.steps?.some((s) => s.name === 'propose_smali_edit' && s.status === 'ok')
+    )
+  }, [messages])
   useEffect(() => {
     const last = messages[messages.length - 1]
     if (!last || last.role !== 'agent' || last.id === handledProposalMsg.current) return
-    const proposed = last.steps?.some(
-      (s) => s.name === 'propose_smali_edit' && s.status === 'ok',
-    )
-    if (!proposed) return
+    if (!lastProposed) return
     handledProposalMsg.current = last.id
     onReviewProposals()
-  }, [messages, onReviewProposals])
+  }, [messages, lastProposed, onReviewProposals])
+
+  // M9 follow-up: the user resolved every proposal from the last agent turn
+  // (applied or rejected - the dashboard bumps the nonce when the pending
+  // count drops to 0) - resume the edit task automatically. The backend
+  // gets the thread history + EDIT REVIEW STATE, so the agent proposes the
+  // next file or declares the task complete. Each nonce value is consumed
+  // exactly once (seen ref), so the agent's follow-up turn - which may
+  // itself propose, re-arming lastProposed - can never re-trigger a second
+  // "continue" for the same review resolution.
+  const seenContinueNonce = useRef(0)
+  useEffect(() => {
+    const nonce = autoContinueNonce ?? 0
+    if (nonce === seenContinueNonce.current) return
+    seenContinueNonce.current = nonce
+    if (!nonce || sending || !lastProposed) return
+    // Only continue after the user reviewed a LIVE proposal of THIS thread
+    // (live messages have negative ids; a loaded history message with a
+    // positive id can re-arm lastProposed when switching sessions, and its
+    // review must not trigger an unsolicited continuation).
+    const last = messages[messages.length - 1]
+    if (!last || last.id > 0) return
+    send(
+      'continue - review the current edit state and propose the next file\u2019s edit for the task, or say the task is complete',
+    )
+  }, [autoContinueNonce, sending, lastProposed, send, messages])
+
+  // M9 follow-up: the session switcher dropdown (the model-picker pattern -
+  // outside-click + Escape close). Inline rename (an input in the row,
+  // Enter saves / Escape cancels) and a two-step inline delete confirm - no
+  // browser prompt/confirm dialogs.
+  const [sessionMenuOpen, setSessionMenuOpen] = useState(false)
+  const [renamingId, setRenamingId] = useState<number | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
+  const sessionMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!sessionMenuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (sessionMenuRef.current && !sessionMenuRef.current.contains(e.target as Node)) {
+        setSessionMenuOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSessionMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [sessionMenuOpen])
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null
+  const closeSessionMenu = () => {
+    setSessionMenuOpen(false)
+    setConfirmDeleteId(null)
+    setRenamingId(null)
+  }
+  const pickSession = (id: number) => {
+    closeSessionMenu()
+    if (id !== activeSessionId) void switchSession(id)
+  }
+  const startRename = (s: ChatSession) => {
+    setRenamingId(s.id)
+    setRenameDraft(s.title)
+    setConfirmDeleteId(null)
+  }
+  const saveRename = () => {
+    if (renamingId == null) return
+    const title = renameDraft.trim()
+    if (title) void renameSession(renamingId, title)
+    setRenamingId(null)
+  }
+  const cancelRename = () => setRenamingId(null)
+  // Two-step inline delete: first click arms the confirm, second deletes.
+  const handleDelete = (s: ChatSession) => {
+    if (confirmDeleteId === s.id) {
+      setConfirmDeleteId(null)
+      setSessionMenuOpen(false)
+      void deleteSession(s.id)
+    } else {
+      setConfirmDeleteId(s.id)
+    }
+  }
 
   // M7 web research - two layers, per the plan: an Active search engine in
   // Settings (the radio list; the dock toggle NEVER selects an engine) AND
@@ -417,15 +529,23 @@ export function AgentDock({
     () => searchBackends.some((b) => b.enabled),
     [searchBackends],
   )
-  // M7 follow-up (Aug 11): the toggle also needs the Active engine to be
-  // LIVE - the list route probes enabled backends on every list, so an
+  // M7 follow-up (Aug 11 + Aug 13): the toggle also needs the Active engine
+  // to be LIVE - the list route probes enabled backends on every list, so an
   // enabled-but-dead engine (e.g. the SearXNG container stopped) reports
   // health.reachable=false and must not enable web research (every search
-  // would fail). The mirror of the Settings radio gate: dead engines can't
-  // be activated there either. An active KEYED engine's health comes from a
-  // real query (validates the key), so a rejected key locks the toggle too.
+  // would fail). The exact mirror of the Settings radio gate (SearchTab): a
+  // SearXNG-style engine is live only while it answers its probe; a KEYED
+  // engine's gate is the API key (its honest check is a real query - a
+  // rejected key locks the toggle too).
   const liveEngine = useMemo(
-    () => searchBackends.some((b) => b.enabled && b.health?.reachable),
+    () =>
+      searchBackends.some(
+        (b) =>
+          b.enabled &&
+          (b.kind === 'keyed'
+            ? b.has_api_key
+            : (b.health?.reachable ?? false)),
+      ),
     [searchBackends],
   )
   // A chat is only possible when some backend is enabled WITH a model - the
@@ -442,18 +562,29 @@ export function AgentDock({
   useEffect(() => {
     setWebResearch(scan.web_research_enabled)
   }, [scan.id, scan.web_research_enabled])
+  // The engine health above is a boot-time snapshot in AppContext - refresh
+  // it whenever the dock opens so the web toggle's lock reflects CURRENT
+  // reachability (SearXNG started/stopped since the app booted), not a stale
+  // probe. Cheap: the list route only probes SearXNG-style engines.
+  useEffect(() => {
+    if (collapsed) return
+    void actions.refreshSearchBackends()
+  }, [collapsed, actions.refreshSearchBackends])
 
-  // Web 🌐 toggle lock (review catch, Aug 11): a dead engine must not be
-  // able to ENABLE web research, but an opt-in that was already ON (turned
-  // on while the engine was live) stays toggleable so the user can turn it
-  // OFF - the mirror of the Settings radio, which also preserves the off
-  // direction (radioDisabled only gates activating). Without a chat model
+  // Web 🌐 toggle lock (owner request, Aug 13): when no live engine holds,
+  // the toggle is disabled BOTH ways - the exact mirror of the Settings
+  // radio, where an unreachable SearXNG-style engine renders as Inactive
+  // with its switch disabled (on AND off) until it answers again. (The
+  // earlier Aug 11 design kept the off-direction available when an opt-in
+  // was already on; the recovery path is now Settings → ▶ Start engine /
+  // Test, and a stale opt-in stays on harmlessly - the agent's web tools are
+  // only offered while a live engine actually holds.) Without a chat model
   // the toggle stays fully inert (pre-existing no-model gate).
-  const webLocked = !modelConnected || (!liveEngine && !webResearch)
+  const webLocked = !modelConnected || !liveEngine
 
   const toggleWebResearch = async () => {
-    // Inert while locked (no chat model, OR no live engine AND the opt-in is
-    // off - a dead engine can't be enabled) - the switch must not be
+    // Inert while locked (no chat model, OR no live search engine - the
+    // switch is disabled both ways until an engine answers) - it must not be
     // flippable in that state, even by a stray click.
     if (webLocked || webBusy) return
     setWebBusy(true)
@@ -580,9 +711,7 @@ export function AgentDock({
                 : !activeEngine
                   ? 'Web research needs an Active search engine - enable one in Settings → Search & research'
                   : !liveEngine
-                    ? webResearch
-                      ? 'The Active search engine is unreachable - turn web research off, or start/Test it in Settings → Search & research'
-                      : 'The Active search engine is unreachable - start or Test it in Settings → Search & research'
+                    ? 'The Active search engine is unreachable - start or Test it in Settings → Search & research'
                     : 'Allow the agent to search the web for this scan (per-scan opt-in - queries leave this machine)'
             }
             onClick={() => void toggleWebResearch()}
@@ -628,6 +757,107 @@ export function AgentDock({
           <span aria-hidden="true">📝</span>
           Review edits ({proposedCount})
         </button>
+      )}
+
+      {/* M9 follow-up: the multi-session switcher - a trigger + custom
+          dropdown (one chat thread per session, persisted server-side per
+          scan). Rows switch sessions, ✎ renames INLINE (input in the row),
+          🗑 deletes with a two-step inline confirm - no browser dialogs.
+          Disabled while a turn runs - switching mid-turn would orphan it. */}
+      {!collapsed && (
+        <div className="session-bar" ref={sessionMenuRef}>
+          <button
+            type="button"
+            className="session-trigger"
+            disabled={sending || sessionsLoading}
+            title="Switch chat session"
+            onClick={() => setSessionMenuOpen((v) => !v)}
+          >
+            <span className="session-trigger-title">
+              {sessionsLoading ? 'Loading…' : activeSession?.title ?? 'New chat'}
+            </span>
+            <span className="session-chev" aria-hidden="true">
+              ▾
+            </span>
+          </button>
+
+          {sessionMenuOpen && (
+            <div className="session-pop" role="menu" aria-label="Chat sessions">
+              {sessions.length === 0 && (
+                <div className="session-pop-empty">No sessions yet</div>
+              )}
+              {sessions.map((s) => (
+                <div
+                  key={s.id}
+                  className={`session-pop-row${s.id === activeSessionId ? ' active' : ''}`}
+                  role="menuitem"
+                >
+                  {renamingId === s.id ? (
+                    <input
+                      className="session-rename-input"
+                      aria-label="Session name"
+                      value={renameDraft}
+                      autoFocus
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') saveRename()
+                        if (e.key === 'Escape') cancelRename()
+                      }}
+                      onBlur={cancelRename}
+                    />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="session-pop-name"
+                        title={`Switch to this session${s.message_count > 0 ? ` (${s.message_count} messages)` : ''}`}
+                        onClick={() => pickSession(s.id)}
+                      >
+                        <span className="session-pop-title">{s.title}</span>
+                        {s.message_count > 0 && (
+                          <span className="session-pop-count">{s.message_count}</span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="session-pop-act"
+                        title="Rename session"
+                        onClick={() => startRename(s)}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        className={`session-pop-act session-pop-del${confirmDeleteId === s.id ? ' confirming' : ''}`}
+                        title={
+                          confirmDeleteId === s.id
+                            ? 'Click again to delete this session'
+                            : 'Delete session'
+                        }
+                        onClick={() => handleDelete(s)}
+                      >
+                        {confirmDeleteId === s.id ? 'Delete?' : '🗑'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+              <div className="session-pop-divider" />
+              <button
+                type="button"
+                className="session-pop-new"
+                disabled={sending}
+                onClick={() => {
+                  closeSessionMenu()
+                  void newSession()
+                }}
+              >
+                ＋ New session
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       <div className="agent-body" ref={bodyRef}>

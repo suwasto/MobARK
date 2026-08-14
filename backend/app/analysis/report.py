@@ -21,17 +21,16 @@ Section contract (the report at a glance):
   item 2 - "one line, no detail").
 - Findings: full non-suppressed set, grouped by severity (high -> medium ->
   low -> info), each with title, category/MASVS control, MASTG test tag,
-  file/line, tool, and the cached explanation when present. **Vendored
-  roll-up (manual-review follow-up)**: findings inside bundled third-party
-  libraries (the Dependencies tab's grouping) are TALLIED per library
-  instead of listed individually - a human pentester would not ship a
-  500-row report where most rows are android/support repeats; app-owned
-  rows are still listed in full. The severity breakdown keeps the FULL
-  counts (they must match the risk score, which includes vendored
-  findings); the roll-up only changes the Findings listing.
-- Recommended priorities: a deterministic (no-LLM) top-N of the app-owned
-  findings by severity + a static-only scope note - the "what to fix
-  first" a client reads before the detail (manual-review follow-up).
+  file/line, tool, and an explanation - the cached AI one when a model
+  generated it, otherwise a DETERMINISTIC fallback from the persisted data
+  + vendored MASTG mapping (the report is a complete deliverable with no
+  model configured - the MobSF pattern: template-rendered findings, no
+  LLM). EVERY non-suppressed finding is listed individually - findings
+  inside bundled third-party libraries included (Aug 14 owner follow-up:
+  the export must show every finding, never a per-library tally).
+- Recommended priorities: a deterministic (no-LLM) top-N of the findings
+  by severity + a static-only scope note - the "what to fix first" a
+  client reads before the detail (manual-review follow-up).
 - iOS binary profile: the linked-dylib list is the single authoritative
   dylib rendering; the Dependencies section points to it instead of
   re-listing every dylib (manual-review follow-up de-dupe).
@@ -41,9 +40,6 @@ Section contract (the report at a glance):
   same evidence the ``analysis/`` synthetic root shows.
 - Dependencies: the ``dependencies.py`` inventory payload (Android package
   groups / native libs / runtime markers; iOS dylibs / frameworks).
-- Resigned test builds (M8): the ``builds`` rows (status/stage/artifact/
-  error) + applied-edit count - a distinct section from the original
-  artifact analysis (decision 4).
 - External references: web-research source URLs (decision 3; the capture
   itself is open item 1 - the route supplies whatever is persisted).
 
@@ -60,7 +56,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.analysis import mastg
-from app.analysis.dependencies import group_for_finding
+from app.analysis.auto_explain import auto_explanation
 from app.analysis.risk import SEVERITY_ORDER, security_from_risk
 from app.config import settings
 
@@ -150,6 +146,16 @@ def _finding_lines(finding) -> list[str]:
     if explanation:
         lines.append("")
         lines.append("  > " + explanation.strip().replace("\n", "\n  > "))
+    else:
+        # No-AI path (Aug 13 follow-up): every finding carries a DETERMINISTIC
+        # explanation - severity/tool/location + the MASVS/MASTG mapping from
+        # persisted data - so the report is complete with no model configured
+        # (the MobSF model: template-rendered findings, no LLM). The cached AI
+        # explanation replaces this paragraph when a model has generated one.
+        lines.append("")
+        lines.append(
+            "  > " + auto_explanation(finding).strip().replace("\n", "\n  > ")
+        )
     return lines
 
 
@@ -287,7 +293,6 @@ def assemble_report(
     findings,
     *,
     dependencies: dict | None = None,
-    builds: list | None = None,
     web_sources: list[str] | None = None,
     suppressed_count: int = 0,
 ) -> str:
@@ -296,8 +301,6 @@ def assemble_report(
     ``findings`` must already be the scan's NON-suppressed rows (the caller
     filters - the risk/summary convention). ``dependencies`` is the
     ``dependencies.py`` inventory payload (or None to omit the section);
-    ``builds`` the M8 ``Build`` rows (each carries its ``edits_json``
-    snapshot, so the applied-edit count is authoritative per build);
     ``web_sources`` the cited external URLs; ``suppressed_count`` the number
     of findings excluded by suppression (open item 2: a suppressed-only
     scan would otherwise read as "zero findings" with no explanation - one
@@ -310,37 +313,10 @@ def assemble_report(
 
     platform = scan.platform or "unknown"
 
-    # ---- Vendored-library partition (manual-review follow-up) ------------
-    # Findings inside bundled third-party libraries (the Dependencies tab's
-    # grouping) are TALLIED per library instead of listed individually - a
-    # human pentester would not ship a 500-row report where most rows are
-    # android/support repeats. App-owned = manifest-level, no file path, or
-    # inside the app's own package (``group_for_finding`` returns None). The
-    # severity breakdown below still counts EVERYTHING (it must match the
-    # risk score, which includes vendored findings); the roll-up only
-    # changes the Findings listing.
-    app_findings = findings
-    vendored: dict[str, dict[str, int]] = {}
-    app_package = None
-    if dependencies:
-        app_package = (dependencies.get("app") or {}).get("package")
-    if platform == "android" and app_package:
-        app_findings = []
-        for f in findings:
-            group = group_for_finding(f, app_package)
-            if group is None:
-                app_findings.append(f)
-            else:
-                entry = vendored.setdefault(group, {"total": 0})
-                entry["total"] += 1
-                # Same ``_severity_counts`` convention: anything outside the
-                # severity vocabulary lands in an explicit "other" bucket so
-                # a stray severity can never silently vanish from the tally.
-                sev = f.severity or "info"
-                if sev not in SEVERITY_ORDER:
-                    sev = "other"
-                entry[sev] = entry.get(sev, 0) + 1
-    vendored_total = sum(e["total"] for e in vendored.values())
+    # Aug 14 owner follow-up: EVERY non-suppressed finding is listed in full
+    # below - findings inside bundled third-party libraries included. The
+    # old vendored per-library tally was removed ("the report should show
+    # every finding, not just 'medium x count'").
     ios_profile = _ios_binary_profile(findings) if platform == "ios" else None
 
     risk = scan.risk_score
@@ -420,17 +396,17 @@ def assemble_report(
 
     # ---- Recommended priorities (deterministic - no LLM) -----------------
     # Manual-review follow-up: a client reads "what to fix first" before the
-    # detail. The app-owned findings ranked by severity (vendored rows stay
-    # tallied in the Findings section - not repeated here). Never an LLM
+    # detail - the findings ranked by severity, highest first (info rows are
+    # never priorities; the Findings section lists them all). Never an LLM
     # call (decision 10): the AI surfaces stay the summary + explanations.
-    priorities = _top_priorities(app_findings)
+    priorities = _top_priorities(findings)
     if priorities:
         lines.append("## Recommended priorities")
         lines.append("")
         lines.append(
-            "App-owned findings ranked by what to fix first - highest "
-            "severity first. Findings inside bundled third-party libraries "
-            "are tallied in the Findings section below, not repeated here."
+            "Findings ranked by what to fix first - highest severity "
+            "first. Every finding (all severities) is listed in full in "
+            "the Findings section below."
         )
         lines.append("")
         for i, f in enumerate(priorities, 1):
@@ -466,28 +442,16 @@ def assemble_report(
     if not findings:
         lines.append("_No findings for this scan._")
     else:
-        if vendored:
-            lines.append(
-                f"_Of the {len(findings)} findings, {len(app_findings)} are "
-                f"in the app's own code (listed below) and {vendored_total} "
-                "are inside bundled third-party libraries (tallied at the "
-                "end of this section - the library, not the app, owns that "
-                "code)._"
-            )
-            lines.append("")
         grouped = {
-            sev: [f for f in app_findings if f.severity == sev]
+            sev: [f for f in findings if f.severity == sev]
             for sev in SEVERITY_ORDER
         }
-        others = [f for f in app_findings if f.severity not in grouped]
+        others = [f for f in findings if f.severity not in grouped]
         for sev in SEVERITY_ORDER:
             group = grouped[sev]
             if not group:
                 continue
-            heading = f"### {sev.capitalize()} ({len(group)})"
-            if vendored:
-                heading += " - app-owned"
-            lines.append(heading)
+            lines.append(f"### {sev.capitalize()} ({len(group)})")
             lines.append("")
             for f in group:
                 lines.extend(_finding_lines(f))
@@ -498,37 +462,6 @@ def assemble_report(
             for f in others:
                 lines.extend(_finding_lines(f))
                 lines.append("")
-        if vendored:
-            lines.append(f"### Third-party library findings ({vendored_total})")
-            lines.append("")
-            lines.append(
-                "Findings inside bundled third-party libraries, grouped per "
-                "library - the Dependencies section lists the full "
-                "inventory."
-            )
-            lines.append("")
-            labels = {
-                d.get("name"): d.get("label")
-                for d in (dependencies or {}).get("dependencies", [])
-                if d.get("name") and d.get("label")
-            }
-            for group in sorted(vendored):
-                entry = vendored[group]
-                label = labels.get(group)
-                name = f"{group} ({label})" if label else group
-                sev_parts = []
-                for sev in SEVERITY_ORDER:
-                    if entry.get(sev):
-                        sev_parts.append(f"{entry[sev]} {sev}")
-                other = entry.get("other", 0)
-                if other:
-                    sev_parts.append(f"{other} other")
-                lines.append(
-                    f"- **{name}** - {entry['total']} finding"
-                    f"{'s' if entry['total'] != 1 else ''}"
-                    + (f" ({', '.join(sev_parts)})" if sev_parts else "")
-                )
-            lines.append("")
 
     # ---- Platform sections ----------------------------------------------
     if platform == "android":
@@ -619,32 +552,6 @@ def assemble_report(
             )
         lines.append("")
 
-    # ---- Resigned test builds (M8) --------------------------------------
-    if builds:
-        lines.append("## Resigned test builds")
-        lines.append("")
-        lines.append(
-            "Test builds produced by the edit & recompile pipeline (M8). "
-            "These carry a DIFFERENT signature than the original artifact - "
-            "test builds only, never for distribution."
-        )
-        lines.append("")
-        for b in builds:
-            artifact = b.artifact_name or "no artifact"
-            applied = ""
-            try:
-                ids = json.loads(b.edits_json) if b.edits_json else []
-                if ids:
-                    applied = f", {len(ids)} edit{'s' if len(ids) != 1 else ''} applied"
-            except (ValueError, AttributeError):
-                pass
-            error = f" - error: {b.error}" if b.error else ""
-            lines.append(
-                f"- Build #{b.id}: **{b.status}** (stage: {b.stage}{applied}) - "
-                f"`{artifact}`{error}"
-            )
-        lines.append("")
-
     # ---- External references (M7 web research) ---------------------------
     if web_sources:
         lines.append("## External references")
@@ -667,15 +574,18 @@ def assemble_report(
 # dependencies_cache.json pattern) so repeated Report-tab opens / exports
 # skip re-assembly. The stored identity covers EVERY input that can change
 # post-analysis - findings (suppress/restore + regenerate explanations),
-# ``scan.ai_summary`` (regenerate), ``scan.risk_score`` (suppress), builds
-# (a rebuild appends a row), and the web-source ledger (a new capture) - so
-# any of those recomputes lazily instead of serving a stale body. The
-# dependencies payload is deterministic from (scan, findings) for a given
-# scan (trees are immutable per scan), but its hash rides along anyway so a
-# payload drift can never be served stale.
+# ``scan.ai_summary`` (regenerate), ``scan.risk_score`` (suppress), and the
+# web-source ledger (a new capture) - so any of those recomputes lazily
+# instead of serving a stale body. The dependencies payload is deterministic
+# from (scan, findings) for a given scan (trees are immutable per scan), but
+# its hash rides along anyway so a payload drift can never be served stale.
 # v2 (manual-review follow-up): vendored roll-up + Recommended priorities +
 # iOS dylib de-dupe changed the body shape - stale v1 cache files rebuild.
-_REPORT_CACHE_VERSION = 2
+# v3 (Aug 13 follow-up): the no-AI deterministic per-finding explanation
+# changed the body shape again - stale v2 cache files rebuild.
+# v4 (Aug 14 follow-up): every finding listed in full (vendored roll-up
+# removed) + the Resigned test builds section dropped - stale v3 rebuild.
+_REPORT_CACHE_VERSION = 4
 _REPORT_CACHE: dict[str, tuple[str, str]] = {}  # path -> (identity, body)
 _REPORT_CACHE_MAX = 16
 
@@ -709,30 +619,13 @@ def _findings_fingerprint(findings) -> str:
     return h.hexdigest()
 
 
-def _builds_fingerprint(builds) -> str:
-    """Every build field the Resigned test builds section renders."""
-    h = hashlib.sha256()
-    for b in sorted(builds or [], key=lambda x: x.id):
-        h.update(
-            "|".join(
-                [
-                    str(b.id),
-                    getattr(b, "status", None) or "",
-                    getattr(b, "stage", None) or "",
-                    getattr(b, "artifact_name", None) or "",
-                    getattr(b, "error", None) or "",
-                    getattr(b, "edits_json", None) or "",
-                ]
-            ).encode()
-        )
-    return h.hexdigest()
-
-
 # Bump when the BODY ASSEMBLY changes (not the inputs): the identity below
 # covers the inputs, but a report-code change (e.g. the Aug 12 MASTG v2
-# deprecated-id citation fix) must invalidate every persisted body too -
-# same precedent as smali_map's _MAPPING_CACHE_VERSION.
-_REPORT_CACHE_VERSION = 2
+# deprecated-id citation fix, the Aug 13 no-AI explanation fallback, the
+# Aug 14 removal of the vendored roll-up + Resigned test builds section)
+# must invalidate every persisted body too - same precedent as smali_map's
+# _MAPPING_CACHE_VERSION.
+_REPORT_CACHE_VERSION = 4
 
 
 def _cache_identity(
@@ -740,7 +633,6 @@ def _cache_identity(
     findings,
     *,
     dependencies: dict | None,
-    builds: list | None,
     web_sources: list[str] | None,
     suppressed_count: int = 0,
 ) -> str:
@@ -753,7 +645,6 @@ def _cache_identity(
         getattr(scan, "ai_summary", None) or "",
         str(getattr(scan, "created_at", None) or ""),
         _findings_fingerprint(findings),
-        _builds_fingerprint(builds),
         "\n".join(web_sources or []),
         hashlib.sha256(
             json.dumps(dependencies or {}, sort_keys=True).encode()
@@ -774,7 +665,6 @@ def cached_body(
     findings,
     *,
     dependencies: dict | None = None,
-    builds: list | None = None,
     web_sources: list[str] | None = None,
     suppressed_count: int = 0,
 ) -> str | None:
@@ -787,7 +677,6 @@ def cached_body(
         scan,
         findings,
         dependencies=dependencies,
-        builds=builds,
         web_sources=web_sources,
         suppressed_count=suppressed_count,
     )
@@ -818,7 +707,6 @@ def store_body(
     *,
     findings,
     dependencies: dict | None = None,
-    builds: list | None = None,
     web_sources: list[str] | None = None,
     suppressed_count: int = 0,
 ) -> None:
@@ -830,7 +718,6 @@ def store_body(
         scan,
         findings,
         dependencies=dependencies,
-        builds=builds,
         web_sources=web_sources,
         suppressed_count=suppressed_count,
     )

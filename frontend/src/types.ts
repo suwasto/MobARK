@@ -252,6 +252,14 @@ export interface SearchProviderRead {
 
 // ---- M4 agent layer ----
 
+/** One prior user/assistant turn re-sent with a follow-up (M9 follow-up):
+ * the backend never persists chat, so a "continue the edit task" follow-up
+ * needs the recent thread to keep the original request in context. */
+export interface ChatHistoryTurn {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export interface ChatRequest {
   question: string
   timeout_seconds?: number | null
@@ -260,6 +268,36 @@ export interface ChatRequest {
   /** M8 follow-up: tree paths the user @mentioned in the dock - the agent
    * gets their content attached (no search round needed). */
   mentioned_files?: string[]
+  /** M9 follow-up: recent turns from the client-side thread, injected before
+   * the current question so follow-ups keep the original ask (the buffered
+   * fallback; sessions replace it with server-side history). */
+  history?: ChatHistoryTurn[]
+  /** M9 follow-up: the chat session this turn runs in - the route loads the
+   * session's persisted thread and stores the turn back. */
+  session_id?: number | null
+}
+
+/** M9 follow-up: one chat session in the per-scan switcher. */
+export interface ChatSession {
+  id: number
+  scan_id: number
+  title: string
+  created_at: string
+  updated_at: string
+  message_count: number
+  last_content: string | null
+}
+
+/** M9 follow-up: one persisted turn of a session's thread. */
+export interface ChatMessageRead {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+  tool_runs: ToolRunRead[]
+  /** Assistant turns only - reloaded history re-renders the clickable
+   * source chips exactly like the live ChatResponse. */
+  citations: Citation[]
 }
 
 export interface Citation {
@@ -344,6 +382,9 @@ export interface ExplainResponse {
   cached: boolean
   model: string | null
   generated_at: string | null
+  /** Deterministic no-AI explanation (no model configured) - the same text
+   * the report renders, never the cached AI row. */
+  fallback?: boolean
 }
 
 export interface SummaryResponse {
@@ -362,14 +403,6 @@ export interface ReportResponse {
   generated_at: string
 }
 
-export interface ReportRegenerateResponse {
-  summary: string
-  /** How many findings got a NEW explanation this call (cached ones are
-   * kept - each is a separate LLM call, so only missing ones are spent). */
-  explanations_generated: number
-  model: string | null
-  generated_at: string | null
-}
 
 export interface FileNode {
   name: string

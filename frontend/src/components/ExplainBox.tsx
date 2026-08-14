@@ -25,11 +25,25 @@ export function ExplainBox({ state, onRetry, className }: ExplainBoxProps) {
           <Markdown text={state.data.explanation} />
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-line-soft pt-2.5">
             <span className="font-mono text-[10px] text-bone-faint">
-              {state.data.model ? `via ${state.data.model} · ` : ''}
-              {state.data.cached ? 'cached' : 'generated on demand'}
+              {state.data.fallback
+                ? 'deterministic · no AI required (same text as the report)'
+                : state.data.model
+                  ? `via ${state.data.model} · `
+                  : ''}
+              {!state.data.fallback &&
+                (state.data.cached ? 'cached' : 'generated on demand')}
             </span>
-            <button type="button" className="link-btn" onClick={onRetry}>
-              Regenerate
+            <button
+              type="button"
+              className="link-btn"
+              title={
+                state.data.fallback
+                  ? 'Try again - with a model connected this generates the AI explanation'
+                  : undefined
+              }
+              onClick={onRetry}
+            >
+              {state.data.fallback ? 'Regenerate with AI' : 'Regenerate'}
             </button>
           </div>
         </>

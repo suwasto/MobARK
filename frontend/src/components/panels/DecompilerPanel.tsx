@@ -51,10 +51,12 @@ interface DecompilerPanelProps {
   /** Findings are fetched async by the dashboard - skip the default file
    * pick until they are loaded so app-code-with-findings wins. */
   findingsLoading: boolean
-  /** Agent-citation click: open a file. `file` is relative to the platform
-   * tree root (e.g. `com/app/MyWebViewClient.java`); resolved against the
-   * loaded tree, then reported back via `onRequestConsumed`. */
-  requestFile?: { file: string; nonce: number } | null
+  /** Agent-citation / finding-jump click: open a file. `file` is relative to
+   * the platform tree root (e.g. `com/app/MyWebViewClient.java`); resolved
+   * against the loaded tree, then reported back via `onRequestConsumed`.
+   * `findingId` (finding jumps only) highlights the rail note + scrolls the
+   * code to the finding's line once the content loads. */
+  requestFile?: { file: string; nonce: number; findingId?: number | null } | null
   onRequestConsumed?: () => void
   /** M8 Phase D (moved to the dashboard after the Aug 11 owner request):
    * the agent edit-proposal review is a shared surface - the dock chat
@@ -485,10 +487,10 @@ export function DecompilerPanel({
     setSelected(findDefaultFile({ ...files, roots: visibleRoots }, findingPaths))
   }, [files, filesLoading, findingsLoading, selected, visibleRoots, findingPaths])
 
-  // External open request (agent citation click): resolve once the tree is
-  // loaded, then report back so the request clears. Unresolvable paths
-  // (rare - e.g. an iOS string inside a binary) silently keep the current
-  // file rather than stomping it.
+  // External open request (agent citation / finding jump): resolve once the
+  // tree is loaded, then report back so the request clears. Unresolvable
+  // paths (rare - e.g. an iOS string inside a binary) silently keep the
+  // current file rather than stomping it.
   useEffect(() => {
     if (!files || !requestFile) return
     // Citations resolve against the FULL tree (a smali citation must land
@@ -501,7 +503,10 @@ export function DecompilerPanel({
       // rather than a stale one (review catch).
       lastSideFile.current[isJavaRoot(resolved.rootName) ? 'java' : 'smali'] =
         resolved
-      setActiveNoteId(null)
+      // A finding jump also highlights its rail note - the activeNoteId
+      // effect scrolls the code to the finding's line once the content
+      // renders (codeMetrics dep) and the note is line-pinned.
+      setActiveNoteId(requestFile.findingId ?? null)
       if (files.platform === 'android') {
         setView(isJavaRoot(resolved.rootName) ? 'java' : 'smali')
       }

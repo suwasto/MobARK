@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.agent import insights
+from app.agent import insights, sessions
 from app.agent.chat import (
     AgentEvent,
     AgentTimeout,
@@ -57,11 +57,17 @@ from app.config import settings
 from app.db import get_db
 from app.graph import graphify
 from app.model.selection import NoModelConfigured
-from app.models import Build, Edit, Finding, Scan, utcnow
+from app.models import Build, ChatSession, Edit, Finding, Scan, utcnow
 from app.schemas import (
+    BatchSuppressRequest,
+    BatchSuppressResponse,
     BuildRead,
+    ChatMessageRead,
     ChatRequest,
     ChatResponse,
+    ChatSessionRead,
+    ChatSessionUpdate,
+    Citation,
     DependenciesResponse,
     EditCreate,
     EditDiffResponse,
@@ -81,6 +87,7 @@ from app.schemas import (
     SmaliSiblingResponse,
     SmaliStatusResponse,
     SummaryResponse,
+    ToolRunRead,
     WebResearchUpdate,
 )
 from app.workers.jobs import (
@@ -347,6 +354,87 @@ def unsuppress_finding(scan_id: int, finding_id: int, db: DbSession) -> Finding:
     return finding
 
 
+# M5 follow-up (batch suppression): the MASTG rules emit ONE finding per
+# occurrence, so a single check (e.g. "runs on an up-to-date OS version" -
+# ``Build.VERSION.SDK_INT`` per call site) can surface as dozens of identical
+# rows. These endpoints toggle every finding matching the payload's criteria
+# (title group / severity band / category, AND-combined) in one call and
+# recompute the risk score ONCE (the per-row toggles would recompute n
+# times). Both are idempotent: a match that finds nothing left to toggle
+# returns 0, not an error.
+def _batch_findings_stmt(
+    scan_id: int, payload: BatchSuppressRequest, suppressed: bool
+):
+    """The AND-composed finding match for a batch toggle - every provided
+    criterion narrows the set (title group, severity band, category)."""
+    stmt = select(Finding).where(
+        Finding.scan_id == scan_id,
+        Finding.suppressed == suppressed,  # noqa: E712 - SQLAlchemy boolean
+    )
+    if payload.title is not None:
+        stmt = stmt.where(Finding.title == payload.title)
+    if payload.category is not None:
+        stmt = stmt.where(Finding.category == payload.category)
+    if payload.severity is not None:
+        stmt = stmt.where(Finding.severity == payload.severity)
+    if payload.finding_ids:
+        stmt = stmt.where(Finding.id.in_(payload.finding_ids))
+    return stmt
+
+
+def _require_batch_severity(payload: BatchSuppressRequest) -> None:
+    """A ``severity`` criterion must be a known severity (mirror of
+    ``list_findings`` - a typo would otherwise silently match zero rows and
+    read as "nothing to toggle" instead of a bad request)."""
+    if payload.severity is not None and payload.severity not in _SEVERITY_RANK:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown severity {payload.severity!r} "
+            f"(expected one of {', '.join(SEVERITY_ORDER)})",
+        )
+
+
+@router.post("/{scan_id}/findings/suppress-batch", response_model=BatchSuppressResponse)
+def suppress_findings_batch(
+    scan_id: int, payload: BatchSuppressRequest, db: DbSession
+) -> BatchSuppressResponse:
+    """Suppress every non-suppressed finding matching the payload (title /
+    severity / category). Risk recomputed once."""
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    _require_batch_severity(payload)
+    rows = list(db.scalars(_batch_findings_stmt(scan_id, payload, False)).all())
+    if rows:
+        now = utcnow()
+        for f in rows:
+            f.suppressed = True
+            f.suppressed_at = now
+        _recompute_risk(db, scan)
+    return BatchSuppressResponse(
+        suppressed=len(rows), finding_ids=[f.id for f in rows]
+    )
+
+
+@router.post("/{scan_id}/findings/unsuppress-batch", response_model=BatchSuppressResponse)
+def unsuppress_findings_batch(
+    scan_id: int, payload: BatchSuppressRequest, db: DbSession
+) -> BatchSuppressResponse:
+    """Restore every suppressed finding matching the payload (title /
+    severity / category) - the review side's mirror. Risk recomputed once."""
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    _require_batch_severity(payload)
+    rows = list(db.scalars(_batch_findings_stmt(scan_id, payload, True)).all())
+    if rows:
+        for f in rows:
+            f.suppressed = False
+            f.suppressed_at = None
+        _recompute_risk(db, scan)
+    return BatchSuppressResponse(
+        restored=len(rows), finding_ids=[f.id for f in rows]
+    )
+
+
 @router.post("/{scan_id}/summary", response_model=SummaryResponse)
 def scan_summary(
     scan_id: int,
@@ -465,11 +553,11 @@ def _assembled_report(db: Session, scan: Scan) -> str:
 
     Shared by GET /report and the export endpoints. Reads only persisted
     data: the non-suppressed findings, the cached dependencies inventory
-    (its own findings-fingerprint cache), the M8 builds, and the web-source
-    ledger. The body cache is identity-validated: a suppress toggle /
-    regenerate / rebuild / web capture recomputes lazily instead of serving
-    a stale body (the dependencies_cache pattern). Pure assembly - no LLM
-    and no model required (decision 10).
+    (its own findings-fingerprint cache), and the web-source ledger. The
+    body cache is identity-validated: a suppress toggle / regenerate / web
+    capture recomputes lazily instead of serving a stale body (the
+    dependencies_cache pattern). Pure assembly - no LLM and no model
+    required (decision 10).
     """
     findings = list(
         db.scalars(
@@ -494,17 +582,11 @@ def _assembled_report(db: Session, scan: Scan) -> str:
     if deps is None:
         deps = dependencies.inventory(scan, findings)
         dependencies.store_inventory(scan, findings, deps)
-    builds = list(
-        db.scalars(
-            select(Build).where(Build.scan_id == scan.id).order_by(Build.id)
-        ).all()
-    )
     sources = web_sources.sources_for(scan.id)
     cached = report.cached_body(
         scan,
         findings,
         dependencies=deps,
-        builds=builds,
         web_sources=sources,
         suppressed_count=suppressed_count,
     )
@@ -514,7 +596,6 @@ def _assembled_report(db: Session, scan: Scan) -> str:
         scan,
         findings,
         dependencies=deps,
-        builds=builds,
         web_sources=sources,
         suppressed_count=suppressed_count,
     )
@@ -523,7 +604,6 @@ def _assembled_report(db: Session, scan: Scan) -> str:
         body,
         findings=findings,
         dependencies=deps,
-        builds=builds,
         web_sources=sources,
         suppressed_count=suppressed_count,
     )
@@ -1231,6 +1311,160 @@ def graph_node(scan_id: int, node_id: str, db: DbSession) -> GraphNodeDetail:
     return detail
 
 
+# ---- M9 follow-up: multi-session agent chat --------------------------------
+# The dock's thread now persists in the DB (chat_sessions + chat_messages):
+# CRUD below, and /chat + /chat/stream load the session's history and write
+# the user/assistant turns back. The chat loop itself stays stateless - it
+# still receives ``history``; sessions just feed it from the DB instead of
+# the client's 6-turn window (which stays as a fallback for callers without
+# a session_id).
+
+
+def _session_read(db: Session, s: ChatSession) -> ChatSessionRead:
+    last = sessions.last_message(db, s.id)
+    return ChatSessionRead(
+        id=s.id,
+        scan_id=s.scan_id,
+        title=s.title,
+        created_at=s.created_at,
+        updated_at=s.updated_at,
+        message_count=sessions.message_count(db, s.id),
+        last_content=(last.content[:160] if last else None),
+    )
+
+
+def _session_history_or_404(db: Session, scan_id: int, payload: ChatRequest) -> list[dict]:
+    """The persisted thread for ``payload.session_id`` as history dicts, and
+    a freshly-persisted user turn for the question being asked.
+
+    The history is loaded BEFORE the user message is appended (the current
+    question is added by ``answer_question`` itself - it is not part of the
+    history). The user turn is persisted before the LLM call so an
+    interrupted/cancelled turn still shows what was asked in the thread.
+    ``history`` on the payload is the fallback when no session is given.
+    """
+    if payload.session_id is None:
+        return [t.model_dump() for t in payload.history]
+    session = sessions.get_session(db, payload.session_id, scan_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
+    history = [
+        {"role": m.role, "content": m.content}
+        for m in sessions.session_history(db, session.id)
+    ]
+    sessions.add_message(db, session, role="user", content=payload.question)
+    return history
+
+
+def _persist_assistant_turn(db: Session, session_id: int, result) -> None:
+    """Append the finished assistant turn (answer + tool trace) to a session.
+    No-op when the session vanished mid-turn."""
+    session = sessions.get_session(db, session_id)
+    if session is None:
+        return
+    sessions.add_message(
+        db,
+        session,
+        role="assistant",
+        content=result.answer,
+        tool_runs=[
+            {
+                "id": r.id,
+                "name": r.name,
+                "args": r.args,
+                "status": r.status,
+                "duration_ms": r.duration_ms,
+                "result_preview": r.result_preview,
+                "error": r.error,
+                "count": r.count,
+            }
+            for r in result.tool_runs
+        ]
+        or None,
+        # Citation-shaped dicts so reloaded history re-renders the source
+        # chips exactly like the live ChatResponse.
+        citations=[
+            {"file": c.file, "line": c.line, "snippet": c.snippet}
+            for c in result.citations
+        ]
+        or None,
+    )
+
+
+@router.get("/{scan_id}/chat/sessions", response_model=list[ChatSessionRead])
+def list_chat_sessions(scan_id: int, db: DbSession) -> list[ChatSessionRead]:
+    """All chat sessions for a scan, most recently used first (the dock's
+    session switcher). 404 unknown scan."""
+    _get_scan_or_404(db, scan_id)
+    return [_session_read(db, s) for s in sessions.list_sessions(db, scan_id)]
+
+
+@router.post("/{scan_id}/chat/sessions", response_model=ChatSessionRead)
+def create_chat_session(scan_id: int, db: DbSession) -> ChatSessionRead:
+    """A fresh empty session (title auto-derives from the first question)."""
+    _get_scan_or_404(db, scan_id)
+    return _session_read(db, sessions.create_session(db, scan_id))
+
+
+@router.post("/{scan_id}/chat/sessions/{session_id}/rename", response_model=ChatSessionRead)
+def rename_chat_session(
+    scan_id: int, session_id: int, payload: ChatSessionUpdate, db: DbSession
+) -> ChatSessionRead:
+    """Rename one session (404 unknown session / not this scan's)."""
+    _get_scan_or_404(db, scan_id)
+    session = sessions.get_session(db, session_id, scan_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
+    return _session_read(db, sessions.rename_session(db, session, payload.title))
+
+
+@router.delete("/{scan_id}/chat/sessions/{session_id}")
+def delete_chat_session(scan_id: int, session_id: int, db: DbSession) -> dict:
+    """Delete one session - its messages cascade (404 unknown session / not
+    this scan's)."""
+    _get_scan_or_404(db, scan_id)
+    session = sessions.get_session(db, session_id, scan_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
+    sessions.delete_session(db, session)
+    return {"deleted": True}
+
+
+@router.get("/{scan_id}/chat/sessions/{session_id}/messages", response_model=list[ChatMessageRead])
+def chat_session_messages(scan_id: int, session_id: int, db: DbSession) -> list[ChatMessageRead]:
+    """The full thread for one session (the switcher loads it on select,
+    and a reload restores the active session's history)."""
+    _get_scan_or_404(db, scan_id)
+    session = sessions.get_session(db, session_id, scan_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
+    out: list[ChatMessageRead] = []
+    for m in sessions.session_history(db, session.id):
+        tool_runs: list = []
+        if m.tool_runs_json:
+            try:
+                tool_runs = [ToolRunRead(**t) for t in json.loads(m.tool_runs_json)]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                tool_runs = []  # stale/corrupt trace - render without steps
+        citations: list = []
+        if m.citations_json:
+            try:
+                citations = [Citation(**c) for c in json.loads(m.citations_json)]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                citations = []  # stale/corrupt - render without chips
+        out.append(
+            ChatMessageRead(
+                id=m.id,
+                role=m.role,
+                content=m.content,
+                created_at=m.created_at,
+                tool_runs=tool_runs,
+                citations=citations,
+            )
+        )
+    return out
+
+
 @router.post("/{scan_id}/chat", response_model=ChatResponse)
 def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse:
     """M4: grounded agent answer over Layers 1-3 (findings context + tools).
@@ -1250,6 +1484,9 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
             detail=f"scan {scan_id} is not analyzed yet (status={scan.status}) - "
             "run the scan job first",
         )
+    # M9 follow-up: session-aware turns - load the persisted thread (and
+    # persist the user turn) when a session_id is given.
+    history = _session_history_or_404(db, scan_id, payload)
     try:
         result = answer_question(
             scan_id,
@@ -1257,6 +1494,7 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
             timeout=payload.timeout_seconds,
             max_tool_rounds=payload.max_tool_rounds,
             mentioned_files=payload.mentioned_files,
+            history=history,
         )
     except ChatNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1272,6 +1510,9 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
     # turn into the scan's ledger (the report's External references section) -
     # best-effort, never affects the response.
     web_sources.capture_from_turn(scan_id, result.tool_runs)
+    # M9 follow-up: persist the finished assistant turn back to the session.
+    if payload.session_id is not None:
+        _persist_assistant_turn(db, payload.session_id, result)
     # Shared with the SSE stream's final answer frame - one payload shape.
     return ChatResponse(**_chat_payload(result))
 
@@ -1308,6 +1549,12 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
         check_configured()
     except ChatNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # M9 follow-up: a bad session_id is a clean pre-stream 404 (nothing sent
+    # yet) - the worker thread does its own DB work with a fresh connection.
+    if payload.session_id is not None and sessions.get_session(
+        db, payload.session_id, scan_id
+    ) is None:
+        raise HTTPException(status_code=404, detail="chat session not found")
 
     def gen():
         frames: queue.Queue[str | None] = queue.Queue()
@@ -1316,7 +1563,31 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
             frames.put(_sse_frame(event.kind, event.payload))
 
         def run() -> None:
+            # The worker must NOT touch the request-scoped `db` (SQLite +
+            # threads) - it opens its own connection for the session work.
+            from app.db import SessionLocal as _SessionLocal
+
+            work_db = _SessionLocal()
             try:
+                history: list[dict] = [t.model_dump() for t in payload.history]
+                if payload.session_id is not None:
+                    session = sessions.get_session(work_db, payload.session_id, scan_id)
+                    if session is None:
+                        frames.put(
+                            _sse_frame(
+                                "error", {"kind": "error", "detail": "chat session not found"}
+                            )
+                        )
+                        return
+                    history = [
+                        {"role": m.role, "content": m.content}
+                        for m in sessions.session_history(work_db, session.id)
+                    ]
+                    # Persist the user turn before the LLM call so an
+                    # interrupted turn still shows what was asked.
+                    sessions.add_message(
+                        work_db, session, role="user", content=payload.question
+                    )
                 result = answer_question(
                     scan_id,
                     payload.question,
@@ -1325,10 +1596,15 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
                     stream=True,
                     on_event=on_event,
                     mentioned_files=payload.mentioned_files,
+                    history=history,
                 )
                 # M9 open item 1: same ledger capture as the buffered route -
                 # best-effort, never affects the stream.
                 web_sources.capture_from_turn(scan_id, result.tool_runs)
+                # M9 follow-up: persist the finished assistant turn (answer +
+                # tool trace) back to the session.
+                if payload.session_id is not None:
+                    _persist_assistant_turn(work_db, payload.session_id, result)
                 frames.put(_sse_frame("answer", _chat_payload(result)))
             except ChatNotConfigured as exc:
                 frames.put(_sse_frame("error", {"kind": "no-model", "detail": str(exc)}))
@@ -1341,6 +1617,7 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
             except Exception as exc:  # noqa: BLE001 - stream must terminate cleanly
                 frames.put(_sse_frame("error", {"kind": "error", "detail": str(exc)}))
             finally:
+                work_db.close()
                 frames.put(None)  # sentinel - end the stream
 
         threading.Thread(target=run, daemon=True).start()

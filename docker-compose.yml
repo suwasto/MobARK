@@ -48,6 +48,11 @@ services:
       # token streaming (incl. the M7 web-research demo) work with zero
       # Ollama. Default off — real installs never see it.
       MASA_FAKE_MODEL: ${MASA_FAKE_MODEL:-0}
+      # M9 e2e: seed the Google Gemini API key (BYOK) into the stack. The
+      # Settings BYOK flow + POST /model/backends are the runtime paths;
+      # this env is the scripted path (scripts/e2e_gemini.sh configures via
+      # the API regardless, so a store that already exists keeps working).
+      MASA_GEMINI_API_KEY: ${MASA_GEMINI_API_KEY:-}
       # M4 agent chat: local models (especially thinking models with big
       # findings contexts) are slow — give the tool loop a realistic budget.
       # The per-request payload.timeout_seconds can still override this.
@@ -109,6 +114,9 @@ services:
       MASA_SEARXNG_BASE_URL: http://searxng:8080
       # Dev-only fake LLM — same knob as the app service.
       MASA_FAKE_MODEL: ${MASA_FAKE_MODEL:-0}
+      # Same Gemini key passthrough as the app service (the worker can run
+      # web-research scans too; harmless when unset).
+      MASA_GEMINI_API_KEY: ${MASA_GEMINI_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

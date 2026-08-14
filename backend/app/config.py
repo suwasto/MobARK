@@ -111,11 +111,19 @@ class Settings(BaseSettings):
     # Hard overall deadline (seconds) for the whole agent tool loop in
     # answer_question - a hung LLM call can never block the API worker beyond
     # this. Per-request override: POST /scans/{id}/chat {timeout_seconds}.
-    chat_timeout_seconds: int = 120
+    # Default 600s (10 min): a multi-tool turn (search -> read -> propose)
+    # on a local model needs minutes, not the old 120s - the same generous
+    # budget CLI coding agents give a task.
+    chat_timeout_seconds: int = 600
     # M6 Phase C: max tool-calling rounds before the context-only fallback.
     # Same pattern as chat_timeout_seconds: settings is the default, an
     # explicit argument (or ChatRequest.max_tool_rounds) wins.
-    max_tool_rounds: int = 3
+    # Default 20 (was 3): a multi-file change request can need 5-10 rounds
+    # (search -> find_smali_sibling -> read_editable_file -> propose, per
+    # file), and the old 3-round ceiling was what produced the "tool-call
+    # limit" message mid-task - CLI coding agents keep working until the
+    # task is done, bounded here by the overall deadline instead.
+    max_tool_rounds: int = 20
 
     # ---- M7 web research ----
     # The bundled SearXNG engine (compose profile `web`):

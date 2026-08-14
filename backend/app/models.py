@@ -191,3 +191,70 @@ class Finding(Base):
     )
 
     scan: Mapped[Scan] = relationship(back_populates="findings")
+
+
+class ChatSession(Base):
+    """One agent chat thread for a scan (multi-session chat, M9 follow-up).
+
+    The backend never used to persist chat (the dock held the thread
+    client-side and re-sent the last 6 turns); sessions move the thread to
+    the DB so it survives reloads and the model can see a much larger
+    window. Per-scan (a scan's dock is its own workspace); messages cascade
+    on delete. ``title`` is auto-derived from the first question and
+    renameable (PATCH). ``updated_at`` is the session list's sort key +
+    the "most recent" pick.
+    """
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scan_id: Mapped[int] = mapped_column(
+        ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default="New chat")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    messages: Mapped[list[ChatMessage]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ChatMessage.position",
+    )
+
+
+class ChatMessage(Base):
+    """One persisted turn in a chat session (user or assistant).
+
+    ``position`` is the in-session order (messages render + reach the model
+    in this order). Assistant turns carry the tool-run trace
+    (``tool_runs_json``) so reloaded history can re-render the collapsible
+    "Tools (n)" steps. Content is capped at write time (the same 4000-char
+    per-turn bound the client history used).
+    """
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # user | assistant
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # JSON list of ToolRun-shaped dicts (assistant turns only)
+    tool_runs_json: Mapped[str | None] = mapped_column(Text)
+    # JSON list of Citation-shaped dicts ({file, line, snippet}, assistant
+    # turns only) - reloaded history re-renders the clickable source chips.
+    citations_json: Mapped[str | None] = mapped_column(Text)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    session: Mapped[ChatSession] = relationship(back_populates="messages")

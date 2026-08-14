@@ -498,6 +498,67 @@
     font-weight: 400;
     opacity: 0.65;
   }
+  /* The bulk band action inside the group header: pinned right, and the
+     header's uppercase/large letter-spacing would otherwise leak into the
+     button label - reset to the link-btn look. */
+  .sev-group-head .sev-band-btn {
+    margin-left: auto;
+    text-transform: none;
+    letter-spacing: normal;
+    font-weight: 400;
+    font-size: 10.5px;
+  }
+  .sev-group-head .sev-band-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Undo toast after a band / title-group batch toggle: fixed bottom-center
+     (below modals, above everything else in the dashboard), so the Undo
+     offer survives the findings refetch that follows every toggle. */
+  .undo-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 120;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 10px 14px;
+    background: rgba(20, 23, 26, 0.97);
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-bone-dim);
+    white-space: nowrap;
+  }
+  .undo-toast-msg {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .undo-toast .undo-toast-btn {
+    color: var(--color-steel);
+    font-weight: 600;
+  }
+  .undo-toast .undo-toast-btn:hover {
+    color: var(--color-bone);
+  }
+  .undo-toast .undo-toast-x {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    color: var(--color-bone-faint);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .undo-toast .undo-toast-x:hover {
+    color: var(--color-bone-dim);
+  }
 
   .switch-pill {
     display: flex;
@@ -1394,6 +1455,176 @@
     border-color: var(--color-steel-dim);
     background: rgba(35, 207, 146, 0.12);
     color: var(--color-bone);
+  }
+  /* M9 follow-up: the multi-session switcher - a trigger + custom dropdown
+     (the model-picker pattern: outside-click + Escape close) listing the
+     scan's sessions with inline rename (input in the row) and a two-step
+     inline delete confirm - no browser prompt/confirm dialogs. */
+  .session-bar {
+    position: relative;
+    flex-shrink: 0;
+    margin: 10px 12px 0;
+  }
+  .session-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    background: var(--color-graphite);
+    color: var(--color-bone-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .session-trigger:hover:not(:disabled) {
+    border-color: var(--color-steel-dim);
+    color: var(--color-bone);
+  }
+  .session-trigger:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .session-trigger-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session-chev {
+    flex-shrink: 0;
+    font-size: 9px;
+    color: var(--color-bone-faint);
+  }
+  .session-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    max-height: 320px;
+    overflow-y: auto;
+    background: var(--color-panel-raised);
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+    padding: 4px;
+    z-index: 60;
+  }
+  .session-pop-empty {
+    padding: 8px 10px;
+    color: var(--color-bone-faint);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .session-pop-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px;
+    border-radius: 3px;
+  }
+  .session-pop-row.active {
+    background: rgba(35, 207, 146, 0.07);
+  }
+  .session-pop-row:hover {
+    background: var(--color-line-soft);
+  }
+  .session-pop-name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: none;
+    background: none;
+    color: var(--color-bone-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .session-pop-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .session-pop-row.active .session-pop-title {
+    color: var(--color-steel);
+  }
+  .session-pop-count {
+    flex-shrink: 0;
+    color: var(--color-bone-faint);
+    font-size: 9.5px;
+  }
+  .session-pop-act {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: var(--color-bone-faint);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .session-pop-act:hover {
+    color: var(--color-bone);
+    background: var(--color-line-soft);
+  }
+  .session-pop-del:hover {
+    color: var(--color-crimson);
+  }
+  .session-pop-del.confirming {
+    width: auto;
+    padding: 0 7px;
+    color: var(--color-crimson);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+  .session-rename-input {
+    flex: 1;
+    min-width: 0;
+    padding: 5px 8px;
+    border: 1px solid var(--color-steel-dim);
+    border-radius: 3px;
+    background: var(--color-graphite);
+    color: var(--color-bone);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    outline: none;
+  }
+  .session-pop-divider {
+    height: 1px;
+    background: var(--color-line);
+    margin: 4px 6px;
+  }
+  .session-pop-new {
+    width: 100%;
+    padding: 7px 8px;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: var(--color-steel);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .session-pop-new:hover:not(:disabled) {
+    background: var(--color-line-soft);
+    color: var(--color-bone);
+  }
+  .session-pop-new:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   /* M8 Phase D: the "smali decode not ready yet" hint strip in the dock -
      points at the Decompiler's Smali chip so the edit-proposal flow is
@@ -3426,6 +3657,91 @@
     text-decoration: none;
     font-family: var(--font-sans);
     font-size: 12.5px;
+  }
+
+  /* Report tab view toggle: Markdown source (default, owner request Aug 13)
+     vs the branded PDF preview. Reuses the decompiler's .vt-chip pill. */
+  .report-view-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .report-view-toggle .vt-chip {
+    font-size: 11px;
+  }
+  .report-view-toggle .link-btn {
+    margin-left: auto;
+  }
+  /* The RENDERED Markdown view of the assembled report (Aug 14 owner
+     follow-up: "the report tab in markdown currently shows raw markdown -
+     fix it") - react-markdown (the .md class) inside a scrollable,
+     card-style container. The .md typography rules are unlayered, so they
+     apply inside here without extra specificity. */
+  .report-md-view {
+    display: flex;
+    flex-direction: column;
+    min-height: 420px;
+  }
+  .report-md-body {
+    flex: 1;
+    max-height: 72vh;
+    overflow: auto;
+    padding: 18px 22px;
+    border: 1px solid var(--color-line);
+    border-radius: 8px;
+    background: #ffffff;
+    font-size: 13px;
+  }
+
+  /* The report body is a DOCUMENT - white background with dark-on-white
+     typography (owner follow-up: "report markdown should be in white
+     background"). Scoped under .report-md-body so the app's dark theme
+     stays for chat/explain; the palette mirrors the branded PDF export
+     (dark text, emerald accent) so the on-screen markdown matches what
+     Export .md/PDF produce. */
+  .report-md-body .md {
+    color: #1b2025;
+  }
+  .report-md-body .md strong,
+  .report-md-body .md em {
+    color: #14171a;
+  }
+  .report-md-body .md h1,
+  .report-md-body .md h2,
+  .report-md-body .md h3,
+  .report-md-body .md h4 {
+    color: #14171a;
+  }
+  .report-md-body .md a {
+    color: #017452;
+  }
+  .report-md-body .md code {
+    background: #f4f4f2;
+    color: #1b2025;
+  }
+  .report-md-body .md pre {
+    background: #f4f4f2;
+    border-color: #e3e5e2;
+  }
+  .report-md-body .md pre code {
+    color: #1b2025;
+  }
+  .report-md-body .md blockquote {
+    border-left-color: #23cf92;
+    background: #f4fbf8;
+    padding: 4px 10px;
+    color: #3d444a;
+  }
+  .report-md-body .md hr {
+    border-top-color: #e3e5e2;
+  }
+  .report-md-body .md th,
+  .report-md-body .md td {
+    border-color: #d8dbdd;
+  }
+  .report-md-body .md li::marker {
+    color: #6c747a;
   }
 
   /* The Report tab now embeds the BRANDED PDF itself (owner follow-up: the

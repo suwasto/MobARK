@@ -1,7 +1,14 @@
 import json
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 
 def _utc_aware(value: datetime) -> datetime:
@@ -96,6 +103,43 @@ class FindingRead(BaseModel):
         return value
 
 
+class BatchSuppressRequest(BaseModel):
+    """M5 follow-up (batch suppression): suppress/restore every finding
+    matching the given criteria, AND-combined - a whole title group (the
+    MASTG rules emit one finding per occurrence, so a check like "runs on an
+    up-to-date OS version" per call site can produce dozens of identical
+    rows), a whole severity band ("clear all Highs"), an explicit id list
+    (precise undo), or any combination plus an optional ``category``
+    narrowing. At least one criterion is required; omitted criteria don't
+    constrain the match."""
+
+    title: str | None = Field(default=None, min_length=1)
+    category: str | None = None
+    severity: str | None = None
+    finding_ids: list[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _at_least_one_criterion(self):
+        if not (self.title or self.category or self.severity or self.finding_ids):
+            raise ValueError(
+                "at least one of title/category/severity/finding_ids is required"
+            )
+        return self
+
+
+class BatchSuppressResponse(BaseModel):
+    """How many findings a batch suppress/restore toggled. Zero means the
+    match found nothing left to toggle (already suppressed/restored) - an
+    idempotent no-op, never an error. ``finding_ids`` lists exactly which
+    rows THIS call toggled, so the frontend's Undo toast can restore them
+    precisely (a later match-by-title restore would also flip earlier,
+    separately-suppressed findings)."""
+
+    suppressed: int = 0
+    restored: int = 0
+    finding_ids: list[int] = Field(default_factory=list)
+
+
 # ---- M3 model backends (consumed by M5's Settings modal) ----
 
 
@@ -153,6 +197,30 @@ class ModelBackendModels(BaseModel):
 # with the pipeline - grounding is now the full findings set + tools.
 
 
+class ChatHistoryTurn(BaseModel):
+    """One prior user/assistant turn the client re-sends with a follow-up.
+
+    The backend never used to persist chat, so the dock's thread lived
+    client-side and a follow-up like "continue" needed the ORIGINAL request
+    ("bypass the root check") to stay coherent - the frontend shipped the
+    recent turns here and the agent loop prepended them to the system prompt
+    + current question. Multi-session chat (M9 follow-up) supersedes this
+    for the dock: sessions persist the thread server-side and the routes
+    load it directly, so ``history`` is now a backward-compat fallback for
+    callers without a session.
+    """
+
+    role: str  # "user" | "assistant"
+    content: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("role")
+    @classmethod
+    def _only_chat_roles(cls, value):
+        if value not in ("user", "assistant"):
+            raise ValueError("history role must be 'user' or 'assistant'")
+        return value
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     # Optional hard deadline (seconds) for the whole agent loop; falls back to
@@ -160,8 +228,19 @@ class ChatRequest(BaseModel):
     # block the API worker beyond this.
     timeout_seconds: int | None = Field(default=None, ge=1)
     # M6 Phase C: max tool-calling rounds before the context-only fallback;
-    # falls back to settings.max_tool_rounds when omitted.
-    max_tool_rounds: int | None = Field(default=None, ge=1, le=10)
+    # falls back to settings.max_tool_rounds when omitted. The cap is loose
+    # (60) - the default 20 rounds is the CLI-agent-like budget; per-request
+    # values above it are the caller's choice.
+    max_tool_rounds: int | None = Field(default=None, ge=1, le=60)
+    # M8 follow-up: recent conversation turns from the client-side thread
+    # (``ChatHistoryTurn``) - injected before the current question so a
+    # follow-up ("continue the edit task") keeps the original request.
+    history: list[ChatHistoryTurn] = Field(default_factory=list, max_length=12)
+    # M9 follow-up: the chat session to run this turn in. When set, the
+    # route loads the session's persisted thread from the DB (instead of
+    # ``history``) and persists the user turn + assistant answer back - the
+    # dock's multi-session chat. Must belong to the scan (404 otherwise).
+    session_id: int | None = Field(default=None, ge=1)
     # M8 follow-up (dock @-mentions): tree paths the user explicitly attached
     # to the question (``@sources/com/foo/A.java`` etc.). The chat layer loads
     # their content into the agent context so the model answers / proposes
@@ -215,6 +294,56 @@ class ChatResponse(BaseModel):
     # M6 follow-up: the persistent per-tool trace (the live SSE events are
     # the same records, streamed as they happen).
     tool_runs: list[ToolRunRead] = []
+
+
+# ---- M9 follow-up: multi-session agent chat ----
+
+
+class ChatSessionRead(BaseModel):
+    """One chat session in the per-scan list (the dock's session switcher).
+    ``message_count`` / ``last_content`` are derived at list time - the
+    switcher can show a preview without loading the full thread."""
+
+    id: int
+    scan_id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+    message_count: int = 0
+    last_content: str | None = None
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+    @field_serializer("updated_at")
+    def _ser_updated_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+
+class ChatMessageRead(BaseModel):
+    """One persisted turn - the full thread for a session (GET messages).
+    ``tool_runs`` is the assistant turn's trace parsed back from the stored
+    JSON so reloaded history re-renders the collapsible steps; ``citations``
+    (same shape as the live ChatResponse) keeps the clickable source chips
+    on reload."""
+
+    id: int
+    role: str  # user | assistant
+    content: str
+    created_at: datetime
+    tool_runs: list[ToolRunRead] = []
+    citations: list[Citation] = []
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+
+class ChatSessionUpdate(BaseModel):
+    """Rename payload: the switcher's edit affordance."""
+
+    title: str = Field(min_length=1, max_length=120)
 
 
 class ScanGraphState(BaseModel):
@@ -277,12 +406,18 @@ class GraphHubsResponse(BaseModel):
 
 
 class ExplainResponse(BaseModel):
-    """Per-finding AI explanation (FR-8), cached on the finding row."""
+    """Per-finding AI explanation (FR-8), cached on the finding row.
+
+    ``fallback`` marks a DETERMINISTIC explanation returned when no chat
+    model is configured (Aug 13: the explain box matches the report's no-AI
+    body instead of erroring) - it is never the cached AI row.
+    """
 
     explanation: str
     cached: bool
     model: str | None = None
     generated_at: datetime | None = None
+    fallback: bool = False
 
     @field_serializer("generated_at")
     def _ser_generated_at(self, value: datetime | None) -> datetime | None:

@@ -119,13 +119,39 @@ def test_explain_regenerate_bypasses_cache(monkeypatch):
     assert finding.explanation == "fresh explanation"
 
 
-def test_explain_no_model_configured_propagates(monkeypatch):
+def test_explain_no_model_falls_back_to_deterministic(monkeypatch):
+    """Aug 13 follow-up: no model configured -> the explain surface returns
+    the DETERMINISTIC explanation (the same text the report renders, marked
+    ``fallback``) instead of propagating NoModelConfigured - the app matches
+    the report's no-AI body."""
+    finding = _finding(
+        detail={"check_id": "mastg-android-sdk-version"},
+        tool="semgrep",
+        severity="medium",
+        file_path="com/foo/Main.java",
+        line_number=3,
+        category="MASVS-PLATFORM",
+    )
+
     def no_model():
         raise NoModelConfigured("no chat model configured")
 
     monkeypatch.setattr(insights, "pick_chat_backend", no_model)
-    with pytest.raises(NoModelConfigured):
-        insights.explain_finding(1, _finding())
+    result = insights.explain_finding(1, finding)
+
+    assert result["fallback"] is True
+    assert result["cached"] is False
+    assert result["model"] is None
+    # the deterministic paragraph - rule description + mapping + scope note
+    assert "This semgrep check (mastg-android-sdk-version: " in result["explanation"]
+    assert (
+        "This rule scans for API that checks the version of the operating system"
+        in result["explanation"]
+    )
+    assert "mapped to MASVS control MASVS-PLATFORM" in result["explanation"]
+    assert "Static-only finding" in result["explanation"]
+    # never persisted as a cached AI explanation
+    assert finding.explanation is None
 
 
 def test_explain_upstream_failure_raises_insight_error(monkeypatch):

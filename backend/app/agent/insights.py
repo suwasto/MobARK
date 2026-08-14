@@ -6,7 +6,9 @@ model exactly like the M4 agent (``app.model.selection.pick_chat_backend``)
 so one model configured in Settings powers chat, explain, and summary alike.
 
 Failure contract for the API layer:
-- ``NoModelConfigured`` -> HTTP 400 (no chat model in Settings)
+- ``NoModelConfigured`` -> HTTP 400 (no chat model in Settings) - EXCEPT the
+  explain surface, which returns the DETERMINISTIC explanation instead (Aug
+  13 follow-up: the app's explain box matches the report's no-AI body)
 - :class:`InsightError` -> HTTP 502 (the upstream LLM call itself failed -
   the request was fine, the upstream wasn't)
 
@@ -19,10 +21,11 @@ import json
 from datetime import UTC, datetime
 
 from app.agent.tools import read_file
+from app.analysis.auto_explain import auto_explanation
 from app.analysis.risk import SEVERITY_CVSS
 from app.model.client import chat as client_chat
 from app.model.client import model_arch_hint
-from app.model.selection import pick_chat_backend
+from app.model.selection import NoModelConfigured, pick_chat_backend
 
 MAX_EXPLAIN_TOKENS = 700
 MAX_SUMMARY_TOKENS = 800
@@ -137,7 +140,21 @@ def explain_finding(scan_id: int, finding, *, regenerate: bool = False) -> dict:
             "model": None,
             "generated_at": None,
         }
-    backend = pick_chat_backend()
+    try:
+        backend = pick_chat_backend()
+    except NoModelConfigured:
+        # Aug 13 follow-up: no model configured - return the DETERMINISTIC
+        # explanation (the exact paragraph the report renders for this
+        # finding) instead of a 400, so the explain box matches the report's
+        # no-AI body. ``fallback: true`` lets the UI label it as such (and
+        # keeps ``cached`` false - this is never the cached AI row).
+        return {
+            "explanation": auto_explanation(finding),
+            "cached": False,
+            "model": None,
+            "generated_at": None,
+            "fallback": True,
+        }
     user = (
         _finding_grounding(finding)
         + "\n\n"

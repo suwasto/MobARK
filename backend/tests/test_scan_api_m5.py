@@ -951,6 +951,304 @@ def test_suppress_requires_analyzed_409(client, db_session_factory):
     )
 
 
+def _scan_with_same_title_findings(
+    db_session_factory,
+    *,
+    title="Make sure to verify that your app runs on an up-to-date OS version",
+    count=3,
+    severity="high",
+    category="MASVS-PLATFORM",
+):
+    """A done scan with ``count`` findings SHARING one title (the MASTG
+    one-per-occurrence pattern the batch endpoints exist for) + one
+    unrelated finding."""
+    with db_session_factory() as session:
+        scan = Scan(filename="app.apk", platform="android", status="done")
+        session.add(scan)
+        session.commit()
+        for i in range(count):
+            session.add(
+                Finding(
+                    scan_id=scan.id,
+                    tool="semgrep",
+                    title=title,
+                    severity=severity,
+                    file_path=f"com/foo/File{i}.java",
+                    line_number=i + 1,
+                    category=category,
+                )
+            )
+        session.add(
+            Finding(
+                scan_id=scan.id,
+                tool="semgrep",
+                title="Unrelated finding",
+                severity="low",
+                file_path="com/foo/Other.java",
+                line_number=1,
+            )
+        )
+        session.commit()
+        return scan.id
+
+
+# ---- batch suppression (M5 follow-up: one-per-occurrence MASTG titles) ------
+
+
+def test_suppress_batch_toggles_whole_title_group(client, db_session_factory):
+    """Suppressing by title flips EVERY non-suppressed finding with that
+    title (3 identical high rows -> all suppressed), leaves unrelated rows
+    alone, and recomputes risk ONCE (3 highs + 1 low -> low only = 20)."""
+    scan_id = _scan_with_same_title_findings(db_session_factory)
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch",
+        json={"title": "Make sure to verify that your app runs on an up-to-date OS version"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["suppressed"] == 3 and body["restored"] == 0
+
+    visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    assert [f["title"] for f in visible] == ["Unrelated finding"]
+    all_rows = client.get(
+        f"/api/v1/scans/{scan_id}/findings", params={"include_suppressed": "true"}
+    ).json()
+    same_title = [f for f in all_rows if f["title"] != "Unrelated finding"]
+    assert len(same_title) == 3
+    assert all(f["suppressed"] is True and f["suppressed_at"] is not None for f in same_title)
+    # one recompute: the 3 highs are gone, only the low remains
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+
+
+def test_suppress_batch_is_idempotent(client, db_session_factory):
+    """Re-suppressing an already-suppressed title group is a 0-count no-op,
+    not an error (the UI refetches after every toggle)."""
+    scan_id = _scan_with_same_title_findings(db_session_factory, count=2)
+    url = f"/api/v1/scans/{scan_id}/findings/suppress-batch"
+    payload = {
+        "title": "Make sure to verify that your app runs on an up-to-date OS version"
+    }
+    assert client.post(url, json=payload).json()["suppressed"] == 2
+    assert client.post(url, json=payload).json()["suppressed"] == 0
+
+
+def test_suppress_batch_category_narrowing(client, db_session_factory):
+    """A ``category`` narrows the match: only findings with BOTH the title
+    and the category toggle - a differently-categorized same-title row stays."""
+    scan_id = _scan_with_same_title_findings(db_session_factory, count=2)
+    with db_session_factory() as session:
+        session.add(
+            Finding(
+                scan_id=scan_id,
+                tool="plist",
+                title="Make sure to verify that your app runs on an up-to-date OS version",
+                severity="medium",
+                category="MASVS-PLATFORM-2",
+            )
+        )
+        session.commit()
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch",
+        json={
+            "title": "Make sure to verify that your app runs on an up-to-date OS version",
+            "category": "MASVS-PLATFORM",
+        },
+    )
+    assert r.json()["suppressed"] == 2
+    remaining = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    title = "Make sure to verify that your app runs on an up-to-date OS version"
+    same_title = [f for f in remaining if f["title"] == title]
+    assert [f["category"] for f in same_title] == ["MASVS-PLATFORM-2"]
+
+
+def test_unsuppress_batch_restores_title_group(client, db_session_factory):
+    """The review side's mirror: batch-unsuppress by title restores the whole
+    group and the risk score returns."""
+    scan_id = _scan_with_same_title_findings(db_session_factory, count=3)
+    title = "Make sure to verify that your app runs on an up-to-date OS version"
+    url = f"/api/v1/scans/{scan_id}/findings/suppress-batch"
+    client.post(url, json={"title": title})
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/unsuppress-batch", json={"title": title}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["suppressed"] == 0 and body["restored"] == 3
+    # 3 highs back -> worst+count: 80 + 2 (two extras above the first high)
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 82
+    visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    assert len([f for f in visible if f["title"] == title]) == 3
+
+
+def test_suppress_batch_requires_analyzed_409(client, db_session_factory):
+    scan_id = _scan_with_same_title_findings(db_session_factory, count=2)
+    with db_session_factory() as session:
+        session.get(Scan, scan_id).status = "running"
+        session.commit()
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch",
+        json={"title": "Make sure to verify that your app runs on an up-to-date OS version"},
+    )
+    assert r.status_code == 409
+
+
+def test_suppress_batch_severity_band(client, db_session_factory):
+    """Matching by ``severity`` alone clears the whole band - the group-
+    header bulk action. 2 highs + 1 low -> both highs suppressed, the low
+    stays, and risk recomputes once (highs gone -> 20)."""
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "low"))
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 81
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"severity": "high"}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["suppressed"] == 2 and body["restored"] == 0
+    visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    assert [f["severity"] for f in visible] == ["low"]
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+    # idempotent: no highs left to suppress
+    assert (
+        client.post(
+            f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"severity": "high"}
+        ).json()["suppressed"]
+        == 0
+    )
+
+
+def test_unsuppress_batch_severity_band(client, db_session_factory):
+    """The review side's mirror: restoring the whole band brings the highs
+    back and the risk returns (worst+count: 2 highs + 1 low -> 81)."""
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "low"))
+    client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"severity": "high"}
+    )
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/unsuppress-batch", json={"severity": "high"}
+    )
+    body = r.json()
+    assert body["suppressed"] == 0 and body["restored"] == 2
+    visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    assert [f["severity"] for f in visible] == ["high", "high", "low"]
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 81
+
+
+def test_suppress_batch_combined_criteria(client, db_session_factory):
+    """Title + severity AND-combine: only the same-title HIGHs toggle, a
+    same-title medium stays (the per-row "Suppress all" stays title-scoped)."""
+    scan_id = _scan_with_same_title_findings(db_session_factory, count=2)
+    with db_session_factory() as session:
+        session.add(
+            Finding(
+                scan_id=scan_id,
+                tool="semgrep",
+                title="Make sure to verify that your app runs on an up-to-date OS version",
+                severity="medium",
+                category="MASVS-PLATFORM",
+            )
+        )
+        session.commit()
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch",
+        json={
+            "title": "Make sure to verify that your app runs on an up-to-date OS version",
+            "severity": "high",
+        },
+    )
+    assert r.json()["suppressed"] == 2
+    remaining = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    assert sorted(f["severity"] for f in remaining) == ["low", "medium"]
+
+
+def test_suppress_batch_requires_a_criterion_422(client, db_session_factory):
+    """An empty match is a 422 (pydantic validator), not a silent "suppress
+    everything" - the batch never clears a scan by accident."""
+    scan_id = _scan_with_findings(db_session_factory)
+    assert (
+        client.post(f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={}).status_code
+        == 422
+    )
+
+
+def test_suppress_batch_unknown_severity_400(client, db_session_factory):
+    """A typo'd severity is a 400 (mirror of list_findings) - matching zero
+    rows would otherwise read as "nothing to toggle"."""
+    scan_id = _scan_with_findings(db_session_factory)
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"severity": "critical"}
+    )
+    assert r.status_code == 400
+
+
+def test_suppress_batch_returns_toggled_ids(client, db_session_factory):
+    """The response carries exactly which rows THIS call toggled - the
+    Undo toast restores them precisely by id (a match-based restore would
+    also flip separately-suppressed findings)."""
+    scan_id = _scan_with_same_title_findings(db_session_factory, count=3)
+    ids = [f["id"] for f in client.get(f"/api/v1/scans/{scan_id}/findings").json()]
+    title_ids = [i for i in ids if i != ids[-1]]  # the 3 shared-title highs
+
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch",
+        json={"title": "Make sure to verify that your app runs on an up-to-date OS version"},
+    )
+    assert r.status_code == 200
+    assert sorted(r.json()["finding_ids"]) == sorted(title_ids)
+
+    # undo: restore by those exact ids - the unrelated low stays unsuppressed
+    # and only the 3 highs come back
+    u = client.post(
+        f"/api/v1/scans/{scan_id}/findings/unsuppress-batch",
+        json={"finding_ids": r.json()["finding_ids"]},
+    )
+    assert u.json() == {"suppressed": 0, "restored": 3, "finding_ids": title_ids}
+    visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    assert len(visible) == 4  # 3 highs back + the low that never left
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 82
+
+
+def test_unsuppress_batch_by_ids_skips_already_active(client, db_session_factory):
+    """Restoring by ids is idempotent per id - an id that is already active
+    (restored meanwhile) is simply skipped, never an error."""
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "low"))
+    findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
+    high_ids = [f["id"] for f in findings if f["severity"] == "high"]
+    client.post(
+        f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"severity": "high"}
+    )
+    # restore one id, then restore BOTH ids - the already-active one is a no-op
+    client.post(
+        f"/api/v1/scans/{scan_id}/findings/unsuppress-batch",
+        json={"finding_ids": [high_ids[0]]},
+    )
+    r = client.post(
+        f"/api/v1/scans/{scan_id}/findings/unsuppress-batch",
+        json={"finding_ids": high_ids},
+    )
+    assert r.status_code == 200
+    assert r.json()["restored"] == 1
+    assert r.json()["finding_ids"] == [high_ids[1]]
+
+
+def test_suppress_batch_empty_ids_422(client, db_session_factory):
+    """An empty ``finding_ids`` list alone is not a criterion - a 422, never
+    a silent clear."""
+    scan_id = _scan_with_findings(db_session_factory)
+    assert (
+        client.post(
+            f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"finding_ids": []}
+        ).status_code
+        == 422
+    )
+
+
 def test_summary_excludes_suppressed_findings(client, db_session_factory, monkeypatch):
     """The AI summary counts/top list must not include false positives."""
     from app.api.routes import scans as routes

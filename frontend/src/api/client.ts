@@ -7,8 +7,11 @@
  */
 import type {
   BuildRead,
+  ChatHistoryTurn,
+  ChatMessageRead,
   ChatRequest,
   ChatResponse,
+  ChatSession,
   EditCreate,
   EditDiff,
   EditRead,
@@ -27,7 +30,6 @@ import type {
   ScanGraphState,
   ScanRead,
   DependenciesResponse,
-  ReportRegenerateResponse,
   ReportResponse,
   SearchBackendCreate,
   SearchBackendRead,
@@ -102,6 +104,14 @@ export interface FindingsQuery {
   includeSuppressed?: boolean
 }
 
+/** Result of a batch suppress/restore. `finding_ids` lists exactly which
+ * rows THIS call toggled, so an Undo toast can restore them precisely. */
+export interface BatchFindingsResponse {
+  suppressed: number
+  restored: number
+  finding_ids: number[]
+}
+
 export const api = {
   // ---- M0/M5 scans ----
   health: () => request<HealthResponse>('/health'),
@@ -132,6 +142,75 @@ export const api = {
     request<FindingRead>(`/scans/${scanId}/findings/${findingId}/unsuppress`, {
       method: 'POST',
     }),
+  /** M5 follow-up: batch-suppress every finding with this title (MASTG rules
+   * emit one row per occurrence - e.g. dozens of "up-to-date OS version"
+   * checks). `category` optionally narrows the match. Risk recomputed once
+   * server-side; returns how many were toggled + their ids (for Undo). */
+  suppressFindingsByTitle: (scanId: number, title: string, category?: string) =>
+    request<BatchFindingsResponse>(
+      `/scans/${scanId}/findings/suppress-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, category: category ?? null }),
+      },
+    ),
+  /** M5 follow-up: batch-restore the suppressed findings with this title
+   * (the review side's mirror of suppressFindingsByTitle). */
+  unsuppressFindingsByTitle: (scanId: number, title: string, category?: string) =>
+    request<BatchFindingsResponse>(
+      `/scans/${scanId}/findings/unsuppress-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, category: category ?? null }),
+      },
+    ),
+  /** M5 follow-up: bulk-suppress a whole severity band (the Findings group
+   * header action) - every non-suppressed finding of that severity. */
+  suppressFindingsBySeverity: (scanId: number, severity: Severity) =>
+    request<BatchFindingsResponse>(
+      `/scans/${scanId}/findings/suppress-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ severity }),
+      },
+    ),
+  /** M5 follow-up: bulk-restore a whole severity band (the review side's
+   * mirror of suppressFindingsBySeverity). */
+  unsuppressFindingsBySeverity: (scanId: number, severity: Severity) =>
+    request<BatchFindingsResponse>(
+      `/scans/${scanId}/findings/unsuppress-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ severity }),
+      },
+    ),
+  /** M5 follow-up: restore exactly these finding ids - the Undo toast's
+   * precise counterpart to a batch suppress (match-based restores would
+   * also flip earlier, separately-suppressed rows). */
+  unsuppressFindingsByIds: (scanId: number, findingIds: number[]) =>
+    request<BatchFindingsResponse>(
+      `/scans/${scanId}/findings/unsuppress-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finding_ids: findingIds }),
+      },
+    ),
+  /** M5 follow-up: suppress exactly these finding ids - the Undo of a batch
+   * restore (review-side mirror of unsuppressFindingsByIds). */
+  suppressFindingsByIds: (scanId: number, findingIds: number[]) =>
+    request<BatchFindingsResponse>(
+      `/scans/${scanId}/findings/suppress-batch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ finding_ids: findingIds }),
+      },
+    ),
   /** Cached server-side (scans.ai_summary) - repeat calls return it with no
    * LLM spend. `regenerate` explicitly bypasses the cache (Regenerate button). */
   scanSummary: (scanId: number, regenerate = false) =>
@@ -168,13 +247,6 @@ export const api = {
    * model - the AI sections render their cached rows or the explicit no-AI
    * note). */
   getReport: (scanId: number) => request<ReportResponse>(`/scans/${scanId}/report`),
-  /** M9 Phase B: the explicit Regenerate opt-in - re-runs the executive
-   * summary (persisted) and fills MISSING per-finding explanations (cached
-   * ones are never re-spent). 400 no model · 502 upstream. */
-  regenerateReport: (scanId: number) =>
-    request<ReportRegenerateResponse>(`/scans/${scanId}/report/regenerate`, {
-      method: 'POST',
-    }),
   /** M9 Phase C: the export download URL. Same-origin, so a plain anchor
    * with the `download` attribute works - the backend's Content-Disposition
    * sets the `{stem}-report.md|pdf` attachment name anyway. */
@@ -259,16 +331,40 @@ export const api = {
     signal?: AbortSignal,
     /** M8 follow-up: tree paths the user @mentioned in the dock. */
     mentionedFiles?: string[],
+    /** M9 follow-up: recent turns from the client-side thread so follow-ups
+     * ("continue the edit task") keep the original request (buffered-only
+     * fallback; sessions use server-side history). */
+    history?: ChatHistoryTurn[],
+    /** M9 follow-up: run the turn in this chat session (persisted thread). */
+    sessionId?: number | null,
   ) => {
     const body: ChatRequest = { question }
     if (timeoutSeconds != null) body.timeout_seconds = timeoutSeconds
     if (mentionedFiles && mentionedFiles.length > 0) body.mentioned_files = mentionedFiles
+    if (history && history.length > 0) body.history = history
+    if (sessionId != null) body.session_id = sessionId
     return request<ChatResponse>(`/scans/${scanId}/chat`, {
       method: 'POST',
       body: JSON.stringify(body),
       signal,
     })
   },
+  // ---- M9 follow-up: multi-session agent chat ----
+  listChatSessions: (scanId: number) =>
+    request<ChatSession[]>(`/scans/${scanId}/chat/sessions`),
+  createChatSession: (scanId: number) =>
+    request<ChatSession>(`/scans/${scanId}/chat/sessions`, { method: 'POST' }),
+  renameChatSession: (scanId: number, sessionId: number, title: string) =>
+    request<ChatSession>(`/scans/${scanId}/chat/sessions/${sessionId}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }),
+  deleteChatSession: (scanId: number, sessionId: number) =>
+    request<{ deleted: boolean }>(`/scans/${scanId}/chat/sessions/${sessionId}`, {
+      method: 'DELETE',
+    }),
+  chatSessionMessages: (scanId: number, sessionId: number) =>
+    request<ChatMessageRead[]>(`/scans/${scanId}/chat/sessions/${sessionId}/messages`),
   /** M6 follow-up: SSE stream of one agent turn (live token + tool events).
    * Returns the raw Response - the caller reads the body as a stream and
    * decodes events (pre-stream HTTP errors - 400 no-model, 409 not analyzed -
@@ -280,6 +376,12 @@ export const api = {
     signal?: AbortSignal,
     /** M8 follow-up: tree paths the user @mentioned in the dock. */
     mentionedFiles?: string[],
+    /** M9 follow-up: recent turns from the client-side thread so follow-ups
+     * ("continue the edit task") keep the original request (fallback;
+     * sessions use server-side history). */
+    history?: ChatHistoryTurn[],
+    /** M9 follow-up: run the turn in this chat session (persisted thread). */
+    sessionId?: number | null,
   ) =>
     fetch(`${API_BASE}/scans/${scanId}/chat/stream`, {
       method: 'POST',
@@ -289,6 +391,8 @@ export const api = {
         ...(mentionedFiles && mentionedFiles.length > 0
           ? { mentioned_files: mentionedFiles }
           : {}),
+        ...(history && history.length > 0 ? { history } : {}),
+        ...(sessionId != null ? { session_id: sessionId } : {}),
       }),
       signal,
     }).then(async (res) => {

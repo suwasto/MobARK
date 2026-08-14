@@ -12,7 +12,7 @@ import json
 
 from app.analysis import report
 from app.analysis.risk import security_from_risk
-from app.models import Build, Finding, Scan
+from app.models import Finding, Scan
 
 # ---- band helpers -----------------------------------------------------------
 
@@ -71,6 +71,91 @@ def _findings(db_session_factory, scan_id):
         return list(session.query(Finding).filter(Finding.scan_id == scan_id).all())
 
 
+def test_no_ai_finding_explanation_fallback(db_session_factory):
+    """A finding WITHOUT a cached AI explanation still renders a complete
+    deterministic paragraph (Aug 13 follow-up: the report must not depend on
+    a model - the MobSF pattern): tool + severity + location + the
+    MASVS/MASTG mapping from persisted data + the vendored mapping, closed
+    with the static-only scope note. The cached AI explanation replaces it
+    when a model has generated one (the golden-body test above asserts the
+    AI text renders instead)."""
+    scan = _make_scan(db_session_factory, ai_summary=None)
+    _add_findings(
+        db_session_factory,
+        scan.id,
+        [
+            {
+                "title": "WebView has JavaScript enabled",
+                "severity": "high",
+                "file_path": "com/foo/WebView.java",
+                "line_number": 12,
+                "category": "MASVS-PLATFORM",
+                "mastg_test_id": "MASTG-TEST-0222",
+                "tool": "semgrep",
+            },
+            {
+                "title": "Hardcoded credential",
+                "severity": "medium",
+                "file_path": "com/foo/ApiKeys.java",
+                "line_number": 7,
+                "tool": "gitleaks",
+            },
+            {
+                "title": "Up-to-date OS version check",
+                "severity": "low",
+                "file_path": "com/foo/MainActivity.java",
+                "line_number": 20,
+                "category": "MASVS-PLATFORM",
+                "tool": "semgrep",
+                "detail": json.dumps({"check_id": "mastg-android-sdk-version"}),
+            },
+            {
+                "title": "Hardcoded secret detected: google-api-key",
+                "severity": "high",
+                "file_path": "com/foo/Config.java",
+                "line_number": 30,
+                "tool": "gitleaks",
+                "detail": json.dumps(
+                    {
+                        "rule_id": "google-api-key",
+                        "rule_description": "A Google API key was detected",
+                    }
+                ),
+            },
+        ],
+    )
+    body = report.assemble_report(scan, _findings(db_session_factory, scan.id))
+
+    # No-AI executive summary fallback (the report is complete, not a
+    # "configure a model" note)
+    assert "found **4 findings**" in body
+    # Deterministic per-finding explanation: what, where, the mapping, scope
+    assert (
+        "This semgrep check reported a high-severity condition at "
+        "`com/foo/WebView.java:12`" in body
+    )
+    assert "mapped to MASVS control MASVS-PLATFORM" in body
+    assert "OWASP MASTG test MASTG-TEST-0222 (Position Independent Code (PIC) Not Enabled)" in body
+    assert "Static-only finding" in body
+    # A finding with no MASTG mapping still gets the factual fallback
+    assert "This gitleaks check reported a medium-severity condition" in body
+    # The vendored RULE description (metadata.summary) enriches the
+    # explanation - distinct from the title, cited with the rule id.
+    assert (
+        "This semgrep check (mastg-android-sdk-version: "
+        "This rule scans for API that checks the version of the operating "
+        "system) reported a low-severity condition"
+    ) in body
+    # Gitleaks: the persisted rule description + rule id name WHAT leaked.
+    assert (
+        "This gitleaks check (google-api-key: A Google API key was detected) "
+        "reported a high-severity condition"
+    ) in body
+    # No AI placeholders anywhere
+    assert "No AI" not in body
+    assert "configure a chat model" not in body
+
+
 def test_android_report_full_body(tmp_path, monkeypatch, db_session_factory):
     scan = _make_scan(db_session_factory, risk_score=80)
     _add_findings(
@@ -103,24 +188,6 @@ def test_android_report_full_body(tmp_path, monkeypatch, db_session_factory):
             },
         ],
     )
-    with db_session_factory() as db:
-        done_build = Build(
-            scan_id=scan.id,
-            status="done",
-            stage="done",
-            artifact_name="app-resigned-test-1.apk",
-            edits_json="[1]",
-        )
-        failed_build = Build(
-            scan_id=scan.id,
-            status="failed",
-            stage="rebuilding",
-            error="Could not smali file",
-        )
-        db.add_all([done_build, failed_build])
-        db.commit()
-        builds = [db.get(Build, done_build.id), db.get(Build, failed_build.id)]
-
     body = report.assemble_report(
         scan,
         _findings(db_session_factory, scan.id),
@@ -138,7 +205,6 @@ def test_android_report_full_body(tmp_path, monkeypatch, db_session_factory):
                 }
             ],
         },
-        builds=builds,
         web_sources=["https://nvd.nist.gov/vuln/detail/CVE-2026-0001"],
         # The fixture has 3 findings, 1 suppressed (the route computes this
         # from the DB; the unit test states it explicitly).
@@ -194,12 +260,11 @@ def test_android_report_full_body(tmp_path, monkeypatch, db_session_factory):
     assert "1 finding (1 high)" in body
     assert "**Runtime:** Flutter" in body
 
-    # Resigned test builds - distinct, artifact + error both visible
-    assert "## Resigned test builds" in body
-    assert "Build #1: **done** (stage: done, 1 edit applied)" in body
-    assert "`app-resigned-test-1.apk`" in body
-    assert "Build #2: **failed** (stage: rebuilding)" in body
-    assert "Could not smali file" in body
+    # Aug 14 follow-up: NO Resigned test builds section - the report is the
+    # static assessment of the uploaded artifact, not the M8 rebuild pipeline
+    # (the Recompile modal owns that history).
+    assert "## Resigned test builds" not in body
+    assert "resigned-test" not in body
 
     # External references (M7 web sources) cited distinctly
     assert "## External references" in body
@@ -236,9 +301,7 @@ def test_report_cites_active_mastg_test_never_deprecated(
             },
         ],
     )
-    body = report.assemble_report(
-        scan, _findings(db_session_factory, scan.id), dependencies=None, builds=[]
-    )
+    body = report.assemble_report(scan, _findings(db_session_factory, scan.id))
     assert "MASTG-TEST-0326" in body
     assert "MASTG-TEST-0007" not in body
     assert "MASVS-PLATFORM-1" in body  # the control is always cited
@@ -304,9 +367,7 @@ def test_no_ai_summary_is_deterministic_rollup(
             },
         ],
     )
-    body = report.assemble_report(
-        scan, _findings(db_session_factory, scan.id), dependencies=None, builds=[]
-    )
+    body = report.assemble_report(scan, _findings(db_session_factory, scan.id))
     assert "No AI summary yet" not in body
     assert "automated static assessment" in body
     assert "**3 findings**" in body
@@ -320,23 +381,20 @@ def test_no_ai_summary_is_deterministic_rollup(
         [{"title": "X", "severity": "low", "tool": "semgrep"}],
     )
     ai_body = report.assemble_report(
-        scan_with_ai,
-        _findings(db_session_factory, scan_with_ai.id),
-        dependencies=None,
-        builds=[],
+        scan_with_ai, _findings(db_session_factory, scan_with_ai.id)
     )
     assert "Apps ships with an insecure WebView surface." in ai_body
     assert "automated static assessment" not in ai_body
 
 
-def test_android_rolls_up_vendored_library_findings(
+def test_android_lists_every_finding_including_vendored(
     tmp_path, monkeypatch, db_session_factory
 ):
-    """Manual-review follow-up: findings inside bundled third-party
-    libraries (the Dependencies tab's grouping) are tallied per library
-    instead of listed individually; the app's own code is listed in full.
-    The severity breakdown still counts EVERYTHING (it must match the risk
-    score, which includes vendored findings)."""
+    """Aug 14 owner follow-up: the report shows EVERY non-suppressed
+    finding - findings inside bundled third-party libraries (the Dependencies
+    tab's grouping) are listed individually too, never a per-library tally
+    ("not only just 'medium x count'"). The severity breakdown counts
+    everything (it must match the risk score)."""
     scan = _make_scan(db_session_factory, risk_score=80)
     _add_findings(
         db_session_factory,
@@ -399,28 +457,24 @@ def test_android_rolls_up_vendored_library_findings(
     assert "**medium:** 1" in body
     assert "**other:** 1" in body
 
-    # App-owned finding listed individually.
-    assert "### High (1) - app-owned" in body
+    # EVERY finding is listed individually, grouped by severity - app-owned
+    # and vendored alike. No "- app-owned" suffix, no per-library tally.
+    assert "### High (2)" in body
+    assert "### Medium (1)" in body
+    assert "### Other (1)" in body
     assert "Insecure WebView configuration" in body
     assert "com/foo/WebViewActivity.java:42" in body
+    assert "Support library repeat" in body
+    assert "android/support/v4/app/ActivityCompat.java:66" in body
+    assert "GMS SDK finding" in body
+    assert "GMS odd-severity row" in body
+    assert "Third-party library findings" not in body
+    assert "app-owned" not in body
 
-    # Vendored titles never appear; they are tallied per library. The
-    # unknown severity is preserved as an "other" count in the tally (the
-    # same never-vanish convention as the severity breakdown).
-    assert "Support library repeat" not in body
-    assert "GMS SDK finding" not in body
-    assert "GMS odd-severity row" not in body
-    assert "### Third-party library findings (3)" in body
-    assert "**android.support (Android Support Library)** - 1 finding (1 medium)" in body
-    assert (
-        "**com.google.android.gms (Google Play services)** - 2 findings "
-        "(1 high, 1 other)" in body
-    )
-
-    # Priorities skip the vendored rows entirely.
+    # Priorities rank by severity (high first) across the whole set.
     assert "## Recommended priorities" in body
     assert "1. **[HIGH] Insecure WebView configuration**" in body
-    assert "GMS SDK finding" not in body
+    assert "2. **[HIGH] GMS SDK finding**" in body
 
 
 def test_priorities_rank_by_severity_and_exclude_info(

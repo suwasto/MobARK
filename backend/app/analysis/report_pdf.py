@@ -6,8 +6,8 @@ assembled markdown body - python-markdown (BSD-3-Clause) converts it to a
 constrained HTML fragment (headings / single-level lists / blockquotes /
 code / bold / italic), and **reportlab platypus** (BSD-3-Clause) lays that
 fragment out directly (Paragraphs, ListFlowable, one-cell Tables for the
-blockquote rule and the heading underlines). One body, two media - never a
-parallel assembly.
+blockquote rule and the severity h3 left bars). One body, two media -
+never a parallel assembly.
 
 WHY reportlab and not xhtml2pdf (owner decision, Aug 12 2026 follow-up):
 the Phase C audit (the project's own ``pip-licenses`` check) found
@@ -38,10 +38,11 @@ crash).LAYOUT (redesigned Aug 12, 2026 - the manual-review follow-up):
   header + breakdown lines (machine-generated, stable vocabulary) - one
   body, two media, no parallel assembly.
 - **Body pages**: a running header (emerald rule + report identity) and the
-  page-number footer; h2 sections carry an emerald left bar, and **h3
-  headings are severity-colored** (High red / Medium amber / Low blue /
-  Info slate / Third-party deep-emerald) so the Findings section scans at
-  a glance.
+  page-number footer; h1/h2 section headings are PLAIN dark text (the green
+  underline rule was removed Aug 14 - "remove it for cleaner report"), and
+  **h3 headings are severity-colored** (High red / Medium amber / Low blue /
+  Info slate / Third-party deep-emerald) with an emerald left bar so the
+  Findings section scans at a glance.
 - The DejaVu **family** is registered (regular/bold/oblique/mono), so the
   fragment's ``<b>/<i>`` render with real weights instead of fake-bold.
 
@@ -358,43 +359,24 @@ class _FlowableBuilder(HTMLParser):
                     ]
                 ),
             )
+            # Owner report (Aug 14): the severity group heading was glued to
+            # the first finding below - the heading is a Table, and TableStyle
+            # has NO SPACEAFTER command in reportlab 4.x (silently ignored),
+            # so the breathing room is set on the flowable itself (the frame
+            # reads ``flowable.spaceAfter``).
+            box.spaceAfter = 8
             self.flowables.append(box)
             return
 
-        inner = Paragraph(markup, _styles()[f"h{level}"])
-        rule = 2 if level == 1 else 1
-        # TableStyle applies commands in list order with LAST-wins semantics
-        # per cell, so a padding must never appear twice (the old h2 code
-        # inserted LEFTPADDING 8 before the original LEFTPADDING 0 and the
-        # latter silently won - the emerald bar ended up GLUED to the text,
-        # owner report: "the green overlaps the letter E, no gap"). Each
-        # padding appears exactly once, in the order that leaves the h2 bar
-        # with real breathing room.
-        if level == 2:
-            commands = [
-                ("LINEBEFORE", (0, 0), (-1, -1), 3, HexColor(_ACCENT)),
-                ("LEFTPADDING", (0, 0), (-1, -1), 10),
-                ("LINEBELOW", (0, 0), (-1, -1), rule, HexColor(_ACCENT)),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                # The green underline rule sits BELOW the title with
-                # breathing room (owner report: glued to the text at 3pt).
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-            ]
-        else:
-            commands = [
-                ("LINEBELOW", (0, 0), (-1, -1), rule, HexColor(_ACCENT)),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
-            ]
-        box = Table(
-            [[inner]],
-            colWidths=[self.width],
-            style=TableStyle(commands),
-        )
-        self.flowables.append(box)
+        # h1/h2: PLAIN headings - no underline, no left bar (owner follow-up,
+        # Aug 14: "that green underline always have no gap with the text
+        # below it, maybe remove it for cleaner report"). A plain Paragraph
+        # carries the section spacing natively via the style's
+        # spaceBefore/spaceAfter - the old Table wrapper existed only to draw
+        # the green rule, and a Table's own spacing needs the flowable-attr
+        # hack (the frame reads ``flowable.spaceBefore/After``; TableStyle
+        # has no such commands in reportlab 4.x).
+        self.flowables.append(Paragraph(markup, _styles()[f"h{level}"]))
 
     def _emit_list(self) -> None:
         if not self._list_items:
@@ -442,6 +424,15 @@ class _FlowableBuilder(HTMLParser):
                 ]
             ),
         )
+        # Owner report (Aug 14): a finding's explanation sat GLUED to the
+        # finding bullet above and the next finding below - the blockquote is
+        # a Table (own spacing, not the paragraph's), so the breathing room
+        # rides on the flowable itself (the frame reads spaceBefore/After;
+        # TableStyle has no such commands in reportlab 4.x). 8pt above (from
+        # the finding bullet) and 12pt below (to the next finding / section)
+        # keep the explanation clearly separated from what follows.
+        box.spaceBefore = 8
+        box.spaceAfter = 12
         self.flowables.append(box)
 
     # ---- HTMLParser hooks --------------------------------------------------
@@ -532,9 +523,12 @@ def _styles() -> dict[str, object]:
             "h1", fontName=font, fontSize=19, leading=24, textColor=HexColor(_HEADING),
             spaceBefore=0, spaceAfter=10, alignment=TA_LEFT,
         ),
+        # h2 spaceAfter 10: the underline rule is GONE (Aug 14 follow-up -
+        # "remove it for cleaner report"), so the heading's own after-space
+        # is what separates it from the section body.
         "h2": ParagraphStyle(
             "h2", fontName=font, fontSize=12.5, leading=17.5, textColor=HexColor(_HEADING),
-            spaceBefore=18, spaceAfter=6, alignment=TA_LEFT,
+            spaceBefore=18, spaceAfter=10, alignment=TA_LEFT,
         ),
         "h3": ParagraphStyle(
             "h3", fontName=font, fontSize=10.5, leading=15.5, textColor=HexColor(_ACCENT_DEEP),
@@ -769,6 +763,32 @@ def _draw_gauge(canvas, cx: float, cy: float, r: float, score, risk) -> None:
     canvas.restoreState()
 
 
+def _draw_wrapped_centered(canvas, text: str, cx: float, top: float,
+                           font: str, size: float, *, max_width: float,
+                           leading: float) -> None:
+    """Draw ``text`` as centered wrapped lines starting at ``top`` (each
+    line ``leading`` pt below the previous). Word-wrap at ``max_width`` -
+    the report cover's scope footnote is too long for one line and a bare
+    ``drawCentredString`` would clip at both page edges (Aug 14 owner
+    report). Returns nothing; the caller owns the font/color state.
+    """
+    lines: list[str] = []
+    current = ""
+    for word in text.split():
+        trial = (current + " " + word).strip()
+        if not current or canvas.stringWidth(trial, font, size) <= max_width:
+            current = trial
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    y = top
+    for line in lines:
+        canvas.drawCentredString(cx, y, line)
+        y -= leading
+
+
 def _draw_chip(canvas, x: float, y: float, w: float, h: float, label: str,
                count: int, bg: str, fg: str) -> None:
     """A severity summary box on the cover (count + label on a tint)."""
@@ -863,13 +883,23 @@ def _cover_canvas(meta: dict, canvas, doc) -> None:
             "excluded from scoring and the body above",
         )
     # Scope footnote - the honest static-only boundary, on the cover too.
+    # Wrapped into centered lines: a single drawCentredString would overflow
+    # the page width and get CLIPPED at both edges (owner report, Aug 14:
+    # the cover showed "...c analysis of the uploaded artifact ..." with the
+    # start and end cut off).
     canvas.setFont(_font_name(), 8)
     canvas.setFillColor(HexColor(_MUTED))
-    canvas.drawCentredString(
-        W / 2, 96,
+    _draw_wrapped_centered(
+        canvas,
         "Scope: automated static analysis of the uploaded artifact (manifest, "
         "decompiled code, secrets scan, dependency inventory, binary profile). "
         "No dynamic, device, or emulator testing was performed.",
+        W / 2,
+        96,
+        _font_name(),
+        8,
+        max_width=W - 2 * doc.leftMargin,
+        leading=11,
     )
     canvas.restoreState()
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { useApp } from '../state/AppContext'
 import type { ScanRead } from '../types'
 import wordmarkUrl from '../assets/masa-wordmark.svg'
 import { ModelPicker } from './ModelPicker'
@@ -37,6 +38,29 @@ export function TopBar({ onPickFile, uploading, onOpenSettings, scan }: TopBarPr
       document.removeEventListener('keydown', onKey)
     }
   }, [exportOpen])
+
+  // M9.1: the user chip + logout dropdown (auth-on mode; hidden in the
+  // auth-off parity mode where there is no user).
+  const { user, actions } = useApp()
+  const [userOpen, setUserOpen] = useState(false)
+  const userRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!userOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (userRef.current && !userRef.current.contains(e.target as Node)) {
+        setUserOpen(false)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setUserOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [userOpen])
 
   const exportable = scan?.status === 'done'
 
@@ -97,9 +121,65 @@ export function TopBar({ onPickFile, uploading, onOpenSettings, scan }: TopBarPr
         <button className="btn btn-primary" onClick={onPickFile} disabled={uploading}>
           {uploading ? 'Uploading…' : '+ New scan'}
         </button>
-        <button className="icon-btn" onClick={onOpenSettings} title="Settings" aria-label="Settings">
-          ⚙
-        </button>
+        {user ? (
+          <div ref={userRef} className="relative">
+            <button
+              type="button"
+              className="user-chip"
+              aria-haspopup="menu"
+              aria-expanded={userOpen}
+              title={user.email ?? user.username}
+              onClick={() => setUserOpen((o) => !o)}
+            >
+              <span className="user-chip-avatar">{user.username.slice(0, 1).toUpperCase()}</span>
+              <span className="user-chip-name">{user.username}</span>
+              <span className="chev">▾</span>
+            </button>
+            {userOpen && (
+              <div className="user-menu" role="menu" aria-label="Account">
+                <div className="model-group-label">Signed in as</div>
+                <div className="user-menu-name">{user.username}</div>
+                {user.email && <div className="user-menu-email">{user.email}</div>}
+                <div className="model-group-label user-menu-role">
+                  {user.is_admin ? 'Administrator' : 'User'}
+                </div>
+                {/* Settings lives in the profile menu (owner request) - close
+                    the menu before opening the modal so the outside-click
+                    handler doesn't immediately close it again. */}
+                <button
+                  type="button"
+                  className="model-opt user-menu-settings"
+                  role="menuitem"
+                  onClick={() => {
+                    setUserOpen(false)
+                    onOpenSettings()
+                  }}
+                >
+                  Settings
+                </button>
+                <button
+                  type="button"
+                  className="model-opt user-menu-logout"
+                  role="menuitem"
+                  onClick={() => void actions.logout()}
+                >
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          // Auth-off parity mode: no user chip, so the settings gear stays
+          // in the top bar (the only way to reach Settings without a user).
+          <button
+            className="icon-btn"
+            onClick={onOpenSettings}
+            title="Settings"
+            aria-label="Settings"
+          >
+            ⚙
+          </button>
+        )}
       </div>
     </header>
   )

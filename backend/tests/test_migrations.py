@@ -381,6 +381,123 @@ def test_alembic_0009_apktool_columns(tmp_path, monkeypatch):
     engine.dispose()
 
 
+def test_alembic_0013_auth_tables(tmp_path, monkeypatch):
+    """M9.1 migration 0013: users + sessions tables, scans.user_id."""
+    db_url = f"sqlite:///{tmp_path / 'auth.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    from sqlalchemy import text
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    assert {"users", "sessions"} <= tables
+
+    user_columns = {c["name"] for c in inspector.get_columns("users")}
+    assert {
+        "id", "username", "email", "password_hash", "auth_provider",
+        "oauth_id", "is_admin", "is_active", "created_at",
+    } <= user_columns
+    session_columns = {c["name"] for c in inspector.get_columns("sessions")}
+    assert {"id", "user_id", "token_hash", "created_at", "expires_at"} <= session_columns
+    assert "ix_sessions_token_hash" in {
+        ix["name"] for ix in inspector.get_indexes("sessions")
+    }
+
+    # scans.user_id: nullable FK (SQLite can't ALTER-ADD NOT NULL) - the
+    # app enforces ownership on every new scan.
+    scan_columns = {c["name"] for c in inspector.get_columns("scans")}
+    assert "user_id" in scan_columns
+    scan_fks = {fk["constrained_columns"][0] for fk in inspector.get_foreign_keys("scans")}
+    assert "user_id" in scan_fks
+    assert "ix_scans_user_id" in {ix["name"] for ix in inspector.get_indexes("scans")}
+
+    # server_defaults: auth_provider=local, is_admin=0, is_active=1 for raw
+    # SQL inserts (the ORM also defaults them).
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO users (username, created_at) VALUES "
+                "('alice', '2026-08-14T00:00:00')"
+            )
+        )
+        row = conn.execute(
+            text("SELECT auth_provider, is_admin, is_active FROM users")
+        ).first()
+        assert row == ("local", 0, 1)
+    engine.dispose()
+
+
+def test_alembic_0013_downgrade_removes_auth(tmp_path, monkeypatch):
+    db_url = f"sqlite:///{tmp_path / 'auth-down.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "0012")
+
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "users" not in inspector.get_table_names()
+    assert "sessions" not in inspector.get_table_names()
+    assert "user_id" not in {c["name"] for c in inspector.get_columns("scans")}
+    engine.dispose()
+
+
+def test_alembic_0014_single_admin_index(tmp_path, monkeypatch):
+    """M9.1 Phase E: the partial unique index on is_admin - the concurrent
+    first-user race's DB backstop (exactly one admin row possible)."""
+    from sqlalchemy import text
+
+    db_url = f"sqlite:///{tmp_path / 'single-admin.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "ix_users_single_admin" in {ix["name"] for ix in inspector.get_indexes("users")}
+
+    # The guarantee: a second admin insert fails; a non-admin insert is fine.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO users (username, is_admin, created_at) VALUES "
+                "('first', 1, '2026-08-14T00:00:00')"
+            )
+        )
+    with engine.begin() as conn:
+        try:
+            conn.execute(
+                text(
+                    "INSERT INTO users (username, is_admin, created_at) VALUES "
+                    "('second', 1, '2026-08-14T00:00:00')"
+                )
+            )
+            raise AssertionError("second admin row should violate the index")
+        except Exception:
+            pass  # IntegrityError - the guarantee held
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO users (username, is_admin, created_at) VALUES "
+                "('third', 0, '2026-08-14T00:00:00')"
+            )
+        )
+
+    # Down: the index goes away and two admins become possible again.
+    command.downgrade(cfg, "0013")
+    inspector = inspect(engine)
+    assert "ix_users_single_admin" not in {
+        ix["name"] for ix in inspector.get_indexes("users")
+    }
+    engine.dispose()
+
+
 def test_alembic_0005_downgrade_removes_suppression_columns(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'suppress-down.db'}"
     monkeypatch.setenv("MASA_DATABASE_URL", db_url)

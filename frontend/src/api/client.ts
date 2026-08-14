@@ -6,6 +6,7 @@
  * `ApiError` with the FastAPI `detail` message so the UI can render them.
  */
 import type {
+  AuthResponse,
   BuildRead,
   ChatHistoryTurn,
   ChatMessageRead,
@@ -23,10 +24,13 @@ import type {
   GraphNodeDetail,
   GraphSearchResponse,
   HealthResponse,
+  LoginRequest,
   ModelBackendCreate,
   ModelBackendModels,
   ModelBackendRead,
   ModelBackendUpsert,
+  ProvidersResponse,
+  RegisterRequest,
   ScanGraphState,
   ScanRead,
   DependenciesResponse,
@@ -40,6 +44,7 @@ import type {
   SmaliSibling,
   SmaliStatus,
   SummaryResponse,
+  UserRead,
 } from '../types'
 
 const API_BASE = '/api/v1'
@@ -52,6 +57,17 @@ export class ApiError extends Error {
     this.name = 'ApiError'
     this.status = status
   }
+}
+
+/** M9.1: the app-wide "session died" hook - AppContext registers it (via
+ * `setOnUnauthorized`) and any guarded request that comes back 401 calls
+ * it, dropping the UI to the login screen. Auth routes (login/register/me)
+ * throw their own 401s to the caller instead - a wrong password is a form
+ * error, not a session expiry. */
+let onUnauthorized: (() => void) | null = null
+
+export function setOnUnauthorized(fn: (() => void) | null) {
+  onUnauthorized = fn
 }
 
 async function toApiError(res: Response): Promise<ApiError> {
@@ -87,7 +103,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(0, `Network error: ${msg}`)
   })
   if (!res.ok) {
-    throw await toApiError(res)
+    const err = await toApiError(res)
+    // A 401 from any GUARDED route means the session died mid-use (expired,
+    // revoked, or logged out elsewhere) - the AppContext hook clears state
+    // and drops to login. Auth routes are excluded: their 401s are form
+    // errors (bad password) the caller renders inline.
+    if (err.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
+    throw err
   }
   if (res.status === 204) {
     return undefined as T
@@ -113,6 +135,38 @@ export interface BatchFindingsResponse {
 }
 
 export const api = {
+  // ---- M9.1 auth ----
+  /** The session cookie's user, or null (auth-off parity mode). 401 without
+   * a session - the boot flow treats that as "not logged in". */
+  me: () => request<UserRead | null>('/auth/me'),
+  login: (payload: LoginRequest) =>
+    request<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  register: (payload: RegisterRequest) =>
+    request<AuthResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  /** Which sign-in methods are configured (login page buttons). */
+  providers: () => request<ProvidersResponse>('/auth/providers'),
+  /** M9.1 vault: unlock the vault with the vault passphrase (OAuth-only
+   * accounts - first use creates it). Local users unlock at login. */
+  unlockVault: (passphrase: string) =>
+    request<{ unlocked: boolean }>('/auth/vault/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ passphrase }),
+    }),
+  /** M9.1 vault: forgot the passphrase? Destroys the vault and clears the
+   * stored keys (the recovery path - keys are unrecoverable by design). */
+  resetVault: () =>
+    request<{ reset: boolean }>('/auth/vault/reset', { method: 'POST' }),
+  /** OAuth entry: the 302 to the provider. Plain-anchor target (a fetch
+   * would follow the redirect into the provider's consent page). */
+  oauthStartUrl: (provider: string) => `${API_BASE}/auth/oauth/${provider}/start`,
+
   // ---- M0/M5 scans ----
   health: () => request<HealthResponse>('/health'),
   listScans: () => request<ScanRead[]>('/scans'),
@@ -461,9 +515,10 @@ export const api = {
   /** Full probe: a real search query against the engine. */
   testSearchBackend: (id: string) =>
     request<SearchBackendRead>(`/search/backends/${id}/test`, { method: 'POST' }),
-  /** One-click start for the bundled engine - runs `docker compose --profile
-   * web up -d searxng` server-side and waits for it to answer (the Settings
-   * "Start engine" button; custom instances 400). */
+  /** One-click start for the bundled engine - runs `docker compose up -d
+   * searxng` server-side and waits for it to answer (the Settings
+   * "Start engine" button, the recovery path now that searxng starts with
+   * the stack; custom instances 400). */
   startSearchBackend: (id: string) =>
     request<SearchBackendRead>(`/search/backends/${id}/start`, { method: 'POST' }),
 }

@@ -1,10 +1,13 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.deps import get_current_user
+from app.api.middleware import OriginCheckMiddleware
 from app.api.routes import health, models, scans, search
+from app.auth import routes as auth_routes
 from app.config import settings
 
 
@@ -17,10 +20,20 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, version=settings.version, lifespan=lifespan)
 
+# M9.1 (owner decision 7): health + auth are the ONLY open routers; every
+# other /api/v1 route sits behind get_current_user via the router-level
+# dependency (auth OFF -> the guard returns None and routes behave as
+# before - the dev/CI parity mode).
+_AUTH_DEPENDENCIES = [Depends(get_current_user)]
+
+app.add_middleware(OriginCheckMiddleware)
+
+# Auth stays OPEN - this is how a user becomes authenticated.
+app.include_router(auth_routes.router, prefix="/api/v1")
 app.include_router(health.router, prefix="/api/v1")
-app.include_router(scans.router, prefix="/api/v1")
-app.include_router(models.router, prefix="/api/v1")
-app.include_router(search.router, prefix="/api/v1")
+app.include_router(scans.router, prefix="/api/v1", dependencies=_AUTH_DEPENDENCIES)
+app.include_router(models.router, prefix="/api/v1", dependencies=_AUTH_DEPENDENCIES)
+app.include_router(search.router, prefix="/api/v1", dependencies=_AUTH_DEPENDENCIES)
 
 
 @app.get("/")

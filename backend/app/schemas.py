@@ -805,3 +805,76 @@ class BuildRead(BaseModel):
     @field_serializer("finished_at")
     def _ser_finished_at(self, value: datetime | None) -> datetime | None:
         return _utc_aware(value) if value is not None else None
+
+
+# ---- M9.1 auth (Phase A: local password + sessions; OAuth in Phase B) ----
+
+
+class RegisterRequest(BaseModel):
+    """Create an account. The FIRST registered user is the instance admin
+    (owner decision 5) and auto-claims legacy unowned scans.
+    ``username`` is [A-Za-z0-9_.-] so the login form can never smuggle
+    anything surprising into a query; ``password`` needs >= 8 chars (the
+    scrypt minimum sanity bar)."""
+
+    username: str = Field(
+        min_length=3,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    email: str | None = Field(default=None, max_length=255)
+    password: str = Field(min_length=8, max_length=1024)
+
+
+class LoginRequest(BaseModel):
+    """Login with username OR email + password (one lookup, no enumeration)."""
+
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class VaultPassphraseRequest(BaseModel):
+    """The vault passphrase (OAuth-only accounts - local users' password IS
+    the KEK). >= 8 chars like a password; the scrypt minimum sanity bar."""
+
+    passphrase: str = Field(min_length=8, max_length=1024)
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: str | None = None
+    # First registered user = admin (owner decision 5); used by the UI for
+    # the claim/management affordances (Phase C/E).
+    is_admin: bool = False
+    created_at: datetime
+    # M9.1 vault: true when THIS session cannot access the vault (an
+    # OAuth-only account without an unlocked session wrap). Local users
+    # unlock at login, so it is always false for them; only /auth/me sets
+    # it (the register/login responses are local flows).
+    vault_locked: bool = False
+
+    @field_serializer("created_at")
+    def _ser_created_at(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+
+class AuthResponse(BaseModel):
+    """Register/login/me payload - the user + the session cookie (the cookie
+    travels in the Set-Cookie header, never the body)."""
+
+    user: UserRead
+
+
+class ProvidersResponse(BaseModel):
+    """What the login page renders. ``auth_enabled`` lets the frontend skip
+    the login screen entirely in dev/CI parity mode (``MASA_AUTH_ENABLED=0``);
+    ``providers`` lists the configured sign-in methods - Phase A ships
+    ``local`` always; Phase B appends ``github``/``google`` only when their
+    client id + secret env vars are set (buttons render only for configured
+    providers, owner decision 1)."""
+
+    auth_enabled: bool
+    providers: list[str]

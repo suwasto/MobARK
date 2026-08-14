@@ -1,0 +1,63 @@
+# MASA public documentation site (M10 — open-source readiness).
+# Docs content lives in the tracked site/docs/ dir (docs/ stays gitignored —
+# it holds internal milestone trackers + sample binaries). Build output goes
+# to _site/ (gitignored). Deploy: .github/workflows/pages.yml → GitHub Pages.
+site_name: MASA — Mobile Application Security Assistant
+site_description: Local-first mobile application security testing — static analysis + AI copilot for Android and iOS, no data leaves your machine.
+site_url: https://suwasto.github.io/masa/
+repo_url: https://github.com/suwasto/masa
+repo_name: suwasto/masa
+edit_uri: edit/main/site/docs/
+
+docs_dir: site/docs
+site_dir: _site
+
+theme:
+  name: material
+  features:
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: emerald
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: emerald
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  icon:
+    logo: material/security
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Features: features.md
+  - Architecture: architecture.md
+  - Authentication: auth.md
+  - Milestones: milestones.md
+  - Demo: demo.md
+  - Third-party licenses: licenses.md

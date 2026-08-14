@@ -9,11 +9,15 @@ never 400s on a missing model; only this AI route does.
 from __future__ import annotations
 
 from app.models import Finding, Scan
+from tests.conftest import authed_user_id
 
 
 def _scan(db_session_factory, *, status="done"):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status=status)
+        scan = Scan(
+            filename="app.apk", platform="android", status=status,
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         return scan.id
@@ -21,7 +25,10 @@ def _scan(db_session_factory, *, status="done"):
 
 def _scan_with_findings(db_session_factory, *, with_explanation=False):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status="done")
+        scan = Scan(
+            filename="app.apk", platform="android", status="done",
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         for i, sev in enumerate(("high", "medium", "info")):

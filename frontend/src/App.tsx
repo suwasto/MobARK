@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BrandMark } from './components/BrandMark'
+import { LoginView } from './components/auth/LoginView'
 import { SettingsModal } from './components/settings/SettingsModal'
 import { TopBar } from './components/TopBar'
 import { DashboardView } from './components/views/DashboardView'
@@ -18,7 +19,7 @@ function BootSplash() {
 }
 
 function Shell() {
-  const { booting, view, scans, activeScan, actions } = useApp()
+  const { booting, auth, view, scans, activeScan, actions } = useApp()
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -69,6 +70,9 @@ function Shell() {
   }
 
   if (booting) return <BootSplash />
+  // M9.1: the auth gate - no session (and auth is ON) renders the login
+  // screen instead of the app shell. Auth-off parity mode never gets here.
+  if (auth === 'anon') return <LoginView />
 
   // The scan currently on screen - the TopBar Export button targets it. The
   // progress backdrop shows the last completed scan (NOT the running one),

@@ -126,9 +126,10 @@ class Settings(BaseSettings):
     max_tool_rounds: int = 20
 
     # ---- M7 web research ----
-    # The bundled SearXNG engine (compose profile `web`):
-    # `docker compose --profile web up -d searxng`. Seeds the bundled search
-    # backend's base URL (search_backends.json); editable in Settings.
+    # The bundled SearXNG engine - an always-on compose service (no profile
+    # gate since the Aug 14 change: `docker compose up` starts it with the
+    # stack). Seeds the bundled search backend's base URL
+    # (search_backends.json); editable in Settings.
     searxng_base_url: str = "http://localhost:8888"
     # Keyed search engines (Aug 9 follow-up): Brave/Serper/Mojeek. Keys seed
     # the search store only when set via env (mirrors the model BYOK
@@ -166,6 +167,35 @@ class Settings(BaseSettings):
     # Built frontend (frontend/dist) served by FastAPI with an SPA fallback
     # when the directory exists; no-op during backend-only dev.
     frontend_dist: Path = Path("../frontend/dist")
+
+    # ---- M9.1 auth (Phase A) ----
+    # Auth ON by default (owner decision, Aug 14): a fresh install lands on
+    # the register/login screen and every /api/v1 route except health + auth
+    # sits behind a session. MASA_AUTH_ENABLED=0 restores today's fully-open
+    # behavior byte-for-byte (dev/CI parity mode - the old unauthenticated
+    # test suites run against it).
+    auth_enabled: bool = True
+    # Session lifetime (days): sliding - refreshed on use, so an active
+    # session never expires mid-work; a dormant one dies after this many
+    # days of inactivity.
+    session_days: int = 7
+    # Set True when the app is served over TLS (the HttpOnly session cookie
+    # then gets the Secure attribute and is never sent over plain HTTP).
+    cookie_secure: bool = False
+    # ---- M9.1 OAuth (Phase B): GitHub + Google ----
+    # A provider is CONFIGURED only when both its client id and secret are
+    # set (the BYOK env-seeding precedent - owner decision 1): the login
+    # page renders a provider's button only when configured, and the
+    # /auth/oauth/{provider}/start route 404s otherwise. Redirect URIs are
+    # derived from ``public_base_url`` - never from the request.
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    # The public base URL of THIS install - the OAuth redirect_uri is
+    # ``{public_base_url}/api/v1/auth/oauth/{provider}/callback``. Default
+    # localhost dev; set it to the real origin in production.
+    public_base_url: str = "http://localhost:8000"
 
 
 settings = Settings()

@@ -21,6 +21,10 @@ frontend/dist/
 frontend/vite.config.js
 frontend/vite.config.d.ts
 
+# ---- M10 docs site build output (mkdocs; source lives in tracked site/) ----
+_site/
+.venv-mkdocs/
+
 # ---- Env / secrets ----
 .env
 

@@ -3085,6 +3085,26 @@
   .field-input:disabled {
     opacity: 0.5;
   }
+  /* M9.1: login/register form inputs - same family as .field-input, sans
+   * mono font (the auth screen isn't a developer form). */
+  .auth-input {
+    width: 100%;
+    background: var(--color-panel-raised);
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    padding: 8px 10px;
+    box-sizing: border-box;
+  }
+  .auth-input:focus {
+    outline: none;
+    border-color: var(--color-steel-dim);
+  }
+  .auth-input:disabled {
+    opacity: 0.5;
+  }
   .field-hint {
     font-size: 11px;
     color: var(--color-bone-faint);
@@ -3657,6 +3677,90 @@
     text-decoration: none;
     font-family: var(--font-sans);
     font-size: 12.5px;
+  }
+
+  /* ---- M9.1 Phase D: TopBar user chip + account menu ---- */
+  .user-chip {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 9px 4px 5px;
+    border: 1px solid var(--color-line);
+    border-radius: 3px;
+    background: var(--color-panel-raised);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    cursor: pointer;
+    max-width: 180px;
+  }
+  .user-chip:hover {
+    border-color: var(--color-steel-dim);
+  }
+  .user-chip-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--color-steel-dim);
+    color: var(--color-bone);
+    font-size: 11px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .user-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .user-chip .chev {
+    font-size: 10px;
+    opacity: 0.7;
+  }
+  .user-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    width: 220px;
+    background: var(--color-panel-raised);
+    border: 1px solid var(--color-line);
+    border-radius: 4px;
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+    padding: 6px;
+    z-index: 60;
+  }
+  .user-menu-name {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--color-bone);
+    padding: 0 10px 2px;
+    overflow-wrap: anywhere;
+  }
+  .user-menu-email {
+    font-size: 11px;
+    color: var(--color-bone-faint);
+    padding: 0 10px 6px;
+    overflow-wrap: anywhere;
+  }
+  .user-menu-role {
+    padding-top: 8px;
+  }
+  .user-menu .model-opt {
+    font-family: var(--font-sans);
+    font-size: 12.5px;
+    color: var(--color-bone);
+  }
+  .user-menu .model-opt:hover {
+    background: var(--color-line-soft);
+    color: var(--color-bone);
+  }
+  .user-menu .user-menu-logout {
+    color: var(--color-sev-red);
+  }
+  .user-menu .user-menu-logout:hover {
+    color: var(--color-sev-red);
   }
 
   /* Report tab view toggle: Markdown source (default, owner request Aug 13)

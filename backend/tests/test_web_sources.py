@@ -13,6 +13,7 @@ import json
 from app.agent.chat import AgentResult, ToolRun
 from app.analysis import web_sources
 from app.models import Scan
+from tests.conftest import authed_user_id
 
 
 def _fetch_run(url, preview=None, status="ok", name="web_fetch"):
@@ -134,7 +135,10 @@ def test_missing_ledger_reads_empty(tmp_path, monkeypatch):
 
 def _add_scan(db_session_factory):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status="done")
+        scan = Scan(
+            filename="app.apk", platform="android", status="done",
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         return scan.id
@@ -215,7 +219,10 @@ def test_report_assembles_external_references_from_ledger(
 
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as db:
-        scan = Scan(filename="app.apk", platform="android", status="done")
+        scan = Scan(
+            filename="app.apk", platform="android", status="done",
+            user_id=authed_user_id(db_session_factory),
+        )
         db.add(scan)
         db.commit()
         scan_id = scan.id

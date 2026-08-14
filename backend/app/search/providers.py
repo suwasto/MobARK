@@ -45,8 +45,8 @@ SEARCH_PROVIDERS: dict[str, SearchProvider] = {
             base_url_required=False,
             key_required=False,
             key_env_var=None,
-            # Profile-gated compose service (``docker compose --profile web
-            # up -d searxng``) - see docker-compose.yml.
+            # Always-on bundled compose service (starts with ``docker compose
+            # up`` - no profile gate) - see docker-compose.yml.
             default_base_url="http://localhost:8888",
         ),
         SearchProvider(

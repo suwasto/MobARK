@@ -18,9 +18,10 @@ import type { SearchBackendRead, SearchProviderRead } from '../../types'
  * default). The add-form's provider picker comes from `GET /search/providers`
  * so the UI can never drift from the provider table.
  *
- * The Active toggle never auto-starts the SearXNG container - Active means
- * "the configured engine"; reachability is probed separately (a failing
- * probe carries the `docker compose --profile web up -d searxng` hint).
+ * The Active toggle only picks the configured engine - it does not start
+ * or stop containers. SearXNG is always-on since the Aug 14 change (it
+ * starts with `docker compose up`); reachability is probed separately (a
+ * failing probe carries the `docker compose up -d searxng` hint).
  */
 export function SearchTab() {
   const { searchBackends } = useApp()
@@ -40,8 +41,8 @@ export function SearchTab() {
       <p className="field-hint" style={{ marginBottom: 16 }}>
         Pick the search engine the agent uses when web research is enabled.
         Only one engine can be Active at a time - enabling one turns the
-        others off. SearXNG ships bundled; start it with{' '}
-        <code>docker compose --profile web up -d searxng</code>.
+        others off. SearXNG is bundled and starts automatically with{' '}
+        <code>docker compose up</code>.
       </p>
 
       {searchBackends.map((b) => (
@@ -73,7 +74,7 @@ type GuideState =
   | { mode: 'stopped'; command: string }
 
 /** Pull the manual command out of the start endpoint's failure message
- * (``start it manually: `docker compose --profile web up -d searxng```). The
+ * (``start it manually: `docker compose up -d searxng```). The
  * message shape is pinned by backend tests, so the parse can't drift
  * silently. Anchored on `docker compose` (not the first backticked segment)
  * because the compose-failure format embeds the stderr tail BEFORE the
@@ -395,8 +396,9 @@ function SearchBackendCard({ backend }: { backend: SearchBackendRead }) {
             {busy === 'start' ? 'Starting…' : '▶ Start engine'}
           </button>
           <span className="field-hint" style={{ margin: 'auto 0' }}>
-            Runs <code>docker compose --profile web up -d searxng</code> and
-            waits for the engine to answer.
+            Runs <code>docker compose up -d searxng</code> and waits for the
+            engine to answer (the recovery path - the engine already starts
+            with the stack).
           </span>
         </div>
       )}

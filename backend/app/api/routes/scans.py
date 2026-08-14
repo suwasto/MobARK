@@ -53,11 +53,13 @@ from app.analysis import (
     web_sources,
 )
 from app.analysis.risk import SEVERITY_ORDER, compute_risk_score, security_from_risk
+from app.api.deps import require_scan_access
 from app.config import settings
 from app.db import get_db
 from app.graph import graphify
 from app.model.selection import NoModelConfigured
 from app.models import Build, ChatSession, Edit, Finding, Scan, utcnow
+from app.request_ctx import current_master_key, current_user_id
 from app.schemas import (
     BatchSuppressRequest,
     BatchSuppressResponse,
@@ -114,10 +116,14 @@ class _UploadTooLarge(Exception):
 
 
 def _get_scan_or_404(db: Session, scan_id: int) -> Scan:
-    scan = db.get(Scan, scan_id)
-    if scan is None:
-        raise HTTPException(status_code=404, detail="scan not found")
-    return scan
+    """404 for unknown OR foreign scans (M9.1 decision 6 - no existence
+    leak). The caller resolves from ``request_ctx.current_user_id`` (set by
+    the router-level ``get_current_user`` guard), so EVERY scan-keyed route
+    is gated structurally - a route cannot forget to pass the user. Auth-off
+    mode (user id None) keeps today's open behavior. ``deps.require_scan_
+    access`` is the shared rule the isolation tests exercise explicitly.
+    """
+    return require_scan_access(db, scan_id, current_user_id.get())
 
 
 def _require_analyzed(scan: Scan) -> None:
@@ -201,8 +207,13 @@ def _recompute_risk(db: Session, scan: Scan) -> None:
 
 @router.get("", response_model=list[ScanRead])
 def list_scans(db: DbSession) -> list[Scan]:
-    """List scans, newest first."""
-    return list(db.scalars(select(Scan).order_by(Scan.created_at.desc())).all())
+    """List scans, newest first - M9.1: the CALLER's scans only (auth-off
+    mode lists everything, today's open behavior)."""
+    stmt = select(Scan)
+    if settings.auth_enabled:
+        # Auth-on: NULL-owner (unclaimed legacy) scans never appear either.
+        stmt = stmt.where(Scan.user_id == current_user_id.get())
+    return list(db.scalars(stmt.order_by(Scan.created_at.desc())).all())
 
 
 @router.post("", response_model=ScanRead, status_code=201)
@@ -223,7 +234,9 @@ async def create_scan(db: DbSession, file: ArtifactFile) -> Scan:
             detail=f"unsupported artifact type {suffix!r} (expected .apk or .ipa)",
         )
 
-    scan = Scan(filename=filename, status="queued")
+    # M9.1 Phase C: the scan is owned by the caller (auth-off -> None,
+    # the pre-M9.1 unowned row; an admin claim adopts those later).
+    scan = Scan(filename=filename, status="queued", user_id=current_user_id.get())
     db.add(scan)
     db.commit()
     scan_id = scan.id
@@ -888,6 +901,8 @@ def smali_status(scan_id: int, db: DbSession) -> SmaliStatusResponse:
 
 
 def _get_edit_or_404(db: DbSession, scan_id: int, edit_id: int) -> Edit:
+    # Ownership first: a foreign scan's edits are as unreachable as the scan.
+    _get_scan_or_404(db, scan_id)
     edit = db.get(Edit, edit_id)
     if edit is None or edit.scan_id != scan_id:
         raise HTTPException(status_code=404, detail="edit not found")
@@ -1071,6 +1086,9 @@ def smali_mapping(scan_id: int, db: DbSession) -> SmaliMappingResponse:
 
 
 def _get_build_or_404(db: DbSession, scan_id: int, build_id: int) -> Build:
+    # Ownership first: a foreign scan's builds (incl. the download) are as
+    # unreachable as the scan.
+    _get_scan_or_404(db, scan_id)
     build = db.get(Build, build_id)
     if build is None or build.scan_id != scan_id:
         raise HTTPException(status_code=404, detail="build not found")
@@ -1495,6 +1513,10 @@ def chat_scan(scan_id: int, payload: ChatRequest, db: DbSession) -> ChatResponse
             max_tool_rounds=payload.max_tool_rounds,
             mentioned_files=payload.mentioned_files,
             history=history,
+            # M9.1 Phase C: the scan owner's id + vault key resolve the
+            # user's model/search stores inside the agent loop.
+            user_id=current_user_id.get(),
+            master_key=current_master_key.get(),
         )
     except ChatNotConfigured as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1555,6 +1577,12 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
         db, payload.session_id, scan_id
     ) is None:
         raise HTTPException(status_code=404, detail="chat session not found")
+    # M9.1 Phase C: capture the scan owner's id + vault key BEFORE the
+    # worker thread - a new thread does not inherit the request thread's
+    # contextvars, and the agent loop resolves the user's model/search
+    # stores (and decrypts key blobs) from them.
+    uid = current_user_id.get()
+    mk = current_master_key.get()
 
     def gen():
         frames: queue.Queue[str | None] = queue.Queue()
@@ -1597,6 +1625,8 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
                     on_event=on_event,
                     mentioned_files=payload.mentioned_files,
                     history=history,
+                    user_id=uid,
+                    master_key=mk,
                 )
                 # M9 open item 1: same ledger capture as the buffered route -
                 # best-effort, never affects the stream.

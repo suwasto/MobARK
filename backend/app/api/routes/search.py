@@ -257,7 +257,10 @@ def _run_compose_up() -> None:
     """Run the documented bundled-engine start command and wait for compose to
     return (container started - NOT yet booted; callers poll the probe).
     Raises ``_StartError`` with the manual command on any failure."""
-    cmd = ["docker", "compose", "--profile", "web", "up", "-d", "searxng"]
+    # Always-on since Aug 14 (no --profile gate): `docker compose up`
+    # already starts searxng with the stack - this is the recovery path when
+    # the container was stopped.
+    cmd = ["docker", "compose", "up", "-d", "searxng"]
     compose_file = _find_compose_file()
     if compose_file is not None:
         cmd[2:2] = ["-f", str(compose_file)]
@@ -267,14 +270,13 @@ def _run_compose_up() -> None:
         raise _StartError(
             502,
             "Docker isn't reachable from this process - start the engine "
-            "manually: `docker compose --profile web up -d searxng`",
+            "manually: `docker compose up -d searxng`",
         ) from None
     except subprocess.TimeoutExpired:
         raise _StartError(
             504,
             "starting the engine timed out (an image pull may still be "
-            "running) - start it manually: "
-            "`docker compose --profile web up -d searxng`",
+            "running) - start it manually: `docker compose up -d searxng`",
         ) from None
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip().splitlines()
@@ -282,7 +284,7 @@ def _run_compose_up() -> None:
         raise _StartError(
             502,
             f"engine failed to start: {detail} - start it manually: "
-            "`docker compose --profile web up -d searxng`",
+            "`docker compose up -d searxng`",
         )
 
 

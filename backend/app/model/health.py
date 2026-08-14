@@ -55,7 +55,8 @@ def _list_gemini_models(
     # covers every current model - revisit only if Google ever grows the
     # catalog past it.
     fallback = list(backend.provider.suggested_models)
-    params = {"key": backend.api_key} if backend.api_key else {}
+    api_key = backend.resolved_api_key()
+    params = {"key": api_key} if api_key else {}
     try:
         resp = httpx.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
@@ -90,10 +91,11 @@ def _list_anthropic_models(
     never ``[]``.
     """
     fallback = list(backend.provider.suggested_models)
-    if not backend.api_key:
+    api_key = backend.resolved_api_key()
+    if not api_key:
         return fallback, "suggested", "anthropic listing requires an API key"
     headers = {
-        "x-api-key": backend.api_key,
+        "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
     }
     try:
@@ -134,10 +136,11 @@ def list_models(
     if backend.provider.list_style == "anthropic":
         return _list_anthropic_models(backend, url, timeout)
     headers = {}
-    if backend.api_key and backend.kind != "local":
+    api_key = backend.resolved_api_key()
+    if api_key and backend.kind != "local":
         # Local servers (Ollama/LM Studio) accept a dummy key but don't need
         # it on the listing call; don't send placeholder auth headers.
-        headers["Authorization"] = f"Bearer {backend.api_key}"
+        headers["Authorization"] = f"Bearer {api_key}"
     try:
         resp = httpx.get(url, headers=headers, timeout=timeout)
         resp.raise_for_status()
@@ -174,7 +177,7 @@ def _probe_completion(
             "model": f"{backend.provider.model_prefix}{model}",
             "messages": [{"role": "user", "content": "ping"}],
             "api_base": backend.base_url or None,
-            "api_key": backend.api_key or None,
+            "api_key": backend.resolved_api_key() or None,
             "max_tokens": 1,
             "timeout": timeout,
         }

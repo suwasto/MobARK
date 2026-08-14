@@ -180,15 +180,6 @@ def _analyze_binary(binary, result: StageResult) -> None:
     result.meta["linked_dylibs"] = sorted(set(result.meta.get("linked_dylibs", [])) | set(libs))
 
 
-def is_macho(path: Path) -> bool:
-    """Cheap probe: does LIEF consider this file a Mach-O?"""
-    try:
-        _load_binaries(path)
-        return True
-    except MachoError:
-        return False
-
-
 def _emit_profile_findings(result: StageResult, archs: list[str]) -> None:
     """Info findings describing the binary itself (architectures, linked
     dylibs, exported symbols, ARC) - binary-level context for the agent.

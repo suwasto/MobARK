@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -55,6 +55,16 @@ class Scan(Base):
     # RQ worker is not running (a decode that never executes looks exactly
     # like a slow one), so smali-status reports ``stalled`` with guidance.
     apktool_queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # M9.1: the owning user (per-user data isolation - decision 1). NULL for
+    # legacy rows and auth-off scans; the first registered user's claim
+    # (``users.claim_unowned``) adopts them. SQLite can't ALTER-ADD NOT NULL,
+    # so the column is nullable and the APP enforces ownership on every new
+    # scan (create_scan sets it from the current user). Everything downstream
+    # keys off this row's id - one ownership check at the API boundary
+    # isolates findings/chats/edits/builds/reports with it.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
@@ -258,3 +268,77 @@ class ChatMessage(Base):
     )
 
     session: Mapped[ChatSession] = relationship(back_populates="messages")
+
+
+class User(Base):
+    """One account (M9.1 auth). Three auth methods converge on this row:
+    local username/password (``password_hash`` set, ``auth_provider=local``)
+    and GitHub/Google OAuth (``oauth_id`` + ``auth_provider``, NULL
+    password - Phase B). ``email`` is unique when present; OAuth account
+    linking matches on verified email second (Phase B). The FIRST registered
+    user is ``is_admin`` (owner decision, Aug 14) and auto-claims legacy
+    unowned scans. ``is_active=False`` is account deactivation - a disabled
+    user's sessions stop working (401).
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True)
+    # scrypt$n$r$p$salt$hash (app/auth/security.py); NULL for OAuth-only users.
+    password_hash: Mapped[str | None] = mapped_column(String(512))
+    # local | github | google
+    auth_provider: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="local"
+    )
+    oauth_id: Mapped[str | None] = mapped_column(String(255))
+    is_admin: Mapped[bool] = mapped_column(nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+
+    # Phase E: partial UNIQUE index - at most ONE admin row ever (the
+    # concurrent first-registration race's DB backstop; migration 0014).
+    # The predicate differs per dialect (SQLite: `= 1`, Postgres: truthy).
+    __table_args__ = (
+        Index(
+            "ix_users_single_admin",
+            "is_admin",
+            unique=True,
+            sqlite_where=text("is_admin = 1"),
+            postgresql_where=text("is_admin"),
+        ),
+    )
+
+
+class Session(Base):
+    """One login session (M9.1 auth). The cookie carries the opaque
+    ``secrets.token_urlsafe(32)`` raw token; ONLY its SHA-256 digest is
+    stored here, so a DB leak exposes verifier rows, never usable tokens.
+    ``expires_at`` slides forward on use (sliding 7-day window, owner
+    decision 5); logout revokes the exact row. Cascades on user delete.
+    """
+
+    __tablename__ = "sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # M9.1 vault: the user's master key wrapped under THIS session's raw
+    # token (AES-GCM) - NULL until the vault is unlocked (local users: at
+    # login; OAuth users: via POST /auth/vault/unlock). Only ciphertext
+    # ever touches the DB - the raw token lives solely in the browser
+    # cookie, and the stored digest cannot be inverted to unwrap it.
+    vault_wrap: Mapped[str | None] = mapped_column(Text)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

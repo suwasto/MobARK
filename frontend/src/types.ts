@@ -10,6 +10,47 @@ export interface HealthResponse {
   db_ok: boolean
 }
 
+// ---- M9.1 auth (login/register + OAuth) ----
+
+/** The session's user (boot check + the TopBar chip). */
+export interface UserRead {
+  id: number
+  username: string
+  email: string | null
+  /** First registered user = admin (drives claim affordances, Phase C/E). */
+  is_admin: boolean
+  created_at: string
+  /** M9.1 vault: true when this session cannot access the vault (OAuth-only
+   * account without an unlocked session). Local users unlock at login, so
+   * it is always false for them; only /auth/me sets it. */
+  vault_locked: boolean
+}
+
+/** register/login/me payload - the user; the session cookie travels in
+ * Set-Cookie, never the body. */
+export interface AuthResponse {
+  user: UserRead
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface RegisterRequest {
+  username: string
+  email?: string | null
+  password: string
+}
+
+/** What the login page renders: whether auth is on at all (dev/CI parity
+ * mode skips the login screen entirely) + which sign-in methods are
+ * configured (buttons render only for configured providers). */
+export interface ProvidersResponse {
+  auth_enabled: boolean
+  providers: string[]
+}
+
 export type ScanStatus = 'queued' | 'running' | 'done' | 'failed'
 export type Platform = 'android' | 'ios'
 // No critical band (owner decision, Aug 8 2026) - high is the top severity.

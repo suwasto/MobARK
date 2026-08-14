@@ -297,7 +297,7 @@ def web_search(scan_id: int, query: str) -> list[dict]:
 
     Returns ``[{title, url, snippet, engine}]`` (top ``_MAX_WEB_RESULTS``) so
     the model can cite source URLs. Errors carry the compose hint for the
-    bundled engine (``docker compose --profile web up -d searxng``).
+    bundled engine (it starts with the stack: ``docker compose up -d``).
     """
     if not web_tools_allowed(scan_id):
         raise _deny_web()

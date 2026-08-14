@@ -106,8 +106,9 @@ def compose_hint(backend: SearchBackend, exc: Exception | None = None) -> str:
     reason = f" - {_friendly_reason(exc)}" if exc is not None else ""
     if backend.kind == "bundled":
         return (
-            f"SearXNG is unreachable at {backend.base_url}{reason} - start the "
-            "search service: `docker compose --profile web up -d searxng`"
+            f"SearXNG is unreachable at {backend.base_url}{reason} - it starts "
+            "with the stack (`docker compose up -d`); if the container is "
+            "stopped, restart it: `docker compose up -d searxng`"
         )
     return f"search engine is unreachable at {backend.base_url}{reason}"
 
@@ -129,6 +130,14 @@ def _require_key(backend: SearchBackend) -> None:
         raise SearchError(
             f"{backend.name} has no API key configured - add it in Settings → "
             "Search & research"
+        )
+    # The key exists at rest but this context cannot decrypt it (vault
+    # locked - e.g. an OAuth session that hasn't unlocked) - say so instead
+    # of sending a None key and getting a confusing provider 401.
+    if not backend.resolved_api_key():
+        raise SearchError(
+            f"{backend.name}'s API key is vault-locked - unlock the vault in "
+            "Settings → Search & research"
         )
 
 
@@ -201,7 +210,10 @@ def _query_brave(
     docs). ``count`` maxes at 20."""
     _require_key(backend)
     url = f"{backend.base_url.rstrip('/')}/res/v1/web/search"
-    headers = {"X-Subscription-Token": backend.api_key, "Accept": "application/json"}
+    headers = {
+        "X-Subscription-Token": backend.resolved_api_key(),
+        "Accept": "application/json",
+    }
     try:
         resp = httpx.get(
             url,
@@ -235,7 +247,10 @@ def _query_serper(
     ``X-API-KEY`` header and a JSON body - GET with query params gets 400."""
     _require_key(backend)
     url = f"{backend.base_url.rstrip('/')}/search"
-    headers = {"X-API-KEY": backend.api_key, "Content-Type": "application/json"}
+    headers = {
+        "X-API-KEY": backend.resolved_api_key(),
+        "Content-Type": "application/json",
+    }
     try:
         resp = httpx.post(
             url,
@@ -271,7 +286,12 @@ def _query_mojeek(
     (default is XML without it). Snippet field is ``desc``; ``t`` maxes at 20."""
     _require_key(backend)
     url = f"{backend.base_url.rstrip('/')}/search"
-    params = {"api_key": backend.api_key, "q": q, "fmt": "json", "t": min(limit, 20)}
+    params = {
+        "api_key": backend.resolved_api_key(),
+        "q": q,
+        "fmt": "json",
+        "t": min(limit, 20),
+    }
     try:
         resp = httpx.get(url, params=params, timeout=timeout)
         resp.raise_for_status()

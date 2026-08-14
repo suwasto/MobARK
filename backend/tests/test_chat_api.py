@@ -17,6 +17,7 @@ from app.agent.chat import (
     ToolRun,
 )
 from app.models import Scan
+from tests.conftest import authed_user_id
 
 
 def _parse_sse(text: str) -> list[dict]:
@@ -40,7 +41,10 @@ def _parse_sse(text: str) -> list[dict]:
 
 def _add_scan(db_session_factory, *, platform="android", status="done"):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform=platform, status=status)
+        scan = Scan(
+            filename="app.apk", platform=platform, status=status,
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         return scan.id

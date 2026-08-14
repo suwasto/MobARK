@@ -14,6 +14,10 @@ on disk. READ them via explicit paths (read_files works regardless of
 gitignore — knowledge.md/masa-tasks.md name every relevant doc); SEARCH
 them with the `--no-ignore` rg flag (the default code-search respects
 .gitignore and will silently miss docs/).
+M10 (Aug 14, 2026): the PUBLIC docs site lives in the TRACKED `site/` dir
+(MkDocs + Material → GitHub Pages) — curated, not synced from docs/ (which
+stays ignored); see docs/progress/M10.md. When a task touches public docs,
+editing site/ is the committed surface.
 
 Hard constraints: Apache-2.0 license (was MIT — relicensed Aug 3 2026,
 copyright Anang Suwasto). GPL/LGPL tools (Semgrep, apktool,
@@ -454,9 +458,12 @@ is two on-demand agent tools, `web_search(query)` + `web_fetch(url)` (httpx
 gated by **per-scan opt-in** (`scans.web_research_enabled`, migration 0008,
 default off), ChatGPT/Gemini-style: the model triggers search when a question
 needs current/external info (CVEs, MASTG guidance, dep versions). (3)
-**SearXNG = bundled, profile-gated** compose service (`profiles: [web]`,
-unmodified upstream image, our own minimal settings.yml enables json
-format). **AGPL boundary**: SearXNG is AGPL-3.0; MASA stays clean because it
+**SearXNG = bundled, always-on** compose service — since Aug 14 it has NO
+profile gate: a plain `docker compose up` starts it with the stack (before
+that it was `profiles: [web]`, started on demand via `--profile web`; the
+Settings ▶ Start engine button is now the recovery path for a stopped
+container). Unmodified upstream image, our own minimal settings.yml enables
+json format. **AGPL boundary**: SearXNG is AGPL-3.0; MASA stays clean because it
 runs as an unmodified separate container over HTTP JSON API only — never
 imported/vendored/forked; AGPL §13 reaches modified copies of SearXNG
 itself, not the calling app (`docs/licenses.md` row). (4) **Search provider
@@ -504,13 +511,13 @@ ONLY on the dock 🌐 toggle; a Settings copy was removed Aug 9);
 Agent dock **🌐 Web toggle live** (per-scan opt-in only, disabled until an
 engine is Active, green when on, "⏎ to send · 🌐 web on" hint); AppContext
 `searchBackends` state + CRUD/probe/setWebResearch actions. Compose:
-`searxng` under `profiles: [web]` (port 8888:8080, our
+`searxng` always-on, no profile gate since Aug 14 (port 8888:8080, our
 `docker/searxng/settings.yml` — json on, limiter off — mounted read-only at
 /etc/searxng/settings.yml, `searxng-data` volume); `trafilatura>=1.8.0,<2.0`
 in requirements.txt (the license boundary). Gates: **432 backend tests green
 + ruff clean; `tsc -b` + `vite build` green.** Remaining owner checkpoints:
-containerized e2e with the profile started (upload → enable research → chat
-streams a real search via compose SearXNG) + real-model QA.
+containerized e2e (upload → enable research → chat streams a real search
+via compose SearXNG) + real-model QA.
 
 **Follow-up (same session, Aug 9 — dock UX + compose SearXNG wiring, owner
 review):** (1) **Agent dock minimum width raised 260 → 320 px** — at the old
@@ -532,8 +539,10 @@ unchanged). (4) **Compose app/worker now set
 the seeded `localhost:8888` pointed at the container itself (Connection
 refused); the store seeds from the env on first read, an existing
 `search_backends.json` keeps its own URL (edit in Settings → Search &
-research). Start the engine with `docker compose --profile web up -d searxng`
-(published to host `localhost:8888`). (5) **Web 🌐 toggle now also locks
+research). The engine is always-on with the stack (no profile step since
+Aug 14); a stopped container is restarted with `docker compose up -d
+searxng` (published to host `localhost:8888`). (5) **Web 🌐 toggle now also
+locks
 without a chat model** — it was gated only on an Active engine; now
 `webLocked = !activeEngine || !modelConnected` greys it and makes it
 click-inert with a "No model connected — pick one in the top bar or
@@ -2132,3 +2141,184 @@ raw markdown, fix it"; Copy markdown stays; see item 10.) Gates:
    tests still pass with the new h2/cover rendering. Gates: **740 backend
    tests green + ruff clean; frontend `tsc -b` + `vite build` green**
    (report rendered-markdown styles in `index.css`).
+
+M10 — Open-source readiness (GitHub); **PLANNED (Aug 14, 2026) — plan
+finalized, not started.** See `docs/progress/M10.md`. Goal: publish the
+repo on GitHub as a public OSS project. Owner decisions locked at kickoff:
+(1) docs site = **MkDocs + Material → GitHub Pages** (`site/` dir,
+tracked — `docs/` STAYS gitignored per the M9 decision, so the public
+site carries its own curated pages; the internal milestone .md docs,
+including M10.md itself, never reach GitHub); (2) **full CI + deploy**
+(backend pytest+ruff, frontend build, Pages deploy via actions/deploy-pages,
+plus dependabot); (3) **dependency licenses in a separate file** —
+`docs/licenses.md` refresh + a public `site/docs/licenses.md` page;
+README only links them (attribution); (4) demo media = **placeholders**
+(screenshot + video; owner fills later); (5) **social-preview header** —
+uses the owner's branded banner `docs/icons/masa_icon_text_desc_whitetext.svg`
+(960×263 white-text icon+text+desc) VENDORED into `site/assets/` (docs/ is
+gitignored) and shown on a dark background: `site/assets/masa-header.svg`
+(dark rect baked in) for the README header + a dark-bg social-preview PNG
+(~1280×640 via scripts/render_social_preview.sh, headless Chrome) for the
+repo preview; (6) community files — CONTRIBUTING/CODE_OF_CONDUCT/
+SECURITY/CHANGELOG + issue/PR templates; (7) Apache-2.0 stays, release
+checklist (semver tag + first GitHub Release, optional GHCR). Six phases
+A–F (repo polish+site skeleton · license attribution · community files ·
+CI · Pages content · header/release). Open-source suggestions reviewed:
+semver+releases, dependabot, SECURITY private reporting, good-first-issue
+labels, GHCR image, optional SBOM/SPDX (v1.1). Out of scope: product
+features (M11+), PyPI/npm publishing, SBOM/SPDX, automated docs/ → site/ sync.
+
+M9.1 — User authentication; **COMPLETE (Aug 14, 2026) — Phases A–E all
+done, containerized contract-style e2e PASSED.** See
+`docs/progress/M9.1.md`. Owner decisions executed: (1) **per-user data
+isolation** — ownership on `scans.user_id` (migration 0013, nullable +
+app enforcement); findings/chats/edits/builds/smali/graphs/report caches
+key off the scan row, so one `require_scan_access` check per scan-keyed
+route isolates everything (404, not 403, for foreign scans — body
+byte-identical to a nonexistent scan, no existence leak); threaded via
+the `request_ctx.current_user_id` contextvar set by `get_current_user`
+through ALL 35 `_get_scan_or_404` call sites (one choke point, no route
+can forget it); `list_scans` own-only, `create_scan` attributes; (2)
+**auth ON by default** (`MASA_AUTH_ENABLED=0` restores the open dev/CI
+behavior — live-verified); (3) three methods — username/password (stdlib
+`hashlib.scrypt`, `scrypt$n$r$p$salt$hex`, constant-time compare) + GitHub
+OAuth (state) + Google OAuth (state + PKCE, `email_verified` gate), both
+hand-rolled over the already-pinned httpx — **zero new runtime deps**, the
+license audit gains no rows; (4) sessions = opaque `secrets.token_urlsafe`
+tokens stored SHA-256-hashed in a `sessions` table (revocable on logout,
+sliding 7-day expiry) behind an HttpOnly SameSite=Lax cookie; (5) first
+registered user = admin + auto-claims legacy unowned scans (transactional,
+idempotent) — **Phase E hardening**: the read-then-write first-user check
+is race-safe now via a partial UNIQUE index `users(is_admin) WHERE
+is_admin` (migration 0014, ORM too) — at most ONE admin row ever; the
+register route catches the loser's IntegrityError and re-derives as a
+non-admin (tested with a real threaded race); (6) per-user model/search
+stores — root `model_backends.json`/`search_backends.json` stay as the
+env-seeded SYSTEM layer, per-user overrides in `data/users/<uid>/…` (user
+file = source of truth after first read; BYOK keys isolated per user; the
+per-user `_write` must mkdir `path.parent`, not `data_dir` — bug fixed in
+both stores); (7) health + auth routes stay open (compose healthcheck),
+everything else behind `get_current_user` router dependencies;
+Origin-check middleware on mutating routes (pure-ASGI, no SSE buffering;
+no CSRF token in v1); worker untouched (jobs carry scan ids). OAuth config
+= env only; login buttons render only when configured. CLI escape hatch:
+`python -m app.cli auth reset-password <username>`. Frontend (Phase D):
+LoginView (register/login toggle, OAuth buttons from `/auth/providers`,
+`?error=` handling), `useAuth` boot (providers→me→`auth` state, auth-off
+skips login), `onUnauthorized` 401 hook, TopBar user chip + logout,
+activeScanId cleared on login/logout/401. Phase E: cookie-tampering tests,
+auth-off parity suite, `scripts/e2e_auth.sh` PASSED against rebuilt images
+(fresh volume, admin register, upload+scan, second-user 404 isolation,
+claim visibility, OAuth per env, auth-off parity). Gates: **820 backend
+tests green + ruff clean; `tsc -b` + `vite build` green; e2e_auth.sh
+passed**. PRD's "single-user, no auth" v1 lines superseded (revised in
+Phase E docs); deliberately-global items documented in M9.1.md audit
+section (shared `masa-test.jks` keystore, system store layer,
+CLI-as-host-operator); M10 coordination: the public `site/` docs get an
+auth page when M10 lands.
+
+M9.1 follow-ups (post-completion, Aug 14, 2026):
+
+- **`masa:masa` login test** (`test_auth_api.py::test_login_masa_default_credentials`):
+  `masa` is only 4 chars, so it can't self-register (the register route's
+  8-char minimum password — by design); the test seeds the account
+  directly in the scratch DB via `hash_password("masa")` (same as the
+  conftest fixture) and proves the login round-trip: `POST /auth/login`
+  masa:masa → 200 + session cookie → `/auth/me` returns the `masa` user.
+  `masa` is a HOST-SEEDED/demo credential, not a self-registration path.
+- **Settings moved into the profile dropdown** (TopBar): the standalone ⚙
+  icon-btn is gone in auth-on mode — the user menu gains a **Settings**
+  item above **Sign out** (the menu closes before opening the modal so the
+  outside-click handler doesn't immediately re-close it). Auth-off parity
+  mode has no user chip, so the ⚙ gear stays in the top bar there (the
+  only way to reach Settings without a user). CSS: menu items default to
+  body text; only **Sign out** stays red (danger). Gates: `tsc -b` +
+  `vite build` green.
+- **Vault — envelope encryption for BYOK/search keys at rest** (owner
+  request, Aug 14): per-user API keys (`model_backends.json` /
+  `search_backends.json` under `data/users/<uid>/`) are no longer plaintext
+  0600 — a random 32-byte master key wraps each key (AES-GCM, fresh nonce,
+  `cryptography==44.0.0` — Apache-2.0, new license row), and the master
+  key itself is wrapped in `key_wrap.json` by a scrypt KEK derived from the
+  user's MASA password (local users) or a dedicated vault passphrase
+  (OAuth-only users — no password). The unwrapped MK never persists: at
+  login it is re-wrapped under the raw session token into
+  `sessions.vault_wrap` (migration 0015), and `get_current_user` recovers
+  it per request into `request_ctx.current_master_key`; the chat worker
+  thread gets it passed explicitly like `user_id`. Stores encrypt on write
+  (`_protect_api_key`), decrypt at use (`resolved_api_key` in
+  model/client, model/health, search/client), raise `VaultLockedError`
+  (→400) on key-writes to a locked per-user vault, lazily migrate
+  pre-vault plaintext files on first unlocked read, and the `*.tmp` write
+  now creates 0600 from the start (no world-readable window). The SYSTEM
+  store stays plaintext by design (owner env keys, CLI surface).
+  OAuth-only sessions start vault-locked: `POST /auth/vault/unlock`
+  (passphrase; first use creates the vault — a wrong passphrase 401s and
+  never silently re-creates it) + `POST /auth/vault/reset` (forgot
+  passphrase → destroy + clear keys); `/auth/me` carries `vault_locked`
+  and Settings shows a passphrase form while locked. `cli auth
+  reset-password` now destroys the vault + clears stored keys (keys are
+  unrecoverable without the old password — printed loudly). Honest limit:
+  the host operator can still extract keys from process memory at runtime;
+  the guarantee is at rest (disk/backups/volume) + tenant isolation.
+  Gates: 839 backend tests green (18 new vault tests) + ruff clean;
+  `tsc -b` + `vite build` green.
+
+## M10 — Open-source readiness (Aug 15, 2026)
+
+**IN PROGRESS — Phases A–F implemented; owner-only steps remain.**
+Docs: `docs/progress/M10.md` (plan + implementation record), the M10
+section of `docs/masa-tasks.md` (checkboxes ticked).
+
+**Phase A — site + README.** Public docs site = tracked `site/` MkDocs
+project (root `mkdocs.yml`, `docs_dir: site/docs`, `site_dir: _site`
+gitignored, Material theme). Curated pages: index / quickstart /
+features / architecture / auth / milestones / demo / licenses. **`docs/`
+stays gitignored** (owner decision — internal milestone docs + sample
+binaries never reach GitHub; the site is curated by hand). README
+rewritten: dark-bg header banner (vendored brand SVG), badges (license
+Python/Node/CI/docs), pitch, feature list, quick start with the **demo
+users** (`admin`/`password123` first = admin, `alice`/`password123` =
+regular user — documented for LOCAL installs, loudly marked demo-only),
+config table, screenshot placeholders, docs/license links. Naming
+collision check: "MASA" collides with Google/ADA's Mobile App Security
+Assessment program (accepted, flagged in M10.md).
+
+**Phase B — licenses.** `docs/licenses.md` already current (Aug 14 —
+M9/M9.1 covered; `pip-licenses` verified no new rows). New
+`site/docs/licenses.md` = public attribution page (permissive-only
+posture, subprocess-only note for Semgrep LGPL + SearXNG AGPL).
+
+**Phase C — community files.** `CONTRIBUTING.md` (dev setup, checks,
+PR flow, local-first + Apache-2.0 + subprocess-only scope),
+`CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `SECURITY.md`
+(private reporting via GitHub advisories, local-first posture,
+demo-credentials warning), `CHANGELOG.md` (Keep-a-Changelog,
+Unreleased seeded, M0–M9.1 history). `.github/ISSUE_TEMPLATE/`
+(bug_report.yml + feature_request.yml) + `PULL_REQUEST_TEMPLATE.md`.
+
+**Phase D — CI.** `.github/workflows/backend.yml` (pytest + ruff, py3.11),
+`frontend.yml` (npm ci + `npm run build` = tsc -b + vite),
+`pages.yml` (mkdocs build → `actions/deploy-pages`, upload artifact from
+`_site`), `dependabot.yml` (pip + npm weekly, grouped). CI badges in the
+README (resolve after first run).
+
+**Phase E — Pages content.** Auth page documents M9.1 (first-run admin,
+OAuth env-only config, per-user isolation, vault, `MASA_AUTH_ENABLED=0`
+parity, no-enumeration login). Demo page + README screenshots =
+**placeholders** (PNG "OWNER: add" renders; owner fills later). Local
+`mkdocs build` verified clean — mermaid diagram in the architecture
+page renders (Material 9.7.7 handles `pre.mermaid` fences natively via
+its own lazy-loaded script; verified through headless Chrome — the
+theme renders into shadow DOM, so `--dump-dom` shows an empty div).
+
+**Phase F — assets.** Vendored `docs/icons/masa_icon_text_desc_whitetext.svg`
+(1.6MB, embeds raster) into `site/assets/` + `masa-icon.svg`; dark-bg
+`site/assets/masa-header.svg` (README header); 1280×640 social-preview
+PNG via `scripts/render_social_preview.sh` (headless Chrome of
+`site/assets/demo/social-preview.html`).
+
+**Remaining (owner actions):** repo metadata in the GitHub UI
+(description/topics/homepage → github.io), live Pages deploy
+verification, demo media, semver release. Gates: `mkdocs build` clean,
+backend pytest + ruff green, frontend tsc + vite build green.

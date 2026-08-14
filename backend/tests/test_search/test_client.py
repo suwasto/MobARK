@@ -136,7 +136,7 @@ def test_query_unreachable_raises_compose_hint(monkeypatch):
         query(_SEARXNG, "x")
     # The hint carries the actionable compose command AND a friendly reason -
     # never the raw exception text (owner report, Aug 12).
-    assert "docker compose --profile web up -d searxng" in str(ei.value)
+    assert "docker compose up -d searxng" in str(ei.value)
     assert "connection was refused" in str(ei.value)
     assert "[Errno" not in str(ei.value)
 
@@ -153,7 +153,7 @@ def test_query_unreachable_dns_error_is_friendly(monkeypatch):
         query(_SEARXNG, "x")
     msg = str(ei.value)
     assert "host name couldn't be resolved" in msg
-    assert "docker compose --profile web up -d searxng" in msg
+    assert "docker compose up -d searxng" in msg
     assert "[Errno" not in msg
 
 
@@ -479,7 +479,7 @@ def test_check_backend_lightweight_unreachable_has_hint(monkeypatch):
     monkeypatch.setattr(search_client.httpx, "get", boom)
     h = check_backend(_SEARXNG, probe=False)
     assert h.reachable is False and h.status == "unreachable"
-    assert "docker compose --profile web up -d searxng" in (h.error or "")
+    assert "docker compose up -d searxng" in (h.error or "")
     assert "[Errno" not in (h.error or "")
 
 
@@ -493,7 +493,7 @@ def test_check_backend_lightweight_error_is_user_friendly(monkeypatch):
     h = check_backend(_SEARXNG, probe=False)
     assert h.reachable is False
     assert "host name couldn't be resolved" in (h.error or "")
-    assert "docker compose --profile web up -d searxng" in (h.error or "")
+    assert "docker compose up -d searxng" in (h.error or "")
     assert "[Errno" not in (h.error or "")
 
 

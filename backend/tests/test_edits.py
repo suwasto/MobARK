@@ -7,6 +7,7 @@ from __future__ import annotations
 import app.config
 from app.analysis import apktool, editable
 from app.models import Scan
+from tests.conftest import authed_user_id
 
 ORIGINAL_SMALI = (
     ".class public Lcom/foo/AuthManager;\n"
@@ -43,6 +44,7 @@ def _make_decoded_scan(db_session_factory, tmp_path, monkeypatch, *, platform="a
             platform=platform,
             status="done",
             storage_path="/unused/uploads",
+            user_id=authed_user_id(db_session_factory),
         )
         session.add(scan)
         session.commit()
@@ -173,7 +175,8 @@ def test_edit_missing_file_404(client, db_session_factory, monkeypatch, tmp_path
 def test_edit_requires_decode_ready(client, db_session_factory, monkeypatch, tmp_path):
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status="done")
+        scan = Scan(filename="app.apk", platform="android", status="done",
+                    user_id=authed_user_id(db_session_factory))
         session.add(scan)
         session.commit()
         scan_id = scan.id
@@ -186,7 +189,8 @@ def test_edit_requires_decode_ready(client, db_session_factory, monkeypatch, tmp
 def test_edit_ios_409(client, db_session_factory, monkeypatch, tmp_path):
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as session:
-        scan = Scan(filename="app.ipa", platform="ios", status="done")
+        scan = Scan(filename="app.ipa", platform="ios", status="done",
+                    user_id=authed_user_id(db_session_factory))
         session.add(scan)
         session.commit()
         scan_id = scan.id
@@ -198,7 +202,8 @@ def test_edit_ios_409(client, db_session_factory, monkeypatch, tmp_path):
 def test_edit_not_analyzed_409(client, db_session_factory, monkeypatch, tmp_path):
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status="queued")
+        scan = Scan(filename="app.apk", platform="android", status="queued",
+                    user_id=authed_user_id(db_session_factory))
         session.add(scan)
         session.commit()
         scan_id = scan.id
@@ -317,7 +322,8 @@ def test_tree_has_no_apktool_roots_before_decode(
 ):
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status="done")
+        scan = Scan(filename="app.apk", platform="android", status="done",
+                    user_id=authed_user_id(db_session_factory))
         session.add(scan)
         session.commit()
         scan_id = scan.id
@@ -402,7 +408,8 @@ def test_smali_sibling_multidex_first_found(
 def test_smali_sibling_requires_analyzed(client, db_session_factory, monkeypatch, tmp_path):
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status="queued")
+        scan = Scan(filename="app.apk", platform="android", status="queued",
+                    user_id=authed_user_id(db_session_factory))
         session.add(scan)
         session.commit()
         scan_id = scan.id

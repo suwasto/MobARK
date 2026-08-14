@@ -1,0 +1,27 @@
+# Dependabot — weekly grouped updates for pip + npm.
+# The M10 Phase B license audit is the gate on accepting upgrades:
+# every imported library must stay permissive (MIT/Apache-2.0/BSD).
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    groups:
+      runtime-deps:
+        patterns: ["*"]
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      frontend-deps:
+        patterns: ["*"]
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

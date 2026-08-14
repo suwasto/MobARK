@@ -76,7 +76,9 @@ def _completion_kwargs(
         model=model_string(backend),
         messages=messages,
         api_base=backend.base_url or None,
-        api_key=backend.api_key or None,  # local backends carry a dummy key
+        # M9.1 vault: decrypts the at-rest blob with the session's master
+        # key; local backends carry a dummy key that passes through.
+        api_key=backend.resolved_api_key() or None,
         max_tokens=max_tokens,
         temperature=temperature,
         timeout=timeout,

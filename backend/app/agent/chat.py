@@ -36,6 +36,7 @@ from app.agent.context import FindingsContext, build_findings_context
 from app.agent.tools import read_file, schemas_for_platform
 from app.model.client import chat as client_chat
 from app.model.client import chat_stream, model_arch_hint
+from app.request_ctx import current_master_key, current_user_id
 
 SYSTEM_PROMPT = (
     "You are MASA, a mobile application security assistant answering "
@@ -777,6 +778,18 @@ def answer_question(
     on_event: Callable[[AgentEvent], None] | None = None,
     mentioned_files: list[str] | None = None,
     history: list[dict] | None = None,
+    # M9.1 Phase C: the owning user's id - the chat loop resolves the USER's
+    # model/search stores (``get_store`` / ``get_search_store`` read
+    # ``request_ctx.current_user_id``). Set here (not by the caller's
+    # thread) because the /chat/stream route runs this on a WORKER thread
+    # that does not inherit the request thread's contextvars; None = system
+    # store (agent-level callers, auth-off mode).
+    user_id: int | None = None,
+    # M9.1 vault: the user's unwrapped master key, captured on the request
+    # thread and set here for the worker thread (same rationale as
+    # ``user_id``) so the agent's model/search reads can decrypt the
+    # at-rest key blobs. None = system store / auth-off / vault locked.
+    master_key: bytes | None = None,
 ) -> AgentResult:
     """Answer a question over Layers 1-3 (findings context + tools).
 
@@ -812,6 +825,13 @@ def answer_question(
     # no tool loop. Regression: 'hi' used to make the model emit tool calls
     # every round, burn the whole budget, and come back as the confusing
     # "could not complete within the tool-call limit" message.
+    # M9.1 Phase C: resolve the per-user stores AND the vault key for THIS
+    # thread (the worker thread the stream route spawns does not inherit the
+    # request thread's contextvars, so the explicit args land here).
+    if user_id is not None:
+        current_user_id.set(user_id)
+        current_master_key.set(master_key)
+
     if _GREETING_RE.match(question.strip()):
         return AgentResult(
             answer=_GREETING_ANSWER,

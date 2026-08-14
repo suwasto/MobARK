@@ -4,10 +4,8 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.main import app
 from app.search.backends import SearchStore
 from app.search.client import SearchHealth
 
@@ -18,7 +16,10 @@ def store(tmp_path):
 
 
 @pytest.fixture()
-def api(store, monkeypatch):
+def api(store, monkeypatch, client):
+    """The authenticated ``client`` fixture (M9.1) with the store functions
+    monkeypatched - the routes sit behind get_current_user, so the suite
+    runs in the production posture (auth ON + valid session)."""
     import app.api.routes.search as r
 
     monkeypatch.setattr(r, "get_search_store", lambda: store)
@@ -34,8 +35,7 @@ def api(store, monkeypatch):
             sample_title="probe hit" if probe else None,
         ),
     )
-    with TestClient(app) as c:
-        yield c
+    return client
 
 
 def test_list_backends_seeds_bundled_searxng(api):
@@ -308,7 +308,7 @@ def test_start_failure_carries_manual_command(api, monkeypatch):
         raise r._StartError(
             502,
             "Docker isn't reachable from this process - start the engine "
-            "manually: `docker compose --profile web up -d searxng`",
+            "manually: `docker compose up -d searxng`",
         )
 
     monkeypatch.setattr(r, "_run_compose_up", boom)

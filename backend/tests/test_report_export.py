@@ -17,13 +17,17 @@ from pathlib import Path
 
 from app.analysis import report, report_pdf
 from app.models import Finding, Scan
+from tests.conftest import authed_user_id
 
 # ---- helpers ----------------------------------------------------------------
 
 
 def _add_scan(db_session_factory, *, filename="app.apk", status="done"):
     with db_session_factory() as session:
-        scan = Scan(filename=filename, platform="android", status=status)
+        scan = Scan(
+            filename=filename, platform="android", status=status,
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         return scan.id
@@ -144,7 +148,10 @@ def test_ios_report_api_parity(client, db_session_factory, monkeypatch, tmp_path
 
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as session:
-        scan = Scan(filename="app.ipa", platform="ios", status="done", risk_score=55)
+        scan = Scan(
+            filename="app.ipa", platform="ios", status="done", risk_score=55,
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         scan_id = scan.id

@@ -11,6 +11,8 @@ Usage:
   python -m app.cli graph explain <scan_id> <node>         # explain a graph node
   python -m app.cli agent context <scan_id> [--out f]      # render Layer 1 findings context
   python -m app.cli agent chat <scan_id> "question" [--timeout N]  # Layers 1-3 answer
+  python -m app.cli auth reset-password <username> [--password P]
+                                                          # M9.1 forgotten-password escape hatch
 
 The synchronous ``run`` path is the fastest way to validate the pipeline
 end-to-end against a real artifact without Redis running. Platform is
@@ -99,15 +101,34 @@ def cmd_run(artifact: Path, out: Path | None) -> int:
     return 0
 
 
-def cmd_scan(artifact: Path) -> int:
-    """Create a Scan row, copy the artifact into the data dir, enqueue the job."""
+def cmd_scan(artifact: Path, user: str | None = None) -> int:
+    """Create a Scan row, copy the artifact into the data dir, enqueue the job.
+
+    M9.1 Phase C (audit gap 1): ``--user <username>`` attributes the scan to
+    that account (an unknown user is an explicit error). Without it the scan
+    is UNOWNED (``user_id`` NULL) - an admin can adopt it any time via
+    ``POST /api/v1/auth/claim``; the first registered user's legacy claim
+    adopts pre-existing unowned rows.
+    """
+    from app.auth.users import find_by_username
     from app.db import SessionLocal
     from app.models import Scan
 
     platform = "ios" if artifact.suffix.lower() == ".ipa" else "android"
     db = SessionLocal()
     try:
-        scan = Scan(filename=artifact.name, platform=platform, status="queued")
+        user_id = None
+        if user is not None:
+            owner = find_by_username(db, user)
+            if owner is None:
+                print(f"unknown user {user!r} - create the account first "
+                      "(register via the UI or the auth routes)", file=sys.stderr)
+                return 1
+            user_id = owner.id
+        scan = Scan(
+            filename=artifact.name, platform=platform, status="queued",
+            user_id=user_id,
+        )
         db.add(scan)
         db.commit()
         scan_id = scan.id
@@ -231,6 +252,71 @@ def cmd_agent_chat(scan_id: int, question: str, timeout: float | None) -> int:
     return 0
 
 
+def cmd_auth_reset_password(username: str, password: str | None) -> int:
+    """M9.1 forgotten-password escape hatch (open item 1): the host operator
+    resets a user's password from the CLI - there is no email server (the
+    local-first, zero-new-deps posture), so this IS the reset flow. The CLI
+    bypasses auth by design (it runs on the host as the instance admin).
+
+    Also revokes every session for the user - a stolen cookie dies with the
+    old password. ``--password`` skips the interactive prompt (CI/scripts).
+
+    M9.1 vault: the user's API keys (BYOK/search) are wrapped under the OLD
+    password's key - the operator does not know it, so resetting the
+    password makes them unrecoverable. The vault is destroyed and the
+    stored keys cleared; the user re-enters them after signing in with the
+    new password (and, for OAuth accounts, a fresh vault passphrase).
+    """
+    import getpass
+
+    from app.auth import vault
+    from app.auth.security import hash_password
+    from app.auth.sessions import revoke_user_sessions
+    from app.auth.users import find_by_username
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        user = find_by_username(db, username)
+        if user is None:
+            print(f"unknown user {username!r}", file=sys.stderr)
+            return 1
+        if password is None:
+            password = getpass.getpass("new password: ")
+        if len(password) < 8:
+            print("password must be at least 8 characters", file=sys.stderr)
+            return 1
+        # Capture the id BEFORE commit/close - the session expires the row
+        # on commit and a later access would raise DetachedInstanceError.
+        user_id = user.id
+        user.password_hash = hash_password(password)
+        revoked = revoke_user_sessions(db, user.id)
+        db.commit()
+    finally:
+        db.close()
+    # Vault: destroy + clear stored keys (undecryptable under the new
+    # password - never leave blobs behind ``has_api_key``).
+    vault.destroy_vault(user_id)
+    _clear_user_store_keys(user_id)
+    print(
+        f"password reset for {username}; {revoked} session(s) revoked\n"
+        f"vault destroyed - the user's stored API keys were cleared and must "
+        f"be re-entered after their next sign-in"
+    )
+    return 0
+
+
+def _clear_user_store_keys(user_id: int) -> None:
+    """Drop every stored api_key (model + search) for ``user_id`` - the
+    vault-destroy companion used by password reset and the vault reset
+    endpoint."""
+    from app.model.backends import BackendStore
+    from app.search.backends import SearchStore
+
+    BackendStore(settings.data_dir, user_id=user_id).clear_api_keys()
+    SearchStore(settings.data_dir, user_id=user_id).clear_api_keys()
+
+
 def cmd_model_health(backend_id: str | None) -> int:
     """Reachability + model listing per configured backend (UI-free check).
 
@@ -274,6 +360,12 @@ def main() -> None:
 
     p_scan = sub.add_parser("scan", help="register + enqueue a scan")
     p_scan.add_argument("artifact", type=_artifact_path, metavar="apk-or-ipa")
+    p_scan.add_argument(
+        "--user",
+        default=None,
+        help="attribute the scan to this username (M9.1; unowned without it - "
+        "an admin can claim it later)",
+    )
 
     p_jobs = sub.add_parser("jobs", help="run an existing scan synchronously")
     p_jobs.add_argument("scan_id", type=int)
@@ -303,6 +395,20 @@ def main() -> None:
     p_ge.add_argument("scan_id", type=int)
     p_ge.add_argument("node")
 
+    p_auth = sub.add_parser(
+        "auth", help="M9.1 auth administration (host operator, bypasses auth by design)"
+    )
+    p_auth_sub = p_auth.add_subparsers(dest="auth_command", required=True)
+    p_reset = p_auth_sub.add_parser(
+        "reset-password", help="reset a user's password (forgotten-password escape hatch)"
+    )
+    p_reset.add_argument("username")
+    p_reset.add_argument(
+        "--password",
+        default=None,
+        help="new password (prompted interactively when omitted)",
+    )
+
     p_agent = sub.add_parser("agent", help="M4 Layers 1-3 agent commands (no embeddings)")
     p_agent_sub = p_agent.add_subparsers(dest="agent_command", required=True)
     p_ac = p_agent_sub.add_parser("context", help="render the Layer 1 findings context (no LLM)")
@@ -323,12 +429,15 @@ def main() -> None:
     if args.command == "run":
         raise SystemExit(cmd_run(args.artifact, args.out))
     if args.command == "scan":
-        raise SystemExit(cmd_scan(args.artifact))
+        raise SystemExit(cmd_scan(args.artifact, args.user))
     if args.command == "jobs":
         raise SystemExit(cmd_jobs(args.scan_id))
     if args.command == "model":
         if args.model_command == "health":
             raise SystemExit(cmd_model_health(args.backend))
+    if args.command == "auth":
+        if args.auth_command == "reset-password":
+            raise SystemExit(cmd_auth_reset_password(args.username, args.password))
     if args.command == "graph":
         if args.graph_command == "build":
             raise SystemExit(cmd_graph_build(args.scan_id))

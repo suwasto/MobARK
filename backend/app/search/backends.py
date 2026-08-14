@@ -20,11 +20,16 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app.auth import vault
 from app.config import Settings, settings
+from app.request_ctx import current_master_key, current_user_id
 from app.search.providers import SEARCH_PROVIDERS, SearchProvider
 
 CONFIG_FILENAME = "search_backends.json"
 CONFIG_MODE = 0o600
+# Per-user stores live under data_dir/users/<uid>/ (M9.1 decision 3) -
+# mirrors model/backends.py::USER_STORE_DIR.
+USER_STORE_DIR = "users"
 
 _SEARXNG_URL_FIELD = "searxng_base_url"
 # Settings field per KEYED provider: the env var that seeds its API key
@@ -59,6 +64,22 @@ class SearchBackend:
 
     def has_api_key(self) -> bool:
         return bool(self.api_key)
+
+    def resolved_api_key(self) -> str | None:
+        """The plaintext key for outbound requests. A vault blob is
+        decrypted with the session's master key (``request_ctx``); a
+        plaintext value (SYSTEM store - owner env keys, auth-off mode)
+        passes through untouched. None when the vault is locked - the key
+        exists at rest but is not usable in this context."""
+        value = self.api_key
+        if not value:
+            return None
+        if vault.is_vault_blob(value):
+            mk = current_master_key.get()
+            if mk is None:
+                return None
+            return vault.unwrap_secret(mk, value)
+        return value
 
 
 def _seed_backends(cfg: Settings) -> list[SearchBackend]:
@@ -106,18 +127,45 @@ class SearchStore:
 
     First read seeds the file from the provider table + ``Settings``; every
     later read honors the file as the source of truth (runtime edits stick).
+
+    M9.1 (Phase C): an optional ``user_id`` scopes the store to
+    ``data_dir/users/<uid>/search_backends.json``, seeded on first read from
+    the SYSTEM layer (the root file's current contents, else a fresh env
+    seed) - the user file then becomes that user's source of truth. The
+    one-Active radio and per-user keys are thereby isolated per user.
     """
 
-    def __init__(self, data_dir: Path, settings_obj: Settings | None = None):
+    def __init__(
+        self,
+        data_dir: Path,
+        settings_obj: Settings | None = None,
+        user_id: int | None = None,
+    ):
         self.data_dir = Path(data_dir)
-        self.path = self.data_dir / CONFIG_FILENAME
+        self.user_id = user_id
+        if user_id is not None:
+            self.path = (
+                self.data_dir / USER_STORE_DIR / str(user_id) / CONFIG_FILENAME
+            )
+        else:
+            self.path = self.data_dir / CONFIG_FILENAME
         self._settings = settings_obj or settings
 
     # ---- read / seed -----------------------------------------------------
 
+    def _seed_source(self) -> list[SearchBackend]:
+        """The initial list for a store with no file yet. For a USER store
+        this is the SYSTEM layer's current contents (inherit the machine
+        config); for the system store itself, a fresh env seed."""
+        if self.user_id is not None:
+            system_path = self.data_dir / CONFIG_FILENAME
+            if system_path.is_file():
+                return SearchStore(self.data_dir, self._settings).read()
+        return _seed_backends(self._settings)
+
     def read(self) -> list[SearchBackend]:
         if not self.path.is_file():
-            backends = _seed_backends(self._settings)
+            backends = self._seed_source()
             self._write(backends)
             return backends
         try:
@@ -140,6 +188,17 @@ class SearchStore:
             if backend.provider_id not in SEARCH_PROVIDERS:
                 continue  # drop entries for providers we no longer know
             backends.append(backend)
+        # Lazy migration: a per-user store still holding plaintext keys is
+        # encrypted in place now that the vault is unlocked (the rewrite
+        # replaces the old plaintext bytes entirely).
+        if (
+            self.user_id is not None
+            and current_master_key.get() is not None
+            and any(
+                b.api_key and not vault.is_vault_blob(b.api_key) for b in backends
+            )
+        ):
+            self._write(backends)
         return backends
 
     def get(self, backend_id: str) -> SearchBackend | None:
@@ -183,7 +242,11 @@ class SearchStore:
         if base_url is not None:
             backend.base_url = base_url
         if api_key is not None:
-            backend.api_key = api_key or None
+            if api_key:
+                self._require_unlocked()
+                backend.api_key = self._protect_api_key(api_key)
+            else:
+                backend.api_key = None
         if enabled is not None:
             if enabled:
                 for b in backends:
@@ -203,6 +266,9 @@ class SearchStore:
         backends = self.read()
         if any(b.id == backend.id for b in backends):
             raise ValueError(f"search backend {backend.id!r} already exists")
+        if backend.api_key:
+            self._require_unlocked()
+            backend.api_key = self._protect_api_key(backend.api_key)
         if backend.enabled:
             for b in backends:
                 b.enabled = False
@@ -222,12 +288,58 @@ class SearchStore:
         self._write(remaining)
         return True
 
+    # ---- M9.1 vault: at-rest protection -----------------------------------
+    # Identical to model/backends.py: per-user stores encrypt api_key values
+    # under the session's master key; the SYSTEM store stays plaintext by
+    # design (owner env keys). ``resolved_api_key`` decrypts at use.
+
+    def _protect_api_key(self, value: str | None) -> str | None:
+        """Encrypt one key for at-rest storage. Already-encrypted blobs pass
+        through; without a master key (vault locked) the value passes
+        through and the KEY-WRITE paths raise ``VaultLockedError``."""
+        if value is None or self.user_id is None:
+            return value
+        if vault.is_vault_blob(value):
+            return value
+        mk = current_master_key.get()
+        if mk is None:
+            return value
+        return vault.wrap_secret(mk, value)
+
+    def _require_unlocked(self) -> None:
+        """A key-write to a per-user store must never land plaintext at
+        rest: the vault has to be unlocked in this request."""
+        if self.user_id is None:
+            return
+        if current_master_key.get() is None:
+            raise vault.VaultLockedError(
+                "your vault is locked - unlock it (or set a vault passphrase) "
+                "before storing API keys"
+            )
+
+    def clear_api_keys(self) -> None:
+        """Drop every stored api_key (vault-destroy path - undecryptable
+        blobs must not linger behind ``has_api_key``)."""
+        backends = self.read()
+        for b in backends:
+            b.api_key = None
+        self._write(backends)
+
     def _write(self, backends: list[SearchBackend]) -> None:
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps([dataclasses.asdict(b) for b in backends], indent=2) + "\n"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        # Protect each key for at rest (shallow copies - never mutate the
+        # caller's in-memory backends).
+        rows = [
+            dataclasses.asdict(dataclasses.replace(b, api_key=self._protect_api_key(b.api_key)))
+            for b in backends
+        ]
+        payload = json.dumps(rows, indent=2) + "\n"
+        # Create the temp file 0600 from the start - no world-readable
+        # write-then-chmod window.
         tmp = self.path.with_name(f"{self.path.name}.tmp")
-        tmp.write_text(payload)
-        os.chmod(tmp, CONFIG_MODE)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, CONFIG_MODE)
+        with os.fdopen(fd, "w") as f:
+            f.write(payload)
         tmp.replace(self.path)
         # The chmod above lands on the temp inode; re-assert on the final path.
         try:
@@ -240,7 +352,14 @@ def _backend_fields() -> set[str]:
     return {f.name for f in dataclasses.fields(SearchBackend)}
 
 
-def get_search_store() -> SearchStore:
-    """Store over the app's data dir - used by API routes, the agent tools,
-    and chat gating."""
+def get_search_store(user_id: int | None = None) -> SearchStore:
+    """Store over the app's data dir. ``user_id`` None falls back to the
+    request-scoped current user (``request_ctx.current_user_id``) - so the
+    API routes and the agent's web-tool gating resolve the CALLER's store -
+    and None from there too means the SYSTEM store (CLI, auth-off mode,
+    agent-level code outside a request)."""
+    if user_id is None:
+        user_id = current_user_id.get()
+    if user_id is not None:
+        return SearchStore(settings.data_dir, settings, user_id=user_id)
     return SearchStore(settings.data_dir, settings)

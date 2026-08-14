@@ -1,4 +1,5 @@
 from app.models import Scan
+from tests.conftest import authed_user_id
 
 
 def test_list_scans_empty(client):
@@ -10,7 +11,10 @@ def test_list_scans_empty(client):
 def test_scan_create_and_fetch(client, db_session_factory):
     factory = db_session_factory
     with factory() as session:
-        scan = Scan(filename="test.apk", status="queued")
+        scan = Scan(
+            filename="test.apk", status="queued",
+            user_id=authed_user_id(factory),
+        )
         session.add(scan)
         session.commit()
         scan_id = scan.id

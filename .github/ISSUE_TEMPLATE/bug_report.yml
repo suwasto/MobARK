@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a problem with MASA
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! **Security vulnerabilities**
+        must NOT be filed here — use private vulnerability reporting instead
+        (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Which version or commit are you running? (`git log -1 --oneline` or the release tag)
+    validations:
+      required: true
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How are you running MASA?
+      options:
+        - Docker Compose
+        - Backend-only dev (uvicorn)
+        - Other / self-built
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The shortest path from a clean start to the bug. Include the artifact type (APK/IPA) and any relevant config (env vars, auth mode, model backend).
+      placeholder: |
+        1. Start the stack...
+        2. Upload...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / errors
+      description: Backend logs, browser console errors, or the failing test output. Paste text (no screenshots of logs).
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Docker version, Python/Node versions, sample artifact used (if any).

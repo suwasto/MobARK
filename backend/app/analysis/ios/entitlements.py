@@ -57,10 +57,6 @@ NOTABLE_ENTITLEMENTS = {
 }
 
 
-class EntitlementError(Exception):
-    pass
-
-
 def _signature_blob(binary, exe_path: Path) -> bytes | None:
     """Fetch the embedded code-signature blob bytes for one slice.
 

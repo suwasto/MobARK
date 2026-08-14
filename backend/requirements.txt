@@ -29,6 +29,10 @@ httpx==0.28.1  # direct runtime dep since M3 (health model listing); was dev-onl
 # Apache-2.0; earlier versions were GPLv3+ (see docs/licenses.md).
 trafilatura>=1.8.0,<2.0
 
+# M9.1 vault — envelope encryption for BYOK/search API keys at rest
+# (scrypt KEK + AES-GCM; Apache-2.0, see docs/licenses.md).
+cryptography==44.0.0
+
 # M9 — report export (Phase C). reportlab (BSD-3-Clause) platypus renders
 # the assembled body to a branded PDF; python-markdown (BSD-3-Clause)
 # converts the body to the constrained HTML the renderer lays out. The

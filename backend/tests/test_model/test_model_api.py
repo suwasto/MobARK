@@ -2,10 +2,8 @@
 churn on the real data dir."""
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.main import app
 from app.model.backends import BackendStore
 from app.model.health import BackendHealth
 from app.model.providers import PROVIDERS
@@ -17,7 +15,10 @@ def store(tmp_path):
 
 
 @pytest.fixture()
-def api(store, monkeypatch):
+def api(store, monkeypatch, client):
+    """The authenticated ``client`` fixture (M9.1) with the store functions
+    monkeypatched - the routes sit behind get_current_user, so the suite
+    runs in the production posture (auth ON + valid session)."""
     import app.api.routes.models as m
 
     monkeypatch.setattr(m, "get_store", lambda: store)
@@ -36,8 +37,7 @@ def api(store, monkeypatch):
         ),
     )
     monkeypatch.setattr(m, "list_models", lambda b: (["m1", "m2"], "live", None))
-    with TestClient(app) as c:
-        yield c
+    return client
 
 
 def test_list_backends_shape_and_redaction(api):

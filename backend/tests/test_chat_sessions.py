@@ -11,11 +11,15 @@ import json
 
 from app.agent.chat import AgentResult, Citation, ToolRun
 from app.models import Scan
+from tests.conftest import authed_user_id
 
 
 def _add_scan(db_session_factory, *, platform="android", status="done"):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform=platform, status=status)
+        scan = Scan(
+            filename="app.apk", platform=platform, status=status,
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         return scan.id
@@ -220,6 +224,9 @@ def test_chat_session_id_wrong_scan_404(client, db_session_factory, monkeypatch)
     from app.api.routes import scans as routes
 
     monkeypatch.setattr(routes, "answer_question", _fake_answer)
+    # The stream route 400s on a missing model BEFORE the session check -
+    # make the config check hermetic so the 404 path is what's exercised.
+    monkeypatch.setattr(routes, "check_configured", lambda: None)
     sid = client.post(f"/api/v1/scans/{scan_a}/chat/sessions").json()["id"]
 
     r = client.post(

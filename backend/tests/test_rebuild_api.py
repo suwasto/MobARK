@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from app.analysis import apktool
 from app.models import Build, Scan
+from tests.conftest import authed_user_id
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -18,6 +19,7 @@ def _add_scan(factory, *, platform="android", status="done"):
             platform=platform,
             status=status,
             storage_path="/unused/uploads",
+            user_id=authed_user_id(factory),
         )
         session.add(scan)
         session.commit()

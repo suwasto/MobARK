@@ -14,6 +14,7 @@ from app.analysis import apktool
 from app.analysis.apktool import ApktoolError
 from app.models import Scan
 from app.workers import jobs
+from tests.conftest import authed_user_id
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -28,6 +29,7 @@ def _add_scan(
             platform=platform,
             status=status,
             storage_path=storage_path or "/unused/uploads",
+            user_id=authed_user_id(factory),
         )
         if apktool_status:
             scan.apktool_status = apktool_status

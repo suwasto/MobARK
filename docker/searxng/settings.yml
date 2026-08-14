@@ -1,5 +1,5 @@
 # MASA's minimal SearXNG settings (M7) — mounted read-only at
-# /etc/searxng/settings.yml on the `web`-profile compose service.
+# /etc/searxng/settings.yml on the always-on bundled compose service.
 #
 # `use_default_settings: true` makes this file a MERGE over the upstream
 # defaults — without it the schema treats the file as the complete config

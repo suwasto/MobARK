@@ -14,6 +14,7 @@ import zipfile
 
 from app.analysis import dependencies
 from app.models import Finding, Scan
+from tests.conftest import authed_user_id
 
 # ---- group key -----------------------------------------------------------------
 
@@ -65,7 +66,10 @@ def _make_android_scan(
 
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as db:
-        scan = Scan(filename="app.apk", platform="android", status="done")
+        scan = Scan(
+            filename="app.apk", platform="android", status="done",
+            user_id=authed_user_id(db_session_factory),
+        )
         db.add(scan)
         db.commit()
         scan_id = scan.id
@@ -223,7 +227,10 @@ def _make_ios_scan(
 
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     with db_session_factory() as db:
-        scan = Scan(filename="app.ipa", platform="ios", status="done")
+        scan = Scan(
+            filename="app.ipa", platform="ios", status="done",
+            user_id=authed_user_id(db_session_factory),
+        )
         db.add(scan)
         db.commit()
         scan_id = scan.id
@@ -423,7 +430,10 @@ def test_cached_inventory_disk_serves_across_processes(
 
 def _scan_row(db_session_factory, *, platform="android", status="done"):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform=platform, status=status)
+        scan = Scan(
+            filename="app.apk", platform=platform, status=status,
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         return scan.id

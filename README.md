@@ -1,23 +1,48 @@
-# MASA — Mobile Application Security Assistant
+<p align="center">
+  <img src="site/assets/masa-header.svg" alt="MASA — Mobile Application Security Assistant" width="720" />
+</p>
 
-A self-hosted, local-first dashboard for mobile application security testing
-(Android + iOS) with a built-in AI copilot. Static analysis of APK/IPA files,
-chat-with-decompiled-code via a local LLM (Ollama / LM Studio), all without
-any scan data leaving your machine.
+<p align="center">
+  <b>Local-first mobile application security testing</b> — static analysis + AI copilot for Android &amp; iOS,
+  no scan data leaves your machine.
+</p>
 
-- **License:** Apache-2.0 — see [LICENSE](LICENSE)
-- **Docs:** [Product requirements](docs/masa-prd.md) · [Tech stack](docs/masa-techstack.md) · [Task list](docs/masa-tasks.md) · [UI mockup](docs/masa-dashboard-mockup.html) · [Dependency licenses](docs/licenses.md)
+<p align="center">
+  <a href="https://github.com/suwasto/masa/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0" /></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+" /></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-18+-blue.svg" alt="Node 18+" /></a>
+  <a href="https://github.com/suwasto/masa/actions/workflows/backend.yml"><img src="https://github.com/suwasto/masa/actions/workflows/backend.yml/badge.svg" alt="Backend CI" /></a>
+  <a href="https://github.com/suwasto/masa/actions/workflows/frontend.yml"><img src="https://github.com/suwasto/masa/actions/workflows/frontend.yml/badge.svg" alt="Frontend CI" /></a>
+  <a href="https://suwasto.github.io/masa/"><img src="https://img.shields.io/badge/docs-github.io-4a7dff.svg" alt="Documentation" /></a>
+</p>
 
-## Status
+---
 
-Milestone-driven development. **M0 (project scaffolding)** in progress:
+**MASA** is a self-hosted dashboard for mobile application security
+testing — Android (APK) and iOS (IPA). Upload a binary and MASA
+decompiles it, runs static analysis (jadx / apktool / semgrep / gitleaks
+/ LIEF), scores findings with CVSS 4.0, and gives you an **AI copilot
+that can chat with the decompiled code** — all through your own local
+LLM (Ollama / LM Studio) with **nothing leaving your machine by
+default**.
 
-- [x] Repo skeleton: `backend/` (FastAPI + RQ worker), `frontend/` (React + Vite), `docker/`
-- [x] `docker-compose.yml`: `app` + `worker` + `redis` (searxng added in M7)
-- [x] FastAPI base app with `/api/v1/health`
-- [x] SQLite schema + Alembic migrations for `scans` and `findings`
-- [x] Redis + RQ worker wired up, tested with a dummy job
-- [x] Dependency/license audit (`docs/licenses.md`)
+## Features
+
+- **Static analysis** — Android (manifests, jadx decompile, curated +
+  OWASP MASTG semgrep rules, secrets scanning, dependency inventory) and
+  iOS (Mach-O via LIEF, entitlements, Info.plist, insecure-import
+  scanning)
+- **AI copilot** — chat with the decompiled code (findings context +
+  code search/read + per-scan code graph tools), live step/token
+  streaming, **opt-in web research** through a bundled SearXNG
+- **Edit & recompile** (Android) — apktool decode, smali edits,
+  resigned test APK builds
+- **Reports** — deterministic Markdown/PDF with CVSS 4.0 risk scoring,
+  per-finding suppression, AI (or no-model) explanations
+- **Multi-user auth** — username/password + GitHub/Google OAuth,
+  per-user data isolation, encrypted per-user key vault
+- **Local-first** — app, worker, Redis, and the search engine all run
+  locally under `docker compose`
 
 ## Quick start (Docker)
 
@@ -27,56 +52,63 @@ Milestone-driven development. **M0 (project scaffolding)** in progress:
 docker compose up --build
 ```
 
-Then open http://localhost:8000/api/v1/health — you should see
-`{"status":"ok","redis_ok":true,"db_ok":true,...}`.
+Open **http://localhost:8000**. Auth is on by default: a fresh install
+lands on the register/login screen and the **first registered account
+becomes the admin**.
 
-## Local development
+For a quick local evaluation, register these two demo accounts:
 
-### Backend (Python 3.11+)
-
-```bash
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
-alembic upgrade head          # create the SQLite schema
-uvicorn app.main:app --reload # http://localhost:8000
-```
-
-Tests:
-
-```bash
-pytest                       # unit tests (no services needed)
-```
-
-RQ integration tests need Redis + a running worker. With the compose stack up
-(the `redis` service isn't published to the host, so run them inside the
-worker container):
-
-```bash
-docker compose exec worker sh -c "pip install pytest httpx && python -m pytest tests/test_worker.py -m integration"
-```
-
-Or locally with a Redis on `localhost:6379` and `python worker.py` running in
-a second terminal: `pytest -m integration`.
-
-Lint: `ruff check .`
-
-### Frontend (Node 18+)
-
-```bash
-cd frontend
-npm install
-npm run dev                  # http://localhost:5173 — proxies /api -> http://localhost:8000
-```
-
-## Configuration
-
-All settings are optional and read from the `MASA_` environment prefix (see
-[.env.example](.env.example)).
-
-| Variable | Default | Purpose |
+| Username | Password | Role |
 |---|---|---|
-| `MASA_DATABASE_URL` | `sqlite:///./data/masa.db` | SQLite location |
-| `MASA_REDIS_URL` | `redis://localhost:6379/0` | RQ queue/worker broker |
-| `MASA_DATA_DIR` | `./data` | Uploads / decompiled output / graphs |
-| `MASA_LOG_LEVEL` | `INFO` | Logging level |
+| `admin` | `password123` | Admin — register first |
+| `alice` | `password123` | Regular user — sees only her own scans |
+
+> **Warning:** demo credentials are for local installs only — never
+> expose an install with known passwords to a network.
+
+To skip auth entirely (dev/CI): set `MASA_AUTH_ENABLED=0` in `.env`.
+
+See [Quickstart](https://suwasto.github.io/masa/quickstart/) for local
+development setup and the full configuration reference.
+
+## Documentation
+
+- **Full docs site:** https://suwasto.github.io/masa/ (source:
+  [`site/`](site/), MkDocs + Material)
+- **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- **Dependency licenses:** [`docs/licenses.md`](docs/licenses.md) —
+  third-party attribution in a separate file (summary on the
+  [licenses page](https://suwasto.github.io/masa/licenses/))
+- **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- **Security:** [`SECURITY.md`](SECURITY.md)
+
+## Screenshots
+
+> **OWNER: add.** Placeholders — replace with captures of a real scan.
+
+<p align="center">
+  <img src="site/assets/demo/dashboard.png" alt="Dashboard (placeholder)" width="720" />
+</p>
+
+<p align="center">
+  <img src="site/assets/demo/agent-dock.png" alt="Agent dock (placeholder)" width="720" />
+</p>
+
+<p align="center">
+  <img src="site/assets/demo/report.png" alt="Report (placeholder)" width="720" />
+</p>
+
+## Project status
+
+Milestone-driven development: **M0–M9.1 shipped** (analysis, agent,
+edit/recompile, reports, auth + per-user isolation) and **M10
+(open-source readiness)** in progress — see
+[`CHANGELOG.md`](CHANGELOG.md) for the history.
+
+## License
+
+Apache-2.0 — see [`LICENSE`](LICENSE). GPL/LGPL tools in the stack
+(Semgrep, SearXNG) run subprocess-only / as separate containers; every
+imported library is permissive. See the
+[license audit](docs/licenses.md) and the
+[site licenses page](https://suwasto.github.io/masa/licenses/).

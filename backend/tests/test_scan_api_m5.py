@@ -12,6 +12,7 @@ import zipfile
 from app.agent.insights import InsightError
 from app.analysis import tree
 from app.models import Finding, Scan
+from tests.conftest import authed_user_id
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -28,7 +29,10 @@ def _apk_bytes(with_manifest: bool = True) -> bytes:
 
 def _scan(db_session_factory, *, status="done", platform="android"):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform=platform, status=status)
+        scan = Scan(
+            filename="app.apk", platform=platform, status=status,
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         return scan.id
@@ -38,7 +42,10 @@ def _scan_with_findings(
     db_session_factory, severities=("high", "medium", "info"), platform="android"
 ):
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform=platform, status="done")
+        scan = Scan(
+            filename="app.apk", platform=platform, status="done",
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         for i, sev in enumerate(severities):
@@ -963,7 +970,10 @@ def _scan_with_same_title_findings(
     one-per-occurrence pattern the batch endpoints exist for) + one
     unrelated finding."""
     with db_session_factory() as session:
-        scan = Scan(filename="app.apk", platform="android", status="done")
+        scan = Scan(
+            filename="app.apk", platform="android", status="done",
+            user_id=authed_user_id(db_session_factory),
+        )
         session.add(scan)
         session.commit()
         for i in range(count):

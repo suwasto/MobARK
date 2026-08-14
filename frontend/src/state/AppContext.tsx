@@ -7,16 +7,18 @@ import {
   useState,
 } from 'react'
 import type { ReactNode } from 'react'
-import { api } from '../api/client'
+import { api, setOnUnauthorized } from '../api/client'
 import type {
   HealthResponse,
   ModelBackendCreate,
   ModelBackendRead,
   ModelBackendUpsert,
+  ProvidersResponse,
   ScanRead,
   SearchBackendCreate,
   SearchBackendRead,
   SearchBackendUpsert,
+  UserRead,
 } from '../types'
 
 /**
@@ -30,11 +32,23 @@ import type {
  */
 export type View = 'empty' | 'progress' | 'loaded'
 
+/** M9.1: the auth gate. `booting` = providers+me boot in flight (the shell
+ * shows the boot splash); `anon` = auth is ON and there's no session (the
+ * shell renders LoginView); `authed` = a session exists OR auth is OFF
+ * (dev/CI parity - the login screen never appears). */
+export type AuthState = 'booting' | 'anon' | 'authed'
+
 const ACTIVE_SCAN_KEY = 'masa.activeScanId'
 
 interface AppContextValue {
   /** First load in flight - shell shows the boot splash. */
   booting: boolean
+  /** M9.1: the auth gate (login screen vs app shell). */
+  auth: AuthState
+  /** M9.1: the session's user (null in auth-off mode) - the TopBar chip. */
+  user: UserRead | null
+  /** M9.1: configured sign-in methods + auth-on/off flag (login page). */
+  providers: ProvidersResponse | null
   view: View
   scans: ScanRead[]
   activeScan: ScanRead | null
@@ -43,6 +57,19 @@ interface AppContextValue {
   /** M7: configured search engines (the web-research radio list). */
   searchBackends: SearchBackendRead[]
   actions: {
+    /** M9.1: username/password login (register/login view). */
+    login: (username: string, password: string) => Promise<UserRead>
+    /** M9.1: create the first/admin account or a new user. */
+    register: (username: string, password: string, email?: string) => Promise<UserRead>
+    /** M9.1: revoke the session + drop to the login screen. */
+    logout: () => Promise<void>
+    /** M9.1: clear the session locally after a 401 (no network call). */
+    clearSession: () => void
+    /** M9.1 vault: unlock with the vault passphrase (OAuth accounts; first
+     * use creates it). Refreshes the backend lists so key states re-read. */
+    unlockVault: (passphrase: string) => Promise<void>
+    /** M9.1 vault: forgot the passphrase - destroy the vault + clear keys. */
+    resetVault: () => Promise<void>
     refreshScans: () => Promise<void>
     refreshHealth: () => Promise<void>
     refreshBackends: () => Promise<void>
@@ -93,6 +120,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [searchBackends, setSearchBackends] = useState<SearchBackendRead[]>([])
   const [activeScanId, setActiveScanId] = useState<number | null>(readStoredScanId)
   const [booting, setBooting] = useState(true)
+  // M9.1 auth state.
+  const [auth, setAuth] = useState<AuthState>('booting')
+  const [user, setUser] = useState<UserRead | null>(null)
+  const [providers, setProviders] = useState<ProvidersResponse | null>(null)
 
   const refreshScans = useCallback(async () => {
     try {
@@ -138,12 +169,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       refreshBackends(),
       refreshSearchBackends(),
     ])
-    setBooting(false)
   }, [refreshScans, refreshHealth, refreshBackends, refreshSearchBackends])
-
-  useEffect(() => {
-    void refreshAll()
-  }, [refreshAll])
 
   const selectScan = useCallback((id: number | null) => {
     setActiveScanId(id)
@@ -157,6 +183,121 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Storage unavailable (private mode) - session-only selection is fine.
     }
   }, [])
+
+  /** M9.1: drop to the login screen + clear the active scan (audit gap 3:
+   * the stored activeScanId must not survive into another user's session -
+   * refreshScans' fallback would re-derive it, but explicit is safer). */
+  const clearSession = useCallback(() => {
+    setUser(null)
+    setAuth('anon')
+    selectScan(null)
+  }, [selectScan])
+
+  // M9.1: any guarded request that 401s (session expired/revoked mid-use)
+  // drops the UI to login. Auth-route 401s (bad password) never reach here.
+  useEffect(() => {
+    setOnUnauthorized(clearSession)
+    return () => setOnUnauthorized(null)
+  }, [clearSession])
+
+  // M9.1 boot: providers tells us whether auth is even on; me resolves the
+  // session. Auth-off (dev/CI parity) skips login entirely. Data refreshes
+  // only run when the gate opened - an anon boot would 401 every guarded
+  // call (each firing the onUnauthorized hook) for no reason.
+  useEffect(() => {
+    const boot = async () => {
+      let p: ProvidersResponse | null = null
+      try {
+        p = await api.providers()
+      } catch {
+        // Backend unreachable - stay open (pre-auth behavior) so the shell
+        // can show its own degraded-state messaging.
+        setAuth('authed')
+      }
+      setProviders(p)
+      let authed = false
+      if (p == null) {
+        // providers fetch failed - open mode (the EmptyState shows the
+        // unreachable-backend warning).
+        authed = true
+      } else if (!p.auth_enabled) {
+        // Auth is OFF: no login screen, no user - today's open behavior.
+        authed = true
+      } else {
+        try {
+          const me = await api.me()
+          if (me) {
+            setUser(me)
+            authed = true
+          }
+        } catch {
+          // No/invalid session - the login screen.
+        }
+      }
+      setAuth(authed ? 'authed' : 'anon')
+      setBooting(false)
+      if (authed) await refreshAll()
+    }
+    void boot()
+    // Boot once on mount; refreshAll is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const login = useCallback(
+    async (username: string, password: string) => {
+      const { user: u } = await api.login({ username, password })
+      setUser(u)
+      setAuth('authed')
+      selectScan(null)
+      await refreshAll()
+      return u
+    },
+    [refreshAll, selectScan],
+  )
+
+  const register = useCallback(
+    async (username: string, password: string, email?: string) => {
+      const { user: u } = await api.register({ username, password, email: email || null })
+      setUser(u)
+      setAuth('authed')
+      selectScan(null)
+      await refreshAll()
+      return u
+    },
+    [refreshAll, selectScan],
+  )
+
+  /** M9.1 vault: after a successful unlock the session can access the vault
+   * - clear the flag locally and refresh the key-bearing lists. */
+  const unlockVault = useCallback(
+    async (passphrase: string) => {
+      await api.unlockVault(passphrase)
+      setUser((u) => (u ? { ...u, vault_locked: false } : u))
+      await refreshBackends()
+      await refreshSearchBackends()
+    },
+    [refreshBackends, refreshSearchBackends],
+  )
+
+  /** M9.1 vault: reset destroys the vault and clears stored keys; a fresh
+   * passphrase (via unlockVault) re-creates it. */
+  const resetVault = useCallback(async () => {
+    await api.resetVault()
+    await refreshBackends()
+    await refreshSearchBackends()
+  }, [refreshBackends, refreshSearchBackends])
+
+  const logout = useCallback(async () => {
+    try {
+      await api.logout()
+    } catch {
+      // Idempotent server-side - even a network failure still drops the UI.
+    }
+    selectScan(null)
+    setUser(null)
+    setScans([])
+    setAuth('anon')
+  }, [selectScan])
 
   const uploadScan = useCallback(
     async (file: File) => {
@@ -275,6 +416,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AppContextValue>(
     () => ({
       booting,
+      auth,
+      user,
+      providers,
       view,
       scans,
       activeScan,
@@ -282,6 +426,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       backends,
       searchBackends,
       actions: {
+        login,
+        register,
+        logout,
+        clearSession,
+        unlockVault,
+        resetVault,
         refreshScans,
         refreshHealth,
         refreshBackends,
@@ -304,12 +454,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }),
     [
       booting,
+      auth,
+      user,
+      providers,
       view,
       scans,
       activeScan,
       health,
       backends,
       searchBackends,
+      login,
+      register,
+      logout,
+      clearSession,
+      unlockVault,
+      resetVault,
       refreshScans,
       refreshHealth,
       refreshBackends,

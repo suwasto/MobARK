@@ -1369,6 +1369,138 @@ def test_edit_nudge_not_for_plain_question(env, tmp_path, monkeypatch):
     assert "propose_smali_edit" not in result.tools_used
 
 
+def test_edit_nudge_not_inherited_from_history_for_unrelated_question(
+    env, tmp_path, monkeypatch
+):
+    """M9 follow-up (Aug 14): an UNRELATED question in the same session is
+    never pushed to propose - edit intent is NOT inherited from an old turn
+    that used a change verb. Regression: 'why is the app debuggable?' after
+    an earlier 'bypass the root check' used to inherit the edit frame, so the
+    model's search + read-only summary triggered the edit nudge and it got
+    pushed into proposing a root-check edit it was never asked for."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # The model searches to ground the unrelated question...
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "class W"})),
+                    ],
+                )
+            )
+        # ... then answers with a read-only summary - NO edit nudge may fire.
+        return _resp(_msg("The debuggable flag is set in AndroidManifest.xml."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "why is the app debuggable?",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert result.answer == "The debuggable flag is set in AndroidManifest.xml."
+    assert len(calls) == 2  # search round + answer round - NO nudge round
+    assert "propose_smali_edit" not in result.tools_used
+
+
+def test_edit_nudge_inherited_for_continue_cue(env, tmp_path, monkeypatch):
+    """A bare 'continue' follow-up after an edit request KEEPS the edit frame
+    (the sequential edit flow: one proposal per turn, then 'continue') - edit
+    intent IS inherited when the current question is an actual continuation
+    cue, so the 'ends on read' nudge still guards the flow."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "class W"})),
+                    ],
+                )
+            )
+        if len(calls) == 2:
+            # Summary without a proposal -> the edit nudge must fire (the
+            # question 'continue' inherited the edit intent from history).
+            return _resp(_msg("The root check lives in com/app/W.java:42."))
+        return _resp(_msg("Done."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "continue",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    # The nudge was injected between rounds 2 and 3.
+    nudge_msgs = [m for m in calls[2]["messages"] if m["role"] == "user"]
+    assert any("propose_smali_edit NOW" in m["content"] for m in nudge_msgs)
+    assert result.answer == "Done."
+
+
+def test_edit_nudge_not_inherited_for_sentence_opener_next(
+    env, tmp_path, monkeypatch
+):
+    """'Next' as a sentence OPENER ('Next, explain the WebView risk') is not a
+    continuation cue - the cue must be (nearly) the whole question, so a new
+    topic introduced with 'next' does not inherit the edit frame from history."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call("c1", "search_code", json_args({"pattern": "class W"})),
+                    ],
+                )
+            )
+        return _resp(_msg("The WebView client is com/app/W.java:42."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "Next, explain the WebView risk.",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert result.answer == "The WebView client is com/app/W.java:42."
+    assert len(calls) == 2  # search round + answer round - NO nudge round
+    assert "propose_smali_edit" not in result.tools_used
+
+
 def json_args(args: dict) -> str:
     import json
 

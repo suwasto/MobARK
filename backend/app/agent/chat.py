@@ -170,6 +170,26 @@ _EDIT_INTENT_RE = re.compile(
     r"get around|re-enable)",
     re.IGNORECASE,
 )
+# M9 follow-up (Aug 14): edit-intent inheritance is now gated on an ACTUAL
+# continuation - a bare "continue"/"next" cue, or a question that references
+# the scan's pending proposals. Without the gate, ANY old turn that used a
+# change verb ("bypass the root check") kept ``edit_intent`` true for every
+# later question, so an unrelated follow-up ("why is the app debuggable?") in
+# the same session could be pushed by the edit nudge into proposing an edit it
+# was never asked for. The cue must be (nearly) the WHOLE question - "next" as
+# a sentence opener ("Next, explain the WebView risk") is NOT a continuation.
+_EDIT_CONTINUATION_RE = re.compile(
+    r"^\s*(?:continue|go\s*on|proceed|keep\s*going|keep\s*editing|"
+    r"yes|yeah|yep|y|ok|okay|sure|go\s*ahead|do\s*it|and\s*then|again|more|"
+    r"next|next\s+one|next\s+file|next\s+edit|next\s+proposal|what'?s\s*next|"
+    r"what\s*next)"
+    r"[\s.!?,]*(?:please|now|with\s+it)*[\s.!?]*$",
+    re.IGNORECASE,
+)
+# A question that references the edit-review surface ("the edit", "is the
+# proposal applied yet?", "pending") is treated as a continuation cue too -
+# the human is talking about the prior edit task, not a new topic.
+_EDIT_REFERENCE_RE = re.compile(r"\b(edit|propos|pending)\w*\b", re.IGNORECASE)
 # Tools whose execution counts as "the model already did the reading/search"
 # for the edit-task nudge - the change request has progressed but stalled.
 _EDIT_READ_TOOLS = frozenset(
@@ -706,6 +726,46 @@ def _load_edit_review_state(scan_id: int) -> str:
     )
 
 
+def _load_pending_edits(scan_id: int) -> list[dict]:
+    """The scan's PENDING edit proposals (``status == "proposed"``) as
+    ``{id, file_path}`` - the targets a "continue" / reference question is
+    about. Used by the edit-intent gate so intent is inherited from history
+    only when the current question actually points at a pending proposal
+    (M9 follow-up, Aug 14: an unrelated later question must never inherit the
+    edit frame from an old turn that used a change verb). Empty list when
+    there are none."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Edit
+
+    db = SessionLocal()
+    try:
+        rows = db.scalars(
+            select(Edit).where(Edit.scan_id == scan_id, Edit.status == "proposed")
+        ).all()
+    finally:
+        db.close()
+    return [{"id": e.id, "file_path": e.file_path} for e in rows]
+
+
+def _is_edit_continuation(question: str, pending_edits: list[dict]) -> bool:
+    """True when ``question`` is a continuation of a PRIOR edit task - a bare
+    continue/next cue, or a reference to one of the scan's pending proposals
+    (a pending file path, or the edit/proposal vocabulary). Only then may
+    edit intent be inherited from history (a prior turn's change verb) - an
+    unrelated question in the same session never is."""
+    q = question.strip()
+    if _EDIT_CONTINUATION_RE.match(q):
+        return True
+    if _EDIT_REFERENCE_RE.search(q):
+        return True
+    for p in pending_edits:
+        if p["file_path"] in q:
+            return True
+    return False
+
+
 def answer_question(
     scan_id: int,
     question: str,
@@ -853,12 +913,23 @@ def answer_question(
     # "continue" follow-up has no change verb of its own - inherit the
     # intent from the client-side history (the original edit request) so the
     # nudge keeps guarding the sequential flow across turns.
+    # M9 follow-up (Aug 14): the inheritance is now GATED on an actual
+    # continuation - the current question is a continue/next cue or references
+    # a pending proposal (``_is_edit_continuation``) AND some prior turn used
+    # a change verb. An unrelated later question in the same session (e.g.
+    # "why is the app debuggable?" after an earlier "bypass the root check")
+    # never inherits the edit frame, so the nudge cannot push it into
+    # proposing an edit it was never asked for.
+    pending_edits = _load_pending_edits(scan_id) if edit_allowed else []
     edit_intent = edit_allowed and bool(
         _EDIT_INTENT_RE.search(question)
-        or any(
-            _EDIT_INTENT_RE.search(str(t.get("content") or ""))
-            for t in (history or [])
-            if isinstance(t, dict)
+        or (
+            _is_edit_continuation(question, pending_edits)
+            and any(
+                _EDIT_INTENT_RE.search(str(t.get("content") or ""))
+                for t in (history or [])
+                if isinstance(t, dict)
+            )
         )
     )
     proposals_this_turn = 0

@@ -45,4 +45,7 @@ frontend/vite.log
 # ~44MB of binaries (sample APKs/IPAs, icons, mockup HTMLs) do not belong in
 # git. The .md milestone docs also live there - read them via explicit paths
 # (knowledge.md points at them) and search with `--no-ignore` (rg).
-docs/
+# Anchored to the repo root (/docs/) - the unanchored pattern matched ANY
+# docs/ directory, silently ignoring the M10 docs site's content in
+# site/docs/ (the Pages workflow built an empty site -> 404; Aug 15 fix).
+/docs/

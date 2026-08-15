@@ -3,8 +3,7 @@
 </p>
 
 <p align="center">
-  <b>Local-first mobile application security testing</b>: static analysis + AI Agent for Android &amp; iOS,
-  no scan data leaves your machine.
+  <b>Self Hosted mobile application security testing</b>: static analysis + AI Agent for Android &amp; iOS.
 </p>
 
 <p align="center">

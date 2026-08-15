@@ -19,7 +19,7 @@
 - Chat with the decompiled code through your local LLM (Ollama / LM
   Studio) or any BYOK provider (OpenAI, Anthropic, Gemini, DeepSeek,
   OpenRouter, custom).
-- **Layers 1–3** (no embeddings): full findings context, code search /
+- **Layers 1-3** (no embeddings): full findings context, code search /
   file-read tools, and per-scan code-graph query/path/explain tools.
 - Tool-calling with **live step streaming** over SSE (token stream +
   tool start/end frames + a full trace), bounded tool loop, editable

@@ -2,8 +2,8 @@
 
 **MobARK itself is Apache-2.0** (see [LICENSE](https://github.com/suwasto/MobARK/blob/main/LICENSE)).
 This page lists the third-party licenses for everything MobARK actually
-ships and uses. (The detailed internal audit — exact versions, pins and
-decision history — stays in the repository working tree and is not
+ships and uses. (The detailed internal audit - exact versions, pins and
+decision history - stays in the repository working tree and is not
 published.)
 
 ## Compliance posture

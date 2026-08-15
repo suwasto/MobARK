@@ -100,8 +100,8 @@ All settings are optional and read from the `MOBARK_` environment prefix
 | `MOBARK_AUTH_ENABLED` | `1` | `0` restores the fully-open single-user behavior (dev/CI) |
 | `MOBARK_SESSION_DAYS` | `7` | Session lifetime (sliding: refreshed on use) |
 | `MOBARK_COOKIE_SECURE` | `0` | `1` when serving over TLS (session cookie gets the Secure attribute) |
-| `MOBARK_GITHUB_CLIENT_ID` / `MOBARK_GITHUB_CLIENT_SECRET` | — | GitHub OAuth (login page shows the button only when both are set) |
-| `MOBARK_GOOGLE_CLIENT_ID` / `MOBARK_GOOGLE_CLIENT_SECRET` | — | Google OAuth (same, configured-only button) |
+| `MOBARK_GITHUB_CLIENT_ID` / `MOBARK_GITHUB_CLIENT_SECRET` | - | GitHub OAuth (login page shows the button only when both are set) |
+| `MOBARK_GOOGLE_CLIENT_ID` / `MOBARK_GOOGLE_CLIENT_SECRET` | - | Google OAuth (same, configured-only button) |
 | `MOBARK_PUBLIC_BASE_URL` | `http://localhost:8000` | Public origin: OAuth `redirect_uri`s are derived from it |
 
 See [Authentication](auth.md) for the full auth surface (OAuth setup,

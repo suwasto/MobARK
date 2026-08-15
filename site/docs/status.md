@@ -25,6 +25,3 @@
 ## Roadmap
 
 - **Dynamic analysis**: runtime/device testing (next up)
-- iOS edit/recompile (ldid resign)
-- Hosted tier
-- Malware diffing

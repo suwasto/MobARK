@@ -1,9 +1,9 @@
 # MobARK public documentation site.
-# Docs content lives in the tracked site/docs/ dir (docs/ stays gitignored —
+# Docs content lives in the tracked site/docs/ dir (docs/ stays gitignored -
 # it holds internal working notes + sample binaries). Build output goes
-# to _site/ (gitignored). Deploy: .github/workflows/pages.yml → GitHub Pages.
-site_name: MobARK — Mobile Application Reverse Kit
-site_description: Local-first mobile application security testing — static analysis + AI Agent for Android and iOS, no data leaves your machine.
+# to _site/ (gitignored). Deploy: .github/workflows/pages.yml -> GitHub Pages.
+site_name: MobARK - Mobile Application Reverse Kit
+site_description: Local-first mobile application security testing - static analysis + AI Agent for Android and iOS, no data leaves your machine.
 site_url: https://suwasto.github.io/MobARK/
 repo_url: https://github.com/suwasto/MobARK
 repo_name: suwasto/MobARK
@@ -23,23 +23,25 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: emerald
-      accent: teal
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: emerald
-      accent: teal
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
-  icon:
-    logo: material/security
+  logo: assets/mobark_icon_text_desc_whitetext.svg
+  favicon: assets/mobark_icon_text_desc_whitetext.svg
 
 markdown_extensions:
   - admonition
+  - attr_list
+  - md_in_html
   - pymdownx.details
   - pymdownx.superfences:
       custom_fences:
@@ -48,9 +50,15 @@ markdown_extensions:
           format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:materialx.emoji.twemoji
+      emoji_generator: !!python/name:materialx.emoji.to_svg
   - tables
   - toc:
       permalink: true
+
+extra_css:
+  - stylesheets/extra.css
 
 nav:
   - Home: index.md

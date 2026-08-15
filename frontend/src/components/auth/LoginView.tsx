@@ -19,6 +19,28 @@ const OAUTH_LABELS: Record<string, string> = {
   google: 'Continue with Google',
 }
 
+/** Inline eye glyphs for the password show/hide toggles (no icon lib -
+ * same hand-rolled SVG approach as BrandMark/SecurityGauge). */
+function EyeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+function EyeOffIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
+      <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+      <path d="M1 1l22 22" />
+    </svg>
+  )
+}
+
 type Mode = 'login' | 'register'
 
 /** M9.1 Phase D: the auth gate screen (rendered by the shell when `auth ===
@@ -32,6 +54,9 @@ export function LoginView() {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -54,6 +79,11 @@ export function LoginView() {
       if (mode === 'login') {
         await actions.login(username, password)
       } else {
+        if (password !== confirmPassword) {
+          setError('Passwords do not match - please re-enter them.')
+          setBusy(false)
+          return
+        }
         await actions.register(username, password, email.trim() || undefined)
       }
     } catch (err) {
@@ -97,6 +127,9 @@ export function LoginView() {
               onClick={() => {
                 setMode(m)
                 setError(null)
+                setConfirmPassword('')
+                setShowPassword(false)
+                setShowConfirm(false)
               }}
             >
               {m === 'login' ? 'Sign in' : 'Create account'}
@@ -142,16 +175,51 @@ export function LoginView() {
 
           <label className="flex flex-col gap-1 text-[11.5px] text-bone-dim">
             Password
-            <input
-              className="auth-input"
-              type="password"
-              autoComplete={firstRun ? 'new-password' : 'current-password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={firstRun ? 8 : 1}
-            />
+            <span className="relative">
+              <input
+                className="auth-input pr-9"
+                type={showPassword ? 'text' : 'password'}
+                autoComplete={firstRun ? 'new-password' : 'current-password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={firstRun ? 8 : 1}
+              />
+              <button
+                type="button"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-bone-faint hover:text-bone"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword((s) => !s)}
+              >
+                {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+              </button>
+            </span>
           </label>
+
+          {firstRun && (
+            <label className="flex flex-col gap-1 text-[11.5px] text-bone-dim">
+              Re-confirm password
+              <span className="relative">
+                <input
+                  className="auth-input pr-9"
+                  type={showConfirm ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={8}
+                />
+                <button
+                  type="button"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-bone-faint hover:text-bone"
+                  aria-label={showConfirm ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowConfirm((s) => !s)}
+                >
+                  {showConfirm ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </span>
+            </label>
+          )}
 
           <button
             type="submit"

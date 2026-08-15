@@ -25,7 +25,7 @@ leaving your machine.
     On-demand smali decode, agent-proposed edits, and resigned test
     builds (Android) for validation workflows.
 
--   :material-file-report: **Reports**
+-   :material-file-chart-outline: **Reports**
 
     Deterministic Markdown / PDF reports with a banded risk-index
     score (`high | warning | info`, no CVSS claim), finding

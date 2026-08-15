@@ -4,16 +4,16 @@
 # semgrep and gitleaks are CLIs installed separately (Dockerfile), invoked
 # strictly as subprocesses per the Apache-2.0 license posture.
 
-fastapi==0.115.6
-starlette==0.41.3  # fastapi 0.115.x requires <0.42; pin to keep the image reproducible
-uvicorn[standard]==0.34.0
-sqlalchemy==2.0.36
-alembic==1.14.0
-pydantic==2.10.3
-pydantic-settings==2.7.0
-redis==5.2.1
-rq==2.0.0
-python-multipart==0.0.20  # M5: multipart upload parsing (FastAPI UploadFile)
+fastapi==0.141.1
+starlette==1.6.0  # fastapi 0.115.x requires <0.42; pin to keep the image reproducible
+uvicorn[standard]==0.52.1
+sqlalchemy==2.0.52
+alembic==1.19.1
+pydantic==2.13.4
+pydantic-settings==2.15.0
+redis==8.1.0
+rq==2.10.0
+python-multipart==0.0.32  # M5: multipart upload parsing (FastAPI UploadFile)
 
 # M1 — Android manifest analysis + MASTG sync script.
 androguard==4.1.4
@@ -23,18 +23,18 @@ PyYAML==6.0.3
 lief==1.0.0
 
 # M3 — LiteLLM model client (chat + BYOK provider abstraction).
-litellm==1.95.0
+litellm==1.96.2
 httpx==0.28.1  # direct runtime dep since M3 (health model listing); was dev-only
 # M7 — web_fetch article extraction. Pin is the LICENSE boundary: >=1.8.0 is
 # Apache-2.0; earlier versions were GPLv3+ (see docs/licenses.md).
-trafilatura>=1.8.0,<2.0
+trafilatura>=2.2.0,<3.0
 
 # M9.1 vault — envelope encryption for BYOK/search API keys at rest
 # (scrypt KEK + AES-GCM; Apache-2.0, see docs/licenses.md).
 # 44.0.0 -> 46.0.7 (Aug 15, 2026): androguard==4.1.4's metadata now requires
 # cryptography>=46.0.6, making the old pin unresolvable for a fresh install
 # (env drift; the vault itself only uses AESGCM, unchanged).
-cryptography==46.0.7
+cryptography==50.0.0
 
 # M9 — report export (Phase C). reportlab (BSD-3-Clause) platypus renders
 # the assembled body to a branded PDF; python-markdown (BSD-3-Clause)
@@ -43,7 +43,7 @@ cryptography==46.0.7
 # transitive tree imports LGPL python-bidi + LGPLv3 svglib — a violation of
 # the permissive-only posture (see docs/licenses.md); reportlab is
 # permissive and verified.
-reportlab==4.5.1
+reportlab==5.0.0
 markdown==3.10.3
 
 # M4 — Graphify code graph, Layer 3 (pinned at install, Aug 6, 2026).
@@ -51,4 +51,4 @@ markdown==3.10.3
 # v1 by owner decision — Layers 1-3 are non-embedding.
 # graphifyy: per-scan code graphs — CLI invoked as a subprocess (0.9.32
 #   validated: `graphify update <dir> --no-cluster` + query/path/explain).
-graphifyy==0.9.32
+graphifyy==0.9.41

@@ -1,8 +1,8 @@
 # MobARK backend — development dependencies (M0).
 -r requirements.txt
 
-pytest==8.3.4
+pytest==9.1.1
 httpx==0.28.1
-ruff==0.8.4
-pip-licenses==5.0.0
+ruff==0.16.2
+pip-licenses==5.5.5
 pypdf==6.15.0  # M9 Phase C: PDF text extraction in the export tests (section-heading gate)

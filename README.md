@@ -7,12 +7,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/suwasto/masa/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0" /></a>
+  <a href="https://github.com/suwasto/MobARK/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License: Apache-2.0" /></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+" /></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-18+-blue.svg" alt="Node 18+" /></a>
-  <a href="https://github.com/suwasto/masa/actions/workflows/backend.yml"><img src="https://github.com/suwasto/masa/actions/workflows/backend.yml/badge.svg" alt="Backend CI" /></a>
-  <a href="https://github.com/suwasto/masa/actions/workflows/frontend.yml"><img src="https://github.com/suwasto/masa/actions/workflows/frontend.yml/badge.svg" alt="Frontend CI" /></a>
-  <a href="https://suwasto.github.io/masa/"><img src="https://img.shields.io/badge/docs-github.io-4a7dff.svg" alt="Documentation" /></a>
+  <a href="https://github.com/suwasto/MobARK/actions/workflows/backend.yml"><img src="https://github.com/suwasto/MobARK/actions/workflows/backend.yml/badge.svg" alt="Backend CI" /></a>
+  <a href="https://github.com/suwasto/MobARK/actions/workflows/frontend.yml"><img src="https://github.com/suwasto/MobARK/actions/workflows/frontend.yml/badge.svg" alt="Frontend CI" /></a>
+  <a href="https://suwasto.github.io/MobARK/"><img src="https://img.shields.io/badge/docs-github.io-4a7dff.svg" alt="Documentation" /></a>
 </p>
 
 ---
@@ -70,7 +70,7 @@ For a quick local evaluation, register these two demo accounts:
 
 To skip auth entirely (dev/CI): set `MOBARK_AUTH_ENABLED=0` in `.env`.
 
-See [Quickstart](https://suwasto.github.io/masa/quickstart/) for local
+See [Quickstart](https://suwasto.github.io/MobARK/quickstart/) for local
 development setup and the full configuration reference.
 
 ## Architecture
@@ -99,12 +99,12 @@ full component diagram.
 
 ## Documentation
 
-- **Full docs site:** https://suwasto.github.io/masa/ (source:
+- **Full docs site:** https://suwasto.github.io/MobARK/ (source:
   [`site/`](site/), MkDocs + Material)
 - **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - **Dependency licenses:** third-party attribution lives in
   [`site/docs/licenses.md`](site/docs/licenses.md) (rendered on the
-  [licenses page](https://suwasto.github.io/masa/licenses/))
+  [licenses page](https://suwasto.github.io/MobARK/licenses/))
 - **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - **Security:** [`SECURITY.md`](SECURITY.md)
 
@@ -150,4 +150,4 @@ Apache-2.0: see [`LICENSE`](LICENSE). GPL/LGPL tools in the stack
 (Semgrep, SearXNG) run subprocess-only / as separate containers; every
 imported library is permissive. See the
 [license audit](site/docs/licenses.md) and the
-[site licenses page](https://suwasto.github.io/masa/licenses/).
+[site licenses page](https://suwasto.github.io/MobARK/licenses/).

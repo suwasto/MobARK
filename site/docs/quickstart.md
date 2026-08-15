@@ -89,7 +89,7 @@ npm run dev                  # http://localhost:5173 - proxies /api -> http://lo
 ## Configuration
 
 All settings are optional and read from the `MOBARK_` environment prefix
-(see [.env.example](https://github.com/suwasto/masa/blob/main/.env.example)).
+(see [.env.example](https://github.com/suwasto/MobARK/blob/main/.env.example)).
 
 | Variable | Default | Purpose |
 |---|---|---|

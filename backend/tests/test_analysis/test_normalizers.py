@@ -77,7 +77,7 @@ def test_semgrep_normalizer_maps_fields_and_category(tmp_path):
 
     f = findings[0]
     assert f.tool == "semgrep"
-    assert f.severity == "medium"  # WARNING
+    assert f.severity == "warning"  # WARNING
     assert f.category == "MASVS-PLATFORM-3"  # parsed from message
     assert f.file_path == "sources/a/b/Web.java"
     assert f.line_number == 42

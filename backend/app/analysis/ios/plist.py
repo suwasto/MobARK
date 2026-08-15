@@ -98,7 +98,7 @@ def _analyze_ats(plist: dict, result: StageResult) -> None:
             FindingOut(
                 tool=TOOL_PLIST,
                 title="ATS disabled in web content (NSAllowsArbitraryLoadsInWebContent=true)",
-                severity="medium",
+                severity="warning",
                 category="MASVS-NETWORK-1",
                 detail={"key": "NSAllowsArbitraryLoadsInWebContent"},
             )
@@ -124,7 +124,7 @@ def _analyze_ats(plist: dict, result: StageResult) -> None:
                         "ATS per-domain exceptions allow insecure HTTP: "
                         f"{', '.join(sorted(lax)[:5])}"
                     ),
-                    severity="medium",
+                    severity="warning",
                     category="MASVS-NETWORK-1",
                     detail={
                         "key": "NSExceptionDomains",
@@ -153,8 +153,9 @@ def _analyze_usage_strings(plist: dict, result: StageResult) -> None:
                 tool=TOOL_PLIST,
                 title="Empty usage-description strings for sensitive APIs",
                 # Owner calibration (Aug 7): a privacy/transparency issue, not
-                # a direct security control - low, not medium.
-                severity="low",
+                # a direct security control - informational (the low band was
+                # dropped from the vocabulary Aug 15, 2026).
+                severity="info",
                 category="MASVS-PLATFORM-2",
                 detail={
                     "keys": {

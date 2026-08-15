@@ -19,8 +19,8 @@ function FindingCounts({ item }: { item: DependencyItem }) {
   return (
     <span className="deps-counts" title={`${item.finding_count} non-suppressed code findings in this package`}>
       {item.high_count > 0 && <span className="sev-tag high">{item.high_count} high</span>}
-      {item.medium_count > 0 && <span className="sev-tag medium">{item.medium_count} med</span>}
-      {item.high_count === 0 && item.medium_count === 0 && (
+      {item.warning_count > 0 && <span className="sev-tag warning">{item.warning_count} warn</span>}
+      {item.high_count === 0 && item.warning_count === 0 && (
         <span className="sev-tag info">{item.finding_count} findings</span>
       )}
     </span>

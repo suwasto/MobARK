@@ -54,7 +54,9 @@ export interface ProvidersResponse {
 export type ScanStatus = 'queued' | 'running' | 'done' | 'failed'
 export type Platform = 'android' | 'ios'
 // No critical band (owner decision, Aug 8 2026) - high is the top severity.
-export type Severity = 'high' | 'medium' | 'low' | 'info'
+// Aug 15 2026: low was dropped (informational) and medium was renamed
+// warning - the vocabulary is high | warning | info.
+export type Severity = 'high' | 'warning' | 'info'
 
 export interface ScanRead {
   id: number
@@ -502,7 +504,7 @@ export interface DependencyItem {
   /** Non-suppressed semgrep findings inside the package (Android only). */
   finding_count: number
   high_count: number
-  medium_count: number
+  warning_count: number
   /** Native libs: the ABIs the .so ships for. */
   abis: string[]
   /** iOS dylibs: true = Apple's own runtime, false = third-party. */

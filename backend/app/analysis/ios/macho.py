@@ -130,7 +130,7 @@ def _analyze_binary(binary, result: StageResult) -> None:
             FindingOut(
                 tool=TOOL_LIEF,
                 title="Stack canary missing (___stack_chk_guard not found)",
-                severity="medium",
+                severity="warning",
                 category="MASVS-CODE-4",
                 detail={"arch": str(binary.header.cpu_type)},
             )

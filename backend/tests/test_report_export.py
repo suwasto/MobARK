@@ -114,7 +114,7 @@ def test_get_report_suppressed_only_footnote(
     monkeypatch.setattr(app.config.settings, "data_dir", tmp_path)
     scan_id = _add_scan(db_session_factory)
     _add_finding(db_session_factory, scan_id, title="FP one")
-    _add_finding(db_session_factory, scan_id, title="FP two", sev="low")
+    _add_finding(db_session_factory, scan_id, title="FP two", sev="info")
 
     with db_session_factory() as session:
         for f in session.query(Finding).filter(Finding.scan_id == scan_id).all():
@@ -385,20 +385,21 @@ def test_severity_chips_and_flowables():
     chipped = report_pdf._severity_chips(fragment)
     # The chip is a colored reportlab markup tag; the title stays bold after.
     # High is RED (the conventional severity palette - owner direction);
-    # medium inherits the old high's amber; low is green.
+    # warning inherits the old high's amber; info is slate (the low band was
+    # dropped from the vocabulary Aug 15, 2026).
     assert 'backColor="#fbe9e8"' in chipped
     assert 'color="#b3261e"' in chipped
     assert "<b>Insecure WebView</b>" in chipped
     assert "[HIGH]" not in chipped  # the bracket is fully replaced
 
-    low = report_pdf._severity_chips(
+    info = report_pdf._severity_chips(
         report_pdf.markdown_fragment(
-            "## Findings\n\n- **[LOW] Hardcoded key** - `com/foo/Keys.java:9`\n"
+            "## Findings\n\n- **[INFO] Hardcoded key** - `com/foo/Keys.java:9`\n"
         )
     )
-    assert 'backColor="#e7f3ec"' in low
-    assert 'color="#1e7a46"' in low
-    assert "<b>Hardcoded key</b>" in low
+    assert 'backColor="#eceef0"' in info
+    assert 'color="#5f6b76"' in info
+    assert "<b>Hardcoded key</b>" in info
 
     flowables = report_pdf._flowables_for(fragment, width=500)
     assert flowables  # headings/lists render to at least one flowable
@@ -501,7 +502,7 @@ def test_wordmark_failure_falls_back_to_text(monkeypatch, capsys):
     body = (
         "# MASA security report\n\n"
         "- **App:** app.apk (android)\n\n"
-        "- **Security score:** 50/100 - Medium security (CVSS 4.0 · risk "
+        "- **Security score:** 50/100 - Medium security (risk "
         "50/100 · Medium)\n\n"
         "## Severity breakdown\n\n- **high:** 1\n"
     )
@@ -522,11 +523,11 @@ def test_cover_meta_parses_header_and_breakdown():
         "# MASA security report\n\n"
         "- **App:** InsecureBankv2.apk (android)\n"
         "- **Analyzed:** 2026-08-12 12:36 UTC\n"
-        "- **Security score:** 12/100 - Low security (CVSS 4.0 · risk "
+        "- **Security score:** 12/100 - Low security (risk "
         "88/100 · High)\n"
         "- **Package:** com.android.insecurebankv2\n\n"
         "## Severity breakdown\n\n"
-        "- **high:** 10\n- **medium:** 467\n- **low:** 2\n- **info:** 43\n"
+        "- **high:** 10\n- **warning:** 467\n- **info:** 43\n"
         "- **Suppressed findings:** 1 excluded\n"
     )
     assert meta["app"] == "InsecureBankv2.apk"
@@ -536,7 +537,7 @@ def test_cover_meta_parses_header_and_breakdown():
     assert meta["risk"] == 88
     assert meta["band"] == "High"
     assert meta["identity"] == "com.android.insecurebankv2"
-    assert meta["counts"] == {"high": 10, "medium": 467, "low": 2, "info": 43}
+    assert meta["counts"] == {"high": 10, "warning": 467, "info": 43}
     assert meta["suppressed"] == 1
 
 
@@ -566,12 +567,12 @@ def test_cover_page_renders_brand_and_gauge():
         "# MASA security report\n\n"
         "- **App:** InsecureBankv2.apk (android)\n"
         "- **Analyzed:** 2026-08-12 12:36 UTC\n"
-        "- **Security score:** 12/100 - Low security (CVSS 4.0 · risk "
+        "- **Security score:** 12/100 - Low security (risk "
         "88/100 · High)\n"
         "- **Package:** com.android.insecurebankv2\n\n"
         "## Executive summary\n\nCached summary.\n\n"
         "## Severity breakdown\n\n"
-        "- **high:** 10\n- **medium:** 467\n- **low:** 2\n- **info:** 43\n\n"
+        "- **high:** 10\n- **warning:** 467\n- **info:** 45\n\n"
         "## Findings\n\n- **[HIGH] Insecure WebView** - `com/foo/WebView.java:42`\n"
     )
     pdf = report_pdf.render_pdf(body, stem="InsecureBankv2")
@@ -591,9 +592,9 @@ def test_cover_page_renders_brand_and_gauge():
     assert "com.android.insecurebankv2" in text
     # Gauge facts + severity boxes
     assert "12" in text
-    assert "CVSS 4.0 · risk 88/100" in text
+    assert "risk 88/100" in text
     assert "HIGH" in text
-    assert "MEDIUM" in text
+    assert "WARNING" in text
     # Body still renders on page 2+
     assert "Executive summary" in text
     assert "Insecure WebView" in text
@@ -620,12 +621,12 @@ def test_h3_headings_are_severity_colored():
     assert colors[0] == HexColor("#b3261e")
     assert colors[1] == HexColor("#017452")
 
-    green = report_pdf._flowables_for(
-        report_pdf.markdown_fragment("### Low (2) - app-owned\n"), width=500
+    info = report_pdf._flowables_for(
+        report_pdf.markdown_fragment("### Info (2) - app-owned\n"), width=500
     )
-    gtables = [f for f in green if f.__class__.__name__ == "Table"]
-    assert gtables
-    assert gtables[0]._cellvalues[0][0].style.textColor == HexColor("#1e7a46")
+    itables = [f for f in info if f.__class__.__name__ == "Table"]
+    assert itables
+    assert itables[0]._cellvalues[0][0].style.textColor == HexColor("#5f6b76")
 
 
 # ---- cache-first assembly (decision 7) --------------------------------------

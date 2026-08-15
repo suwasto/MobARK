@@ -41,21 +41,21 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "CC_MD5",
         "Legacy MD5 hashing imported (CC_MD5)",
-        "medium",
+        "warning",
         "MASVS-CRYPTO-2",
         "MD5 is cryptographically broken - binary-level presence, no source location.",
     ),
     ImportRule(
         "CC_MD4",
         "Legacy MD4 hashing imported (CC_MD4)",
-        "medium",
+        "warning",
         "MASVS-CRYPTO-2",
         "MD4 is cryptographically broken - binary-level presence, no source location.",
     ),
     ImportRule(
         "CC_SHA1",
         "Legacy SHA-1 hashing imported (CC_SHA1)",
-        "medium",
+        "warning",
         "MASVS-CRYPTO-2",
         "SHA-1 is deprecated for security uses - binary-level presence, no source location.",
     ),
@@ -69,7 +69,7 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "CCCrypt",
         "Legacy CommonCrypto CCCrypt imported",
-        "medium",
+        "warning",
         "MASVS-CRYPTO-2",
         "Review algorithm/mode at the call site: ECB-mode constants (kCCOptionECBMode) "
         "are code-level and not visible in the import table.",
@@ -77,7 +77,7 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "CCCryptorCreate",
         "Legacy CommonCrypto CCCryptorCreate imported",
-        "medium",
+        "warning",
         "MASVS-CRYPTO-2",
         "Review algorithm/mode at the call site; import-level presence only.",
     ),
@@ -85,7 +85,7 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "UIWebView",
         "Deprecated UIWebView referenced",
-        "medium",
+        "warning",
         "MASVS-PLATFORM-2",
         "UIWebView is deprecated and insecure-by-default; use WKWebView. "
         "Binary-level presence, no source location.",
@@ -105,7 +105,7 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "canAuthenticateAgainstProtectionSpace",
         "Custom NSURLConnection authentication (canAuthenticateAgainstProtectionSpace)",
-        "medium",
+        "warning",
         "MASVS-NETWORK-2",
         "Custom server-identity handling - verify it validates certificates. "
         "Binary-level presence, no source location.",
@@ -114,7 +114,7 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "ptrace",
         "ptrace imported - possible anti-debug (PT_DENY_ATTACH)",
-        "medium",
+        "warning",
         "MASVS-RESILIENCE-2",
         "ptrace(PT_DENY_ATTACH) is a common anti-debug technique - the constant is "
         "code-level and not visible in the import table.",
@@ -122,14 +122,14 @@ IMPORT_RULES: tuple[ImportRule, ...] = (
     ImportRule(
         "sysctl",
         "sysctl imported - possible anti-debug (KERN_PROC inspection)",
-        "low",
+        "info",
         "MASVS-RESILIENCE-2",
         "sysctl KERN_PROC inspection is a common debugger-detection technique.",
     ),
     ImportRule(
         "syscall",
         "syscall imported - possible anti-debug",
-        "low",
+        "info",
         "MASVS-RESILIENCE-2",
         "Direct syscall use can indicate anti-debugging; also common in jailbreak "
         "detection.",

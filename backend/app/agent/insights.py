@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 
 from app.agent.tools import read_file
 from app.analysis.auto_explain import auto_explanation
-from app.analysis.risk import SEVERITY_CVSS
+from app.analysis.risk import SEVERITY_WEIGHT
 from app.model.client import chat as client_chat
 from app.model.client import model_arch_hint
 from app.model.selection import NoModelConfigured, pick_chat_backend
@@ -198,12 +198,12 @@ def summarize_scan(
         }
     backend = pick_chat_backend()
 
-    counts = {sev: 0 for sev in SEVERITY_CVSS}
+    counts = {sev: 0 for sev in SEVERITY_WEIGHT}
     for f in findings:
         counts[f.severity] = counts.get(f.severity, 0) + 1
     top = sorted(
         findings,
-        key=lambda f: SEVERITY_CVSS.get(f.severity, 0.0),
+        key=lambda f: SEVERITY_WEIGHT.get(f.severity, 0.0),
         reverse=True,
     )[ : SUMMARY_TOP_FINDINGS]
     top_lines = [
@@ -215,9 +215,9 @@ def summarize_scan(
         "platform": scan.platform,
         "security_score": security_score,
         "security_score_note": "0-100, higher is better (100 = no findings above info); "
-        "driven by the worst finding's CVSS 4.0 base score plus a breadth "
-        "bonus within its severity band, capped at the band's CVSS 4.0 "
-        "ceiling (high 89, medium 69, low 39)",
+        "driven by the worst finding's band (any high >= 70 > any warning "
+        "<= 69) plus ~1 point per extra finding in that band, capped at the "
+        "band ceiling (high 99, warning 69)",
         "total_findings": len(findings),
         "severity_counts": counts,
         "top_findings": top_lines,

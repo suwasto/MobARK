@@ -21,8 +21,8 @@ engine) keeps the branded design, makes **page numbers actually work** (a
 footer callback - xhtml2pdf's @page margin boxes couldn't), and drops the
 LGPL pair + the PAdES (pyHanko) bloat entirely. Severity chips are colored
 boxes with the conventional severity palette (High red · Medium amber ·
-Low blue · Info slate - owner direction, deliberately distinct from the
-frontend dashboard's brand palette; see below), mono ``file:line``, DejaVu
+Info slate - owner direction, deliberately distinct from the frontend
+dashboard's brand palette; see below), mono ``file:line``, DejaVu
 Sans TTF family for Unicode text (``MASA_REPORT_FONT`` + its
 -Bold/-Oblique/-Mono siblings; Helvetica fallback when missing - never a
 crash).LAYOUT (redesigned Aug 12, 2026 - the manual-review follow-up):
@@ -32,7 +32,7 @@ crash).LAYOUT (redesigned Aug 12, 2026 - the manual-review follow-up):
   vector logo paths + the white raster "MASA" text, cropped to the SVG's
   pattern-visible region; the same file the TopBar renders; app filename +
   platform chip), a canvas-drawn **security gauge** (the frontend
-  SecurityGauge's discrete CVSS 4.0 band colors), the four severity count
+  SecurityGauge's discrete CVSS 4.0 band colors), the three severity count
   boxes, package/bundle + analyzed-date meta, and a scope/disclaimer
   footer. The cover derives its facts by parsing the assembled body's own
   header + breakdown lines (machine-generated, stable vocabulary) - one
@@ -40,16 +40,17 @@ crash).LAYOUT (redesigned Aug 12, 2026 - the manual-review follow-up):
 - **Body pages**: a running header (emerald rule + report identity) and the
   page-number footer; h1/h2 section headings are PLAIN dark text (the green
   underline rule was removed Aug 14 - "remove it for cleaner report"), and
-  **h3 headings are severity-colored** (High red / Medium amber / Low blue /
-  Info slate / Third-party deep-emerald) with an emerald left bar so the
+  **h3 headings are severity-colored** (High red / Medium amber / Info
+  slate / Third-party deep-emerald) with an emerald left bar so the
   Findings section scans at a glance.
 - The DejaVu **family** is registered (regular/bold/oblique/mono), so the
   fragment's ``<b>/<i>`` render with real weights instead of fake-bold.
 
 SEVERITY PALETTE (owner direction, Aug 12 2026 - the PDF follow-up): the
-report uses the conventional severity colors - **High red · Medium amber ·
-Low blue · Info slate** - which is deliberately NOT the frontend dashboard
-palette (amber/steel/moss/gray); the exported artifact reads like a
+report uses the conventional severity colors - **High red · Warning amber ·
+Info slate** (the low band was dropped and medium renamed warning Aug 15,
+2026) - which is deliberately NOT the frontend dashboard palette
+(amber/steel/moss/gray); the exported artifact reads like a
 standard pentest deliverable while the app keeps its brand palette.
 
 Bounded render (the Phase C contract): the HTML fragment is size-capped
@@ -79,15 +80,15 @@ from app.config import settings
 # never pays for the PDF engine's import.
 
 # Severity chip palette - OWNER-DIRECTED conventional severity colors
-# (Aug 12, 2026 PDF follow-up): High red · Medium amber · Low blue · Info
-# slate. Deliberately distinct from the frontend dashboard palette
+# (Aug 12, 2026 PDF follow-up): High red · Warning amber · Info slate (the
+# low band was dropped and medium renamed warning Aug 15, 2026).
+# Deliberately distinct from the frontend dashboard palette
 # (amber/steel/moss/gray) so the exported report reads like a standard
 # pentest deliverable. Tinted background + dark text (the .sev-tag
 # contract), high-contrast pairs chosen for print.
 _SEVERITY_STYLES = {
     "high": ("#fbe9e8", "#b3261e"),
-    "medium": ("#f9ead7", "#a85f14"),
-    "low": ("#e7f3ec", "#1e7a46"),
+    "warning": ("#f9ead7", "#a85f14"),
     "info": ("#eceef0", "#5f6b76"),
     "other": ("#f1f1ef", "#6c747a"),
 }
@@ -101,35 +102,33 @@ _MUTED = "#6c747a"
 _BQ_BG = "#f4fbf8"
 _CODE_BG = "#f4f4f2"
 
-# The frontend SecurityGauge's discrete arc colors (CVSS 4.0 band of the
-# underlying RISK): high risk = crimson · medium = amber · low = olive ·
-# none = bright emerald. Used by the cover gauge so the PDF and the
-# dashboard never disagree about the posture.
+# The frontend SecurityGauge's discrete arc colors (risk-index band of the
+# underlying RISK): high risk = crimson · medium = amber · none = bright
+# emerald (the banded model only produces 0, 40-69 or 70-99, so the old
+# 1-39 low band is unreachable and gone). Used by the cover gauge so the
+# PDF and the dashboard never disagree about the posture.
 _GAUGE_BAND = {
     "High": "#c1554a",
     "Medium": "#d98e3e",
-    "Low": "#9db234",
     "None": "#1ed394",
 }
 _GAUGE_LABEL = {
     "High": "Low security",
     "Medium": "Medium security",
-    "Low": "High security",
     "None": "Excellent security",
 }
 
 # h3 heading colors (the Findings section's severity groups) - the chip
-# foregrounds (High red · Medium amber · Low blue · Info slate), plus a
-# deep emerald for the third-party roll-up heading.
+# foregrounds (High red · Warning amber · Info slate), plus a deep emerald
+# for the third-party roll-up heading.
 _SEV_TEXT = {
     "high": "#b3261e",
-    "medium": "#a85f14",
-    "low": "#1e7a46",
+    "warning": "#a85f14",
     "info": "#5f6b76",
     "other": "#6c747a",
     "third": "#017452",
 }
-_H3_SEV_RE = re.compile(r"^(High|Medium|Low|Info|Other)\b")
+_H3_SEV_RE = re.compile(r"^(High|Warning|Info|Other)\b")
 _THIRD_PARTY_RE = re.compile(r"^Third[- ]party\b", re.IGNORECASE)
 
 # The assembled body emits findings as ``- **[HIGH] Title**``; after
@@ -139,7 +138,7 @@ _THIRD_PARTY_RE = re.compile(r"^Third[- ]party\b", re.IGNORECASE)
 # stays bold. The ``<font backColor=...>`` tag is passed straight through to
 # reportlab's Paragraph markup by the fragment parser. Matches only the
 # body's exact shape - iOS "Import-table finding [HIGH]" stays plain text.
-_CHIP_RE = re.compile(r"<strong>\[(HIGH|MEDIUM|LOW|INFO|OTHER)\] ?")
+_CHIP_RE = re.compile(r"<strong>\[(HIGH|WARNING|INFO|OTHER)\] ?")
 
 
 def markdown_fragment(body: str) -> str:
@@ -334,9 +333,9 @@ class _FlowableBuilder(HTMLParser):
         from reportlab.platypus import Paragraph, Table, TableStyle
 
         if level == 3:
-            # Severity-colored h3: High amber / Medium steel / Low moss /
-            # Info gray / Third-party deep-emerald (manual-review follow-up)
-            # - the Findings section's severity groups scan at a glance.
+            # Severity-colored h3: High amber / Warning steel / Info gray /
+            # Third-party deep-emerald (manual-review follow-up) - the
+            # Findings section's severity groups scan at a glance.
             sev = None
             m = _H3_SEV_RE.match(markup)
             if m:
@@ -668,7 +667,7 @@ _COVER_RE = {
     "app": re.compile(r"^\- \*\*App:\*\* (.+?) \((\w+)\)\s*$", re.M),
     "analyzed": re.compile(r"^\- \*\*Analyzed:\*\* (.+)\s*$", re.M),
     "score": re.compile(
-        r"^\- \*\*Security score:\*\* (\d+)/100 - (.+?) \(CVSS 4\.0 · risk "
+        r"^\- \*\*Security score:\*\* (\d+)/100 - (.+?) \(risk "
         r"(\d+)/100 · (\w+)\)\s*$",
         re.M,
     ),
@@ -676,7 +675,7 @@ _COVER_RE = {
     "bundle": re.compile(r"^\- \*\*Bundle id:\*\* (\S+)\s*$", re.M),
     "suppressed": re.compile(r"^\- \*\*Suppressed findings:\*\* (\d+)", re.M),
 }
-_COUNT_RE = re.compile(r"^\- \*\*(high|medium|low|info):\*\* (\d+)\s*$", re.M)
+_COUNT_RE = re.compile(r"^\- \*\*(high|warning|info):\*\* (\d+)\s*$", re.M)
 
 
 def _cover_meta(body: str) -> dict:
@@ -718,7 +717,7 @@ def _draw_gauge(canvas, cx: float, cy: float, r: float, score, risk) -> None:
 
     clamped = 0 if score is None else max(0, min(100, score))
     risk = 100 - clamped if risk is None else risk
-    band = "High" if risk >= 70 else "Medium" if risk >= 40 else "Low" if risk > 0 else "None"
+    band = "High" if risk >= 70 else "Medium" if risk >= 40 else "None"
     color = _GAUGE_BAND[band]
 
     def _stroke(frac: float, stroke: str, width: float) -> None:
@@ -759,7 +758,7 @@ def _draw_gauge(canvas, cx: float, cy: float, r: float, score, risk) -> None:
     if score is not None:
         canvas.setFont(_font_name(), 8)
         canvas.setFillColor(HexColor(_MUTED))
-        canvas.drawCentredString(cx, cy - 62, f"CVSS 4.0 · risk {risk}/100 · {band}")
+        canvas.drawCentredString(cx, cy - 62, f"risk {risk}/100 · {band}")
     canvas.restoreState()
 
 
@@ -851,7 +850,7 @@ def _cover_canvas(meta: dict, canvas, doc) -> None:
 
     # ---- severity boxes ------------------------------------------------------
     counts = meta.get("counts") or {}
-    labels = ("high", "medium", "low", "info")
+    labels = ("high", "warning", "info")
     box_w, gap = 118, 14
     total_w = len(labels) * box_w + (len(labels) - 1) * gap
     x0 = (W - total_w) / 2

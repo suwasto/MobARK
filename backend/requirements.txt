@@ -31,7 +31,10 @@ trafilatura>=1.8.0,<2.0
 
 # M9.1 vault — envelope encryption for BYOK/search API keys at rest
 # (scrypt KEK + AES-GCM; Apache-2.0, see docs/licenses.md).
-cryptography==44.0.0
+# 44.0.0 -> 46.0.7 (Aug 15, 2026): androguard==4.1.4's metadata now requires
+# cryptography>=46.0.6, making the old pin unresolvable for a fresh install
+# (env drift; the vault itself only uses AESGCM, unchanged).
+cryptography==46.0.7
 
 # M9 — report export (Phase C). reportlab (BSD-3-Clause) platypus renders
 # the assembled body to a branded PDF; python-markdown (BSD-3-Clause)

@@ -638,7 +638,7 @@ class DependencyItem(BaseModel):
     file_count: int | None = None
     finding_count: int = 0
     high_count: int = 0
-    medium_count: int = 0
+    warning_count: int = 0
     abis: list[str] = []
     # iOS dylibs only: True for Apple's own runtime libs (system), False for
     # third-party @rpath/embedded links, None elsewhere.

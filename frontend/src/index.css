@@ -33,7 +33,8 @@
   --color-emerald-deep: #017452;
   /* Severity / status. */
   /* Conventional severity palette (matches the exported report, see
-     analysis/report_pdf.py): high red, medium amber, low green, info slate. */
+     analysis/report_pdf.py): high red, warning amber, info slate (the low
+     band was dropped and medium renamed warning Aug 15, 2026). */
   --color-sev-red: #e05b52;
   --color-amber: #d98e3e;
   --color-sev-green: #6fbe86;
@@ -425,11 +426,8 @@
   .spine.high {
     background: var(--color-sev-red);
   }
-  .spine.medium {
+  .spine.warning {
     background: var(--color-amber);
-  }
-  .spine.low {
-    background: var(--color-sev-green);
   }
   .spine.info {
     background: var(--color-sev-slate);
@@ -449,13 +447,9 @@
     background: rgba(224, 91, 82, 0.15);
     color: var(--color-sev-red);
   }
-  .sev-tag.medium {
+  .sev-tag.warning {
     background: rgba(217, 142, 62, 0.15);
     color: var(--color-amber);
-  }
-  .sev-tag.low {
-    background: rgba(111, 190, 134, 0.14);
-    color: var(--color-sev-green);
   }
   .sev-tag.info {
     background: rgba(255, 255, 255, 0.06);
@@ -482,13 +476,9 @@
     color: var(--color-sev-red);
     border-left-color: var(--color-sev-red);
   }
-  .sev-group-head.medium {
+  .sev-group-head.warning {
     color: var(--color-amber);
     border-left-color: var(--color-amber);
-  }
-  .sev-group-head.low {
-    color: var(--color-sev-green);
-    border-left-color: var(--color-sev-green);
   }
   .sev-group-head.info {
     color: var(--color-sev-slate);
@@ -857,11 +847,8 @@
   .fdot.high {
     background: var(--color-sev-red);
   }
-  .fdot.medium {
+  .fdot.warning {
     background: var(--color-amber);
-  }
-  .fdot.low {
-    background: var(--color-sev-green);
   }
   .fdot.none {
     background: transparent;

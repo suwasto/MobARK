@@ -30,19 +30,22 @@ RISKY_PERMISSIONS = {
     "android.permission.READ_SMS": ("SMS is readable by the app", "high"),
     "android.permission.SEND_SMS": ("The app can send SMS messages", "high"),
     "android.permission.RECEIVE_SMS": ("The app can receive SMS messages", "high"),
-    "android.permission.RECORD_AUDIO": ("The app can record audio", "medium"),
-    "android.permission.CAMERA": ("The app can access the camera", "medium"),
-    "android.permission.READ_CONTACTS": ("The app can read contacts", "medium"),
-    "android.permission.ACCESS_FINE_LOCATION": ("The app can access fine location", "medium"),
+    "android.permission.RECORD_AUDIO": ("The app can record audio", "warning"),
+    "android.permission.CAMERA": ("The app can access the camera", "warning"),
+    "android.permission.READ_CONTACTS": ("The app can read contacts", "warning"),
+    "android.permission.ACCESS_FINE_LOCATION": ("The app can access fine location", "warning"),
     "android.permission.READ_CALL_LOG": ("The app can read the call log", "high"),
-    "android.permission.READ_PHONE_STATE": ("The app can read phone state", "medium"),
+    "android.permission.READ_PHONE_STATE": ("The app can read phone state", "warning"),
     "android.permission.REQUEST_INSTALL_PACKAGES": (
         "The app can request installing packages",
         "high",
     ),
-    "android.permission.QUERY_ALL_PACKAGES": ("The app can enumerate installed packages", "medium"),
-    "android.permission.WRITE_EXTERNAL_STORAGE": ("The app can write external storage", "low"),
-    "android.permission.READ_EXTERNAL_STORAGE": ("The app can read external storage", "low"),
+    "android.permission.QUERY_ALL_PACKAGES": (
+        "The app can enumerate installed packages",
+        "warning",
+    ),
+    "android.permission.WRITE_EXTERNAL_STORAGE": ("The app can write external storage", "info"),
+    "android.permission.READ_EXTERNAL_STORAGE": ("The app can read external storage", "info"),
     "android.permission.BIND_ACCESSIBILITY_SERVICE": (
         "Accessibility service binding (screen-reader level access)",
         "high",
@@ -131,7 +134,7 @@ def _application_checks(app_el) -> StageResult:
             FindingOut(
                 tool="androguard",
                 title="Application data can be backed up (android:allowBackup=true)",
-                severity="medium",
+                severity="warning",
                 file_path="AndroidManifest.xml",
                 category="MASVS-STORAGE-2",
             )
@@ -157,7 +160,7 @@ def _application_checks(app_el) -> StageResult:
             FindingOut(
                 tool="androguard",
                 title="Cleartext traffic allowed (android:usesCleartextTraffic=true)",
-                severity="medium",
+                severity="warning",
                 file_path="AndroidManifest.xml",
                 category="MASVS-NETWORK-1",
             )
@@ -210,7 +213,7 @@ def _exported_components(manifest_el) -> StageResult:
                 FindingOut(
                     tool="androguard",
                     title=f"Exported {kind}: {display}",
-                    severity="medium",
+                    severity="warning",
                     file_path="AndroidManifest.xml",
                     category="MASVS-PLATFORM-1",
                     detail={
@@ -267,7 +270,7 @@ def _parse_nsc(raw: bytes, name: str, out: StageResult) -> None:
             FindingOut(
                 tool="androguard",
                 title="Network security config permits cleartext traffic",
-                severity="medium",
+                severity="warning",
                 file_path=name,
                 category="MASVS-NETWORK-1",
                 detail={"cleartext_traffic_permitted": True, "config": name},

@@ -127,7 +127,7 @@ def test_explain_no_model_falls_back_to_deterministic(monkeypatch):
     finding = _finding(
         detail={"check_id": "mastg-android-sdk-version"},
         tool="semgrep",
-        severity="medium",
+        severity="warning",
         file_path="com/foo/Main.java",
         line_number=3,
         category="MASVS-PLATFORM",
@@ -191,7 +191,7 @@ def test_explain_without_location_omits_source_context(monkeypatch):
 def _findings():
     return [
         types.SimpleNamespace(severity="high", title="Token in prefs", file_path="A.java"),
-        types.SimpleNamespace(severity="medium", title="Pinning off", file_path="B.java"),
+        types.SimpleNamespace(severity="warning", title="Pinning off", file_path="B.java"),
         types.SimpleNamespace(severity="info", title="Debug build", file_path="C.java"),
     ]
 

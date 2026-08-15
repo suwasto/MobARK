@@ -393,7 +393,7 @@ def demo_scan(monkeypatch, db_session_factory, tmp_path):
                 scan_id=scan_id,
                 tool="semgrep",
                 title="WebView with JavaScript enabled",
-                severity="medium",
+                severity="warning",
                 file_path="com/app/W.java",
                 line_number=42,
             )

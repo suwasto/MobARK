@@ -19,8 +19,8 @@ Section contract (the report at a glance):
   truth, nothing re-derived here. When suppression excluded findings, a
   one-line ``Suppressed findings: n excluded`` footnote renders (open
   item 2 - "one line, no detail").
-- Findings: full non-suppressed set, grouped by severity (high -> medium ->
-  low -> info), each with title, category/MASVS control, MASTG test tag,
+- Findings: full non-suppressed set, grouped by severity (high -> warning ->
+  info), each with title, category/MASVS control, MASTG test tag,
   file/line, tool, and an explanation - the cached AI one when a model
   generated it, otherwise a DETERMINISTIC fallback from the persisted data
   + vendored MASTG mapping (the report is a complete deliverable with no
@@ -60,24 +60,24 @@ from app.analysis.auto_explain import auto_explanation
 from app.analysis.risk import SEVERITY_ORDER, security_from_risk
 from app.config import settings
 
-# CVSS 4.0 qualitative band of a RISK score (0-100) - must match the
-# SecurityGauge exactly so the report header and the dashboard never
-# disagree: risk 70-89 high · 40-69 medium · 1-39 low · 0 none.
+# Risk-index band of a RISK score (0-100) - must match the SecurityGauge
+# exactly so the report header and the dashboard never disagree. The
+# banded model (Aug 15, 2026) only ever produces 0, 40-69 or 70-99 - so
+# the bands are high 70-99 · medium 40-69 · none 0 (the old 1-39 low band
+# is unreachable and gone).
 _BAND_RISK = {
-    "high": (70, 89),
+    "high": (70, 99),
     "medium": (40, 69),
-    "low": (1, 39),
 }
 _BAND_LABEL = {
     "high": "High",
     "medium": "Medium",
-    "low": "Low",
     "none": "None",
 }
 
 
 def risk_band(risk_score: int | None) -> str:
-    """CVSS 4.0 qualitative band name for a risk score (None -> 'none')."""
+    """Risk-index band name for a risk score (None -> 'none')."""
     if risk_score is None:
         return "none"
     for band, (lo, hi) in _BAND_RISK.items():
@@ -93,8 +93,6 @@ def security_label(risk_score: int | None) -> str:
         return "Low security"
     if band == "medium":
         return "Medium security"
-    if band == "low":
-        return "High security"
     return "Excellent security"
 
 
@@ -282,7 +280,7 @@ def _top_priorities(findings, limit: int = 10) -> list:
         return (idx, (f.file_path or "").lower(), f.line_number or 0)
 
     ranked = sorted(
-        (f for f in findings if (f.severity or "") in ("high", "medium", "low")),
+        (f for f in findings if (f.severity or "") in ("high", "warning")),
         key=_rank,
     )
     return ranked[:limit]
@@ -316,7 +314,7 @@ def assemble_report(
     # Aug 14 owner follow-up: EVERY non-suppressed finding is listed in full
     # below - findings inside bundled third-party libraries included. The
     # old vendored per-library tally was removed ("the report should show
-    # every finding, not just 'medium x count'").
+    # every finding, not just 'warning x count'").
     ios_profile = _ios_binary_profile(findings) if platform == "ios" else None
 
     risk = scan.risk_score
@@ -332,7 +330,7 @@ def assemble_report(
     if risk is not None:
         lines.append(
             f"- **Security score:** {security}/100 - {security_label(risk)} "
-            f"(CVSS 4.0 · risk {risk}/100 · {_BAND_LABEL[band]})"
+            f"(risk {risk}/100 · {_BAND_LABEL[band]})"
         )
     else:
         lines.append("- **Security score:** not yet scored")
@@ -389,7 +387,7 @@ def assemble_report(
         )
     if risk is not None:
         lines.append(
-            f"- **Risk score:** {risk}/100 (CVSS 4.0) · "
+            f"- **Risk score:** {risk}/100 · "
             f"**Security score:** {security}/100"
         )
     lines.append("")
@@ -432,7 +430,9 @@ def assemble_report(
             + (", binary profile" if platform == "ios" else "")
             + "). No dynamic, device, or emulator testing was performed; "
             "findings reflect code and binary structure, not runtime "
-            "behavior. Severity bands follow CVSS 4.0._"
+            "behavior. Severity bands follow the banded risk index "
+            "(high/warning/info; not CVSS - a static scanner cannot "
+            "honestly assess CVSS attack requirements or user interaction)._"
         )
         lines.append("")
 
@@ -585,7 +585,9 @@ def assemble_report(
 # changed the body shape again - stale v2 cache files rebuild.
 # v4 (Aug 14 follow-up): every finding listed in full (vendored roll-up
 # removed) + the Resigned test builds section dropped - stale v3 rebuild.
-_REPORT_CACHE_VERSION = 4
+# v5 (Aug 15): the header + scope lines dropped the 'CVSS 4.0' caption
+# (banded risk index is not CVSS) - stale v4 rebuild.
+_REPORT_CACHE_VERSION = 5
 _REPORT_CACHE: dict[str, tuple[str, str]] = {}  # path -> (identity, body)
 _REPORT_CACHE_MAX = 16
 
@@ -625,7 +627,6 @@ def _findings_fingerprint(findings) -> str:
 # Aug 14 removal of the vendored roll-up + Resigned test builds section)
 # must invalidate every persisted body too - same precedent as smali_map's
 # _MAPPING_CACHE_VERSION.
-_REPORT_CACHE_VERSION = 4
 
 
 def _cache_identity(

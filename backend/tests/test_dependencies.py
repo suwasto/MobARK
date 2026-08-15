@@ -125,7 +125,7 @@ def test_android_inventory_packages_labels_counts_and_natives(
         db_session_factory,
         findings=[
             ("semgrep", "gms bad", "high", "com/google/android/gms/internal/zzgf.java"),
-            ("semgrep", "gms meh", "medium", "com/google/android/gms/internal/zzhe.java"),
+            ("semgrep", "gms meh", "warning", "com/google/android/gms/internal/zzhe.java"),
             ("semgrep", "okhttp bad", "high", "okhttp3/internal/http/Call.java"),
             ("semgrep", "app code", "high", "com/foo/LoginActivity.java"),
             ("androguard", "manifest", "info", "AndroidManifest.xml"),
@@ -162,7 +162,7 @@ def test_android_inventory_packages_labels_counts_and_natives(
     assert gms["file_count"] == 2
     assert gms["finding_count"] == 2
     assert gms["high_count"] == 1
-    assert gms["medium_count"] == 1
+    assert gms["warning_count"] == 1
 
     # OkHttp top-level lib
     ok = deps["okhttp3"]

@@ -68,7 +68,7 @@ def test_android_context_excludes_ios_tools(db_session_factory):
                 None,
                 "MASVS-PLATFORM-1",
             ),
-            ("semgrep", "WebView JS enabled", "medium", "com/app/W.java", 42, "MASVS-PLATFORM-2"),
+            ("semgrep", "WebView JS enabled", "warning", "com/app/W.java", 42, "MASVS-PLATFORM-2"),
             ("lief", "PIE disabled", "high", None, None, "MASVS-CODE-4"),  # iOS-only tool
         ],
     )
@@ -87,7 +87,7 @@ def test_ios_context_excludes_androguard_and_tags_precision(db_session_factory):
             (
                 "symbols",
                 "Legacy MD5 hashing imported (CC_MD5)",
-                "medium",
+                "warning",
                 None,
                 None,
                 "MASVS-CRYPTO-2",
@@ -157,7 +157,7 @@ def test_known_file_defaults_for_manifest_and_plist(db_session_factory):
     _add_findings(
         db_session_factory,
         android_scan,
-        [("androguard", "Backup enabled", "medium", None, None, None)],
+        [("androguard", "Backup enabled", "warning", None, None, None)],
     )
     c = _context(db_session_factory, android_scan)
     assert "AndroidManifest.xml" in c.rendered
@@ -178,8 +178,8 @@ def test_rendered_entries_carry_location_and_mastg_id(db_session_factory):
         db_session_factory,
         scan_id,
         [
-            ("semgrep", "WebView JS enabled", "medium", "com/app/W.java", 42, "MASVS-PLATFORM-2"),
-            ("androguard", "Backup enabled", "medium", "AndroidManifest.xml", None, None),
+            ("semgrep", "WebView JS enabled", "warning", "com/app/W.java", 42, "MASVS-PLATFORM-2"),
+            ("androguard", "Backup enabled", "warning", "AndroidManifest.xml", None, None),
         ],
     )
     c = _context(db_session_factory, scan_id)

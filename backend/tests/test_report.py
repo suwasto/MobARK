@@ -18,21 +18,20 @@ from app.models import Finding, Scan
 
 
 def test_risk_band_matches_security_gauge_boundaries():
+    # The banded model only produces 0, 40-69 or 70-99 - the old 1-39 low
+    # band is unreachable and gone.
     assert report.risk_band(80) == "high"
     assert report.risk_band(70) == "high"
     assert report.risk_band(69) == "medium"
     assert report.risk_band(40) == "medium"
-    assert report.risk_band(39) == "low"
-    assert report.risk_band(1) == "low"
     assert report.risk_band(0) == "none"
     assert report.risk_band(None) == "none"
-    assert report.risk_band(90) == "high"  # defensive - beyond the cap
+    assert report.risk_band(99) == "high"  # the High band ceiling
 
 
 def test_security_label_mirrors_gauge():
     assert report.security_label(80) == "Low security"
     assert report.security_label(55) == "Medium security"
-    assert report.security_label(20) == "High security"
     assert report.security_label(0) == "Excellent security"
 
 
@@ -95,14 +94,14 @@ def test_no_ai_finding_explanation_fallback(db_session_factory):
             },
             {
                 "title": "Hardcoded credential",
-                "severity": "medium",
+                "severity": "warning",
                 "file_path": "com/foo/ApiKeys.java",
                 "line_number": 7,
                 "tool": "gitleaks",
             },
             {
                 "title": "Up-to-date OS version check",
-                "severity": "low",
+                "severity": "info",
                 "file_path": "com/foo/MainActivity.java",
                 "line_number": 20,
                 "category": "MASVS-PLATFORM",
@@ -138,13 +137,13 @@ def test_no_ai_finding_explanation_fallback(db_session_factory):
     assert "OWASP MASTG test MASTG-TEST-0222 (Position Independent Code (PIC) Not Enabled)" in body
     assert "Static-only finding" in body
     # A finding with no MASTG mapping still gets the factual fallback
-    assert "This gitleaks check reported a medium-severity condition" in body
+    assert "This gitleaks check reported a warning-severity condition" in body
     # The vendored RULE description (metadata.summary) enriches the
     # explanation - distinct from the title, cited with the rule id.
     assert (
         "This semgrep check (mastg-android-sdk-version: "
         "This rule scans for API that checks the version of the operating "
-        "system) reported a low-severity condition"
+        "system) reported a info-severity condition"
     ) in body
     # Gitleaks: the persisted rule description + rule id name WHAT leaked.
     assert (
@@ -174,7 +173,7 @@ def test_android_report_full_body(tmp_path, monkeypatch, db_session_factory):
             },
             {
                 "title": "Hardcoded credential",
-                "severity": "medium",
+                "severity": "warning",
                 "file_path": "com/foo/ApiKeys.java",
                 "line_number": 7,
                 "tool": "gitleaks",
@@ -225,13 +224,13 @@ def test_android_report_full_body(tmp_path, monkeypatch, db_session_factory):
 
     # Severity breakdown counts the NON-suppressed set
     assert "**high:** 1" in body
-    assert "**medium:** 1" in body
-    assert "**low:** 0" in body
+    assert "**warning:** 1" in body
+    assert "**info:** 0" in body
 
     # Findings grouped by severity - suppressed one never appears (only its
     # count does, via the open-item-2 footnote - "one line, no detail").
     assert "### High (1)" in body
-    assert "### Medium (1)" in body
+    assert "### Warning (1)" in body
     # Recommended priorities (manual-review follow-up): the app-owned high
     # ranks first, info rows are never priorities, scope note present.
     assert "## Recommended priorities" in body
@@ -292,7 +291,7 @@ def test_report_cites_active_mastg_test_never_deprecated(
             },
             {
                 "title": "Retired test",
-                "severity": "medium",
+                "severity": "warning",
                 "file_path": "com/foo/B.java",
                 "line_number": 2,
                 "category": "MASVS-PLATFORM-1",
@@ -352,7 +351,7 @@ def test_no_ai_summary_is_deterministic_rollup(
             },
             {
                 "title": "Weak cipher",
-                "severity": "medium",
+                "severity": "warning",
                 "file_path": "com/foo/Crypto.java",
                 "line_number": 3,
                 "category": "MASVS-CRYPTO-2",
@@ -371,14 +370,14 @@ def test_no_ai_summary_is_deterministic_rollup(
     assert "No AI summary yet" not in body
     assert "automated static assessment" in body
     assert "**3 findings**" in body
-    assert "1 high, 1 medium, 1 info" in body
+    assert "1 high, 1 warning, 1 info" in body
     assert "3 MASVS controls" in body
     assert "MASVS-PLATFORM-1" in body
     # The AI path is untouched: a cached summary still wins.
     scan_with_ai = _make_scan(db_session_factory, risk_score=80)
     _add_findings(
         db_session_factory, scan_with_ai.id,
-        [{"title": "X", "severity": "low", "tool": "semgrep"}],
+        [{"title": "X", "severity": "info", "tool": "semgrep"}],
     )
     ai_body = report.assemble_report(
         scan_with_ai, _findings(db_session_factory, scan_with_ai.id)
@@ -409,7 +408,7 @@ def test_android_lists_every_finding_including_vendored(
             },
             {
                 "title": "Support library repeat",
-                "severity": "medium",
+                "severity": "warning",
                 "file_path": "android/support/v4/app/ActivityCompat.java",
                 "line_number": 66,
                 "tool": "semgrep",
@@ -423,7 +422,7 @@ def test_android_lists_every_finding_including_vendored(
             },
             {
                 "title": "GMS odd-severity row",
-                "severity": "warning",
+                "severity": "notice",
                 "file_path": "com/google/android/gms/internal/zzbk.java",
                 "line_number": 9,
                 "tool": "semgrep",
@@ -454,13 +453,13 @@ def test_android_lists_every_finding_including_vendored(
     # Breakdown counts everything (matches the risk score) - the warning
     # severity lands in the report's explicit "other" bucket, never vanishes.
     assert "**high:** 2" in body
-    assert "**medium:** 1" in body
+    assert "**warning:** 1" in body
     assert "**other:** 1" in body
 
     # EVERY finding is listed individually, grouped by severity - app-owned
     # and vendored alike. No "- app-owned" suffix, no per-library tally.
     assert "### High (2)" in body
-    assert "### Medium (1)" in body
+    assert "### Warning (1)" in body
     assert "### Other (1)" in body
     assert "Insecure WebView configuration" in body
     assert "com/foo/WebViewActivity.java:42" in body
@@ -481,23 +480,25 @@ def test_priorities_rank_by_severity_and_exclude_info(
     tmp_path, monkeypatch, db_session_factory
 ):
     """Manual-review follow-up: the Recommended priorities list orders
-    app-owned findings high -> low (info rows are never "priorities" - the
-    detail section still lists them) and caps at 10."""
+    app-owned findings high -> warning (info rows are never "priorities" -
+    the detail section still lists them) and caps at 10. The low band was
+    dropped from the vocabulary Aug 15, 2026 - former low rows are info and
+    are excluded too."""
     scan = _make_scan(db_session_factory, risk_score=80)
     _add_findings(
         db_session_factory,
         scan.id,
         [
             {
-                "title": "Low-severity note",
-                "severity": "low",
+                "title": "Minor note",
+                "severity": "info",
                 "file_path": "com/foo/Low.java",
                 "line_number": 1,
                 "tool": "gitleaks",
             },
             {
-                "title": "Medium-severity issue",
-                "severity": "medium",
+                "title": "Warning-severity issue",
+                "severity": "warning",
                 "file_path": "com/foo/Med.java",
                 "line_number": 2,
                 "tool": "semgrep",
@@ -524,15 +525,16 @@ def test_priorities_rank_by_severity_and_exclude_info(
         dependencies={"platform": "android", "app": {"package": "com.foo"}},
     )
 
-    # High first, then medium, then low - info never a priority. Slice the
-    # priorities section on its own heading (not the whole body) so a future
-    # section reorder can't silently change what this asserts.
+    # High first, then warning - info (including the former low band) is
+    # never a priority. Slice the priorities section on its own heading (not
+    # the whole body) so a future section reorder can't silently change what
+    # this asserts.
     priorities_section = body.split("## Findings")[0]
     high = priorities_section.index("1. **[HIGH] High-severity issue**")
-    med = priorities_section.index("2. **[MEDIUM] Medium-severity issue**")
-    low = priorities_section.index("3. **[LOW] Low-severity note**")
-    assert high < med < low
-    assert "[INFO] Info row" not in priorities_section
+    warn = priorities_section.index("2. **[WARNING] Warning-severity issue**")
+    assert high < warn
+    assert "[INFO]" not in priorities_section
+    assert "Minor note" in body  # still in the detail section
     assert "Info row" in body  # still in the detail section
 
 
@@ -599,7 +601,7 @@ def test_suppressed_only_scan_footnote(db_session_factory):
         scan.id,
         [
             {"title": "False positive A", "severity": "high", "tool": "semgrep"},
-            {"title": "False positive B", "severity": "medium", "tool": "gitleaks"},
+            {"title": "False positive B", "severity": "warning", "tool": "gitleaks"},
         ],
     )
     with db_session_factory() as db:
@@ -611,7 +613,7 @@ def test_suppressed_only_scan_footnote(db_session_factory):
 
     # Everything scored is zero - but the footnote explains WHY.
     assert "**high:** 0" in body
-    assert "**medium:** 0" in body
+    assert "**warning:** 0" in body
     assert "_No findings for this scan._" in body
     assert "**Suppressed findings:** 2 excluded (not scored, not listed below)" in body
     assert "False positive A" not in body
@@ -714,7 +716,7 @@ def test_ios_no_binary_profile_falls_back(tmp_path, monkeypatch, db_session_fact
     _add_findings(
         db_session_factory,
         scan.id,
-        [{"title": "Some other finding", "severity": "low", "tool": "gitleaks"}],
+        [{"title": "Some other finding", "severity": "info", "tool": "gitleaks"}],
     )
     body = report.assemble_report(scan, _findings(db_session_factory, scan.id))
     assert "## iOS binary profile" in body
@@ -732,15 +734,15 @@ def test_unknown_severity_lands_in_other_bucket(
         db_session_factory,
         scan.id,
         [
-            {"title": "Odd severity row", "severity": "warning", "tool": "custom"},
-            {"title": "Normal low", "severity": "low", "tool": "gitleaks"},
+            {"title": "Odd severity row", "severity": "notice", "tool": "custom"},
+            {"title": "Normal info", "severity": "info", "tool": "gitleaks"},
         ],
     )
     body = report.assemble_report(scan, _findings(db_session_factory, scan.id))
     assert "**other:** 1" in body
     assert "### Other (1)" in body
     assert "Odd severity row" in body
-    assert "### Low (1)" in body
+    assert "### Info (1)" in body
 
 
 def test_report_reuses_risk_module_not_reimplemented():

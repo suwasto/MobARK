@@ -2,16 +2,15 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { FileNode, FileTreeRoot } from '../../types'
 
-/** Severity → dot class. `0` = no findings → transparent dot. */
+/** Severity → dot class. `0` = no scored finding → transparent dot. */
 const SEV_CLASS: Record<number, string> = {
-  3: 'high',
-  2: 'medium',
-  1: 'low',
+  2: 'high',
+  1: 'warning',
 }
 
 interface FileTreeProps {
   roots: FileTreeRoot[]
-  /** tree path (root-relative) → worst severity rank (4..1). */
+  /** tree path (root-relative) → worst severity rank (2..0). */
   findingFiles: Map<string, number>
   selectedPath: string | null
   /** directory path to force-open (ancestors of the auto-selected file). */

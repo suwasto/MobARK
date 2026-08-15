@@ -10,7 +10,10 @@ from pathlib import Path
 
 # Allowed severity values - kept in sync with the findings table.
 # Owner decision (Aug 8, 2026): no critical band - high is the top severity.
-SEVERITIES = ("high", "medium", "low", "info")
+# Owner decision (Aug 15, 2026): the low band was dropped (former low
+# findings are informational) and medium was renamed warning - the
+# vocabulary is high | warning | info.
+SEVERITIES = ("high", "warning", "info")
 
 # Tools that produce findings in M1.
 TOOL_ANDROGUARD = "androguard"

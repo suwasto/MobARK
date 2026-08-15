@@ -4,46 +4,44 @@
  * A 180° arc with a stroke-dasharray fill proportional to the score. The
  * score is the public-facing SECURITY score (100 - risk): higher is better.
  *
- * Scoring is CVSS 4.0 (owner decision, Aug 7): each severity band maps to a
- * CVSS 4.0 base score (high 8.0, medium 5.5, low 2.0, info 0) and the
- * overall risk is driven by the WORST finding plus a breadth bonus within
- * its severity band, capped at the band's CVSS 4.0 ceiling (high 89 ·
- * medium 69 · low 39 - the removed critical band is never re-introduced).
- * 11 highs = 89 · 1 high = 80 · 16 mediums = 69 · 1 medium = 55. The label
- * follows the CVSS 4.0 qualitative bands of the underlying risk - a 60/100
- * security score means risk 40 → CVSS 4.0 Medium → "Medium security" (not
- * "High").
+ * Scoring is the banded risk index (owner decision, Aug 15, 2026 - the CVSS
+ * 4.0 model was replaced: a static scanner cannot honestly assess CVSS
+ * attack requirements / user interaction, so the score is a plain severity
+ * heuristic instead): the worst finding picks the band - any high sets the
+ * High band (risk 70), otherwise warnings set the Warning band (risk 40) -
+ * plus ~1 point per extra finding at that band, capped at the band ceiling
+ * (high 99 · warning 69). Info findings never score. 11 highs = 80 · 2 =
+ * 71 · 1 = 70 · 30 warnings = 69. The label follows the risk-index band of
+ * the underlying risk - a 60/100 security score means risk 40 → Medium →
+ * "Medium security" (not "High").
  *
- * The arc color snaps to the CVSS 4.0 band of the underlying risk instead
- * of a continuous ramp, so the band boundaries read at a glance: risk
- * 70–89 crimson (worst) · 40–69 amber · 1–39 olive · 0 bright emerald
- * (owner decision, Aug 7 - discrete bands, not a gradient).
+ * The arc color snaps to the risk band instead of a continuous ramp, so the
+ * band boundaries read at a glance: risk 70-99 crimson (worst) · 40-69
+ * amber · 0 bright emerald (the old 1-39 low band is unreachable under the
+ * banded model and gone).
  */
 
 const ARC_RADIUS = 60
 const ARC_LENGTH = Math.PI * ARC_RADIUS
 
-type RiskBand = 'High' | 'Medium' | 'Low' | 'None'
+type RiskBand = 'High' | 'Medium' | 'None'
 
-/** CVSS 4.0 qualitative severity band for the underlying risk score. */
+/** Risk-index band of the underlying risk score. */
 function riskBand(risk: number): { band: RiskBand; label: string } {
   if (risk >= 70) return { band: 'High', label: 'Low security' }
   if (risk >= 40) return { band: 'Medium', label: 'Medium security' }
-  if (risk > 0) return { band: 'Low', label: 'High security' }
   return { band: 'None', label: 'Excellent security' }
 }
 
 /**
- * Discrete arc color per CVSS 4.0 qualitative band, on the security-score
- * scale (higher = better): high risk = solid red, none = bright green.
+ * Discrete arc color per risk band, on the security-score scale (higher =
+ * better): high risk = solid red, none = bright green.
  */
 const BAND_COLOR: Record<RiskBand, string> = {
-  // security 20-30 (risk 70-80) - solid crimson
+  // security 1-30 (risk 70-99) - solid crimson
   High: 'var(--color-crimson)',
   // security 31-60 (risk 40-69) - amber
   Medium: 'var(--color-amber)',
-  // security 61-99 (risk 1-39) - muted green
-  Low: 'hsl(70 55% 45%)',
   // security 100 (risk 0) - bright emerald
   None: 'var(--color-emerald)',
 }
@@ -110,7 +108,7 @@ export function SecurityGauge({ score }: { score: number | null }) {
       </div>
       {score != null && (
         <div className="mt-0.5 font-mono text-[9.5px] text-bone-faint">
-          CVSS 4.0 · risk {risk}/100 · {band}
+          risk {risk}/100 · {band}
         </div>
       )}
     </div>

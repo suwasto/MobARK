@@ -1,14 +1,17 @@
 """Per-tool severity normalization - single source of truth.
 
-The findings table stores one of: high | medium | low | info (no critical
-band - owner decision, Aug 8, 2026). Each tool's native severity
+The findings table stores one of: high | warning | info (no critical band -
+owner decision, Aug 8, 2026; the low band was dropped and medium renamed
+warning Aug 15, 2026). Each tool's native severity
 vocabulary is mapped here so the rest of the codebase never sees
  tool-specific severity strings.
 """
 from __future__ import annotations
 
-# Semgrep JSON reports ERROR / WARNING / INFO.
-SEMGREP_SEVERITY = {"ERROR": "high", "WARNING": "medium", "INFO": "info"}
+# Semgrep JSON reports ERROR / WARNING / INFO - the native WARNING maps
+# straight onto the warning severity (the medium band was renamed warning
+# Aug 15, 2026).
+SEMGREP_SEVERITY = {"ERROR": "high", "WARNING": "warning", "INFO": "info"}
 
 # Per-rule severity overrides for the curated MASA rules (the vendored MASTG
 # rules keep their as-shipped severity - their calibration is a separate

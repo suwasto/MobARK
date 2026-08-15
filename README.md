@@ -21,7 +21,9 @@
 **MASA** is a self-hosted dashboard for mobile application security
 testing — Android (APK) and iOS (IPA). Upload a binary and MASA
 decompiles it, runs static analysis (jadx / apktool / semgrep / gitleaks
-/ LIEF), scores findings with CVSS 4.0, and gives you an **AI copilot
+/ LIEF), scores findings with a plain severity-based risk index
+(`high | warning | info` — deliberately not CVSS, which needs a human
+analyst for disclosed CVEs), and gives you an **AI copilot
 that can chat with the decompiled code** — all through your own local
 LLM (Ollama / LM Studio) with **nothing leaving your machine by
 default**.
@@ -37,7 +39,8 @@ default**.
   streaming, **opt-in web research** through a bundled SearXNG
 - **Edit & recompile** (Android) — apktool decode, smali edits,
   resigned test APK builds
-- **Reports** — deterministic Markdown/PDF with CVSS 4.0 risk scoring,
+- **Reports** — deterministic Markdown/PDF with banded risk-index
+  scoring (`high | warning | info` severities, no CVSS claim),
   per-finding suppression, AI (or no-model) explanations
 - **Multi-user auth** — username/password + GitHub/Google OAuth,
   per-user data isolation, encrypted per-user key vault

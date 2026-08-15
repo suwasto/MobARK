@@ -589,7 +589,7 @@ def test_smali_mapping_multidex_and_dedupe(
     (s1 / "A.smali").write_text(".class")
     (s2 / "A.smali").write_text(".class")
     _add_finding(db_session_factory, scan_id, "com/foo/A.java")
-    _add_finding(db_session_factory, scan_id, "com/foo/A.java", severity="low")
+    _add_finding(db_session_factory, scan_id, "com/foo/A.java", severity="info")
 
     r = client.get(f"/api/v1/scans/{scan_id}/smali-mapping")
     assert r.status_code == 200
@@ -837,11 +837,11 @@ def test_anchors_map_finding_lines_to_methods(
                             line_number=5))
         # constructor body line 10 -> <init> (smali line 9)
         session.add(Finding(scan_id=scan_id, tool="semgrep", title="ctor",
-                            severity="medium", file_path="com/foo/AuthManager.java",
+                            severity="warning", file_path="com/foo/AuthManager.java",
                             line_number=10))
         # doThing body line 15 -> doThing (smali line 13)
         session.add(Finding(scan_id=scan_id, tool="semgrep", title="throws",
-                            severity="low", file_path="com/foo/AuthManager.java",
+                            severity="info", file_path="com/foo/AuthManager.java",
                             line_number=15))
         # line 2 (package decl) is not inside any method -> no anchor
         session.add(Finding(scan_id=scan_id, tool="semgrep", title="package",
@@ -907,7 +907,7 @@ public class Config {
                             line_number=6))
         # Inside the multi-line setValue body (line 9) -> setValue (.method line 8)
         session.add(Finding(scan_id=scan_id, tool="semgrep", title="multi",
-                            severity="low", file_path="com/foo/Config.java",
+                            severity="info", file_path="com/foo/Config.java",
                             line_number=9))
         session.commit()
 

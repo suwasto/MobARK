@@ -2263,6 +2263,62 @@ M9.1 follow-ups (post-completion, Aug 14, 2026):
   the guarantee is at rest (disk/backups/volume) + tenant isolation.
   Gates: 839 backend tests green (18 new vault tests) + ruff clean;
   `tsc -b` + `vite build` green.
+- **Severity vocabulary + scoring reworked** (owner decision, Aug 15,
+  2026) — findings are now `high | warning | info` only (the Aug 8
+  entry's `high | medium | low | info` is superseded in two steps: the
+  low band was dropped and former low findings rewritten to **info**,
+  then `medium` was renamed **warning**; migrations 0016 + 0017 with
+  done-scan re-scores). Rationale: CVSS 4.0 qualitative scoring is for
+  disclosed CVEs where a human analyst assesses attack requirements / user
+  interaction — a static scanner can't honestly claim that context, so the
+  CVSS 4.0 model was REPLACED by a plain **banded risk index** (the MobSF
+  pattern): the worst finding picks the band (any high → base 70, otherwise
+  warning → base 40), +1 per extra finding at that band, capped at the band
+  ceiling (high 99 · warning 69); info never scores; `security = 100 − risk`.
+  The gauge caption is now the honest "risk n/100 · band" (no CVSS claim),
+  and the old unreachable 1–39 "low" risk band is gone (bands are High
+  70–99 / Medium 40–69 / None 0). Emitters updated: external-storage
+  permissions (`manifest.py`), aps-environment (`entitlements.py`), empty
+  usage strings (`plist.py`), sysctl/syscall imports (`symbols.py`) emit
+  `info`; the former medium producers (risky permissions, exported
+  components, cleartext, get-task-allow, ATS, legacy crypto/UIWebView/
+  ptrace symbol rules, stack-canary) emit `warning`. `risk.py` uses
+  `SEVERITY_WEIGHT` (ordinal, ordering only) + `_BAND_RISK`; the report's
+  recommended priorities are high + warning only; the PDF cover shows
+  three severity boxes. Frontend: `Severity` type, filter chips, stat
+  boxes, tree dots/rail labels, `DependenciesPanel` `warning_count`, and
+  the CSS classes renamed (a legacy `low`/`medium` row still renders — the
+  UI falls back to info/other defensively). Gates: 840 backend tests green
+  + ruff clean; `tsc -b` + `vite build` green; containerized browser e2e
+  verified the chips/gauge/PDF on a live scan.
+- **Follow-up (same session) — browser e2e caught + fixed two leftovers, and
+  iOS was verified end-to-end too.** (1) The assembled report body still
+  emitted "CVSS 4.0 · risk n/100" in the header, the risk-score line, and
+  the scope note — exactly the dishonest provenance the banded model was
+  meant to drop. All three now read `risk n/100 · band` / `Risk score:
+  n/100` / a scope note explaining severity bands follow the banded risk
+  index and are "not CVSS - a static scanner cannot honestly assess CVSS
+  attack requirements or user interaction". Bonus find: `report_pdf.py`'s
+  cover-meta regex already expected the NEW caption format, so the cover
+  gauge had been silently showing "No security score" since the banded
+  change — the report.py fix aligned them and the PDF cover now renders
+  the real score. `_REPORT_CACHE_VERSION` bumped 4 → 5 (stale persisted
+  bodies rebuild). (2) `requirements.txt` had drifted unbuildable:
+  `androguard==4.1.4`'s metadata now requires `cryptography>=46.0.6`,
+  conflicting with the M9.1 vault pin `==44.0.0` (the local venv held both,
+  so tests passed while `docker compose build` could not resolve). Bumped
+  the vault pin to `cryptography==46.0.7` — the vault only uses AESGCM
+  (stable API), so no code change; comment records the drift. (3) iOS e2e
+  (iBugBazaar.ipa, headless Chrome via CDP): 9 findings all in the new
+  vocabulary (3 warning + 6 info, zero high — the High chip shows (0) and
+  the High group header correctly disappears at zero); gauge caption
+  `risk 42/100 · Medium` (the "Medium security" label is the risk-BAND
+  name, a separate scale kept intentionally); report body + PDF cover carry
+  `0 HIGH 3 WARNING 6 INFO` and the iOS binary profile section with no
+  Android leakage. Both scans (Android 517 findings, iOS 9) passed 15/15
+  and 14/14 CDP assertions against API-derived expected counts. Gates:
+  840 backend tests green + ruff clean; frontend `tsc -b` + `vite build`
+  green.
 
 ## M10 — Open-source readiness (Aug 15, 2026)
 

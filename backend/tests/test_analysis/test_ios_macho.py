@@ -108,7 +108,7 @@ def test_stack_canary_missing_is_finding(tmp_path):
     _analyze_binary(binary, result)
     canary = [x for x in result.findings if "Stack canary" in x.title]
     assert len(canary) == 1
-    assert canary[0].severity == "medium"
+    assert canary[0].severity == "warning"
 
 
 def test_arc_indicator_from_objc_symbols(tmp_path):

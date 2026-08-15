@@ -46,14 +46,15 @@ ENTITLEMENTS_OID = bytes([0x2A, 0x86, 0x48, 0x86, 0xF7, 0x63, 0x64, 0x09, 0x01])
 # Entitlements whose presence is worth a finding (shipping-app hygiene).
 # Value is ``(label, severity)`` - per-entitlement calibration (owner
 # review, Aug 7): get-task-allow is a debugger-attach exposure on a
-# shipping app (medium); aps-environment is routine, stays low.
+# shipping app (warning); aps-environment is routine, informational (the
+# low band was dropped from the vocabulary Aug 15, 2026).
 NOTABLE_ENTITLEMENTS = {
-    "get-task-allow": ("debugger attachment allowed (get-task-allow)", "medium"),
+    "get-task-allow": ("debugger attachment allowed (get-task-allow)", "warning"),
     "com.apple.security.get-task-allow": (
         "debugger attachment allowed (get-task-allow)",
-        "medium",
+        "warning",
     ),
-    "aps-environment": ("push notifications environment", "low"),
+    "aps-environment": ("push notifications environment", "info"),
 }
 
 

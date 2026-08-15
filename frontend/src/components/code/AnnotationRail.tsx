@@ -40,8 +40,7 @@ interface AnnotationRailProps {
 
 const SEV_LABEL: Record<string, string> = {
   high: 'High',
-  medium: 'Medium',
-  low: 'Low',
+  warning: 'Warning',
   info: 'Info',
 }
 

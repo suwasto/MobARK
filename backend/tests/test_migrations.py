@@ -133,7 +133,7 @@ def test_alembic_0005_rewrites_critical_to_high_and_recomputes_risk(
         )
     engine.dispose()
 
-    command.upgrade(cfg, "head")  # 0005 runs the rewrite + risk recompute
+    command.upgrade(cfg, "0005")  # 0005 runs the rewrite + risk recompute
     engine = create_engine(db_url)
     with engine.connect() as conn:
         severities = [
@@ -264,13 +264,152 @@ def test_alembic_0007_band_symmetric_recompute(tmp_path, monkeypatch):
                 )
     engine.dispose()
 
-    command.upgrade(cfg, "head")  # 0007 runs the band-symmetric recompute
+    command.upgrade(cfg, "0007")  # 0007 runs the band-symmetric recompute
     engine = create_engine(db_url)
     with engine.connect() as conn:
         risks = dict(conn.execute(text("SELECT id, risk_score FROM scans")).fetchall())
     assert risks[1] == 57  # 3 mediums -> 55 + 2
     assert risks[2] == 39  # 100 lows -> 20 + 19 (ceiling)
     assert risks[3] == 89  # 11 highs unchanged
+    engine.dispose()
+
+
+def test_alembic_0016_drops_low_severity_and_recomputes_risk(tmp_path, monkeypatch):
+    """Migration 0016 data pass: every ``low`` finding is rewritten to
+    ``info`` (the vocabulary was then high | medium | info) and done scans
+    are re-scored under the then-current CVSS mapping - low findings stop
+    driving the risk score entirely (2 highs + 1 low -> 81, low-only -> 0,
+    3 mediums + 1 low -> 57). Stops at 0016: 0017 (medium->warning + banded
+    risk) re-scores with a different model."""
+    db_url = f"sqlite:///{tmp_path / 'drop-low.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    from sqlalchemy import text
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "0015")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        seed = [(1, ["high", "high", "low"]), (2, ["low", "info"]),
+                (3, ["medium"] * 3 + ["low"])]
+        for scan_id, sevs in seed:
+            conn.execute(
+                text(
+                    "INSERT INTO scans (id, filename, platform, status, "
+                    "risk_score, created_at) VALUES (:id, 'x.apk', 'android', "
+                    "'done', 0, '2026-08-15T00:00:00')"
+                ),
+                {"id": scan_id},
+            )
+            for i, sev in enumerate(sevs):
+                conn.execute(
+                    text(
+                        "INSERT INTO findings (id, scan_id, title, severity, "
+                        "tool, static_only, created_at) VALUES (:id, :sid, 'f', "
+                        ":sev, 'semgrep', 1, '2026-08-15T00:00:00')"
+                    ),
+                    {"id": scan_id * 1000 + i, "sid": scan_id, "sev": sev},
+                )
+        # A non-done scan's findings are rewritten too (the UPDATE is global),
+        # but its risk_score is left alone (only done scans re-score).
+        conn.execute(
+            text(
+                "INSERT INTO scans (id, filename, platform, status, risk_score, "
+                "created_at) VALUES (9, 'q.apk', 'android', 'queued', 20, "
+                "'2026-08-15T00:00:00')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO findings (id, scan_id, title, severity, tool, "
+                "static_only, created_at) VALUES (9000, 9, 'l', 'low', "
+                "'semgrep', 1, '2026-08-15T00:00:00')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "0016")  # 0016 rewrites low -> info + re-scores
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        severities = [
+            row[0]
+            for row in conn.execute(text("SELECT severity FROM findings ORDER BY id"))
+        ]
+        assert "low" not in severities  # every low row became info
+        risks = dict(conn.execute(text("SELECT id, risk_score FROM scans")).fetchall())
+        assert risks[1] == 81  # 2 highs -> 80 + 1; the low no longer scores
+        assert risks[2] == 0  # low + info -> nothing above info drives risk
+        assert risks[3] == 57  # 3 mediums -> 55 + 2; the low no longer scores
+        assert risks[9] == 20  # queued scan: severity rewritten, score untouched
+    engine.dispose()
+
+
+def test_alembic_0017_medium_to_warning_banded_risk(tmp_path, monkeypatch):
+    """Migration 0017 data pass: every ``medium`` finding is rewritten to
+    ``warning`` (the vocabulary is now high | warning | info) and done scans
+    are re-scored under the banded risk index - a lone medium collapses 55
+    -> 40, a lone high 80 -> 70, 2 highs + 1 medium -> 71, and 30 warnings
+    cap at 69."""
+    db_url = f"sqlite:///{tmp_path / 'medium-to-warning.db'}"
+    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+
+    from sqlalchemy import text
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "0016")
+    engine = create_engine(db_url)
+    with engine.begin() as conn:
+        seed = [(1, ["high", "high", "medium"]), (2, ["medium", "info"]),
+                (3, ["medium"] * 30)]
+        for scan_id, sevs in seed:
+            conn.execute(
+                text(
+                    "INSERT INTO scans (id, filename, platform, status, "
+                    "risk_score, created_at) VALUES (:id, 'x.apk', 'android', "
+                    "'done', 0, '2026-08-15T00:00:00')"
+                ),
+                {"id": scan_id},
+            )
+            for i, sev in enumerate(sevs):
+                conn.execute(
+                    text(
+                        "INSERT INTO findings (id, scan_id, title, severity, "
+                        "tool, static_only, created_at) VALUES (:id, :sid, 'f', "
+                        ":sev, 'semgrep', 1, '2026-08-15T00:00:00')"
+                    ),
+                    {"id": scan_id * 1000 + i, "sid": scan_id, "sev": sev},
+                )
+        # A non-done scan's findings are rewritten too (the UPDATE is global),
+        # but its risk_score is left alone (only done scans re-score).
+        conn.execute(
+            text(
+                "INSERT INTO scans (id, filename, platform, status, risk_score, "
+                "created_at) VALUES (9, 'q.apk', 'android', 'queued', 55, "
+                "'2026-08-15T00:00:00')"
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO findings (id, scan_id, title, severity, tool, "
+                "static_only, created_at) VALUES (9000, 9, 'm', 'medium', "
+                "'semgrep', 1, '2026-08-15T00:00:00')"
+            )
+        )
+    engine.dispose()
+
+    command.upgrade(cfg, "head")  # 0017 rewrites medium -> warning + re-scores
+    engine = create_engine(db_url)
+    with engine.connect() as conn:
+        severities = [
+            row[0]
+            for row in conn.execute(text("SELECT severity FROM findings ORDER BY id"))
+        ]
+        assert "medium" not in severities  # every medium row became warning
+        risks = dict(conn.execute(text("SELECT id, risk_score FROM scans")).fetchall())
+        assert risks[1] == 71  # 2 highs -> 70 + 1; the warning is below high
+        assert risks[2] == 40  # 1 warning -> the Warning band base
+        assert risks[3] == 69  # 30 warnings -> 40 + 29 (ceiling)
+        assert risks[9] == 55  # queued scan: severity rewritten, score untouched
     engine.dispose()
 
 

@@ -171,8 +171,10 @@ class Finding(Base):
         ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
     )
     title: Mapped[str] = mapped_column(String(512), nullable=False)
-    # high | medium | low | info (no critical band - owner decision Aug 8,
-    # 2026; see migration 0005 for the critical->high data rewrite).
+    # high | warning | info (no critical band - owner decision Aug 8, 2026,
+    # see migration 0005 for the critical->high rewrite; the low band was
+    # dropped and medium renamed warning Aug 15, 2026 - see migrations
+    # 0016 (low->info) and 0017 (medium->warning)).
     severity: Mapped[str] = mapped_column(String(16), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(1024))
     line_number: Mapped[int | None] = mapped_column(Integer)

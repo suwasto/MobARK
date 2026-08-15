@@ -70,9 +70,8 @@ interface DecompilerPanelProps {
 }
 
 const SEV_RANK: Record<string, number> = {
-  high: 3,
-  medium: 2,
-  low: 1,
+  high: 2,
+  warning: 1,
   info: 0,
 }
 

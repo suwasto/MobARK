@@ -38,7 +38,7 @@ def test_ats_arbitrary_loads_is_high(tmp_path):
     assert ats[0].severity == "high"
 
 
-def test_ats_web_content_is_medium(tmp_path):
+def test_ats_web_content_is_warning(tmp_path):
     p = _write_plist(
         tmp_path,
         {"NSAppTransportSecurity": {"NSAllowsArbitraryLoadsInWebContent": True}},

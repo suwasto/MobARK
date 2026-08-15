@@ -325,13 +325,13 @@ def _finding_counts(findings, app_package: str | None) -> dict[str, dict[str, in
         if group is None or _in_app(group, app_package):
             continue
         entry = counts.setdefault(
-            group, {"finding_count": 0, "high_count": 0, "medium_count": 0}
+            group, {"finding_count": 0, "high_count": 0, "warning_count": 0}
         )
         entry["finding_count"] += 1
         if f.severity == "high":
             entry["high_count"] += 1
-        elif f.severity == "medium":
-            entry["medium_count"] += 1
+        elif f.severity == "warning":
+            entry["warning_count"] += 1
     return counts
 
 
@@ -522,7 +522,7 @@ def _android_inventory(scan, findings) -> dict:
                 "file_count": n or None,
                 "finding_count": c.get("finding_count", 0),
                 "high_count": c.get("high_count", 0),
-                "medium_count": c.get("medium_count", 0),
+                "warning_count": c.get("warning_count", 0),
             }
         )
 

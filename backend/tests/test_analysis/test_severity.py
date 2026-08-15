@@ -8,7 +8,7 @@ from app.analysis.severity import (
 
 def test_semgrep_severity_map():
     assert SEMGREP_SEVERITY["ERROR"] == "high"
-    assert SEMGREP_SEVERITY["WARNING"] == "medium"
+    assert SEMGREP_SEVERITY["WARNING"] == "warning"
     assert SEMGREP_SEVERITY["INFO"] == "info"
 
 
@@ -20,7 +20,7 @@ def test_semgrep_curated_overrides_are_high():
     assert semgrep_severity("masa-android-insecure-trust-manager", "ERROR") == "high"
     # Non-overridden rules keep the native mapping.
     assert semgrep_severity("masa-android-webview-javascript-enabled", "ERROR") == "high"
-    assert semgrep_severity("some-mastg-rule", "WARNING") == "medium"
+    assert semgrep_severity("some-mastg-rule", "WARNING") == "warning"
     assert semgrep_severity("unknown", "NONSENSE") == "info"
 
 
@@ -40,6 +40,8 @@ def test_finding_rejects_invalid_severity():
 
     with pytest.raises(ValueError):
         FindingOut(tool="gitleaks", title="x", severity="catastrophic")
-    # The removed critical band is now invalid too.
+    # The removed bands are now invalid too.
     with pytest.raises(ValueError):
         FindingOut(tool="gitleaks", title="x", severity="critical")
+    with pytest.raises(ValueError):
+        FindingOut(tool="gitleaks", title="x", severity="medium")

@@ -39,7 +39,7 @@ def _scan(db_session_factory, *, status="done", platform="android"):
 
 
 def _scan_with_findings(
-    db_session_factory, severities=("high", "medium", "info"), platform="android"
+    db_session_factory, severities=("high", "warning", "info"), platform="android"
 ):
     with db_session_factory() as session:
         scan = Scan(
@@ -201,18 +201,18 @@ def test_upload_enqueue_failure_marks_scan_failed(
 
 def test_findings_ordered_high_first(client, db_session_factory):
     scan_id = _scan_with_findings(
-        db_session_factory, severities=("info", "high", "medium")
+        db_session_factory, severities=("info", "high", "warning")
     )
     r = client.get(f"/api/v1/scans/{scan_id}/findings")
     assert r.status_code == 200
     body = r.json()
-    assert [f["severity"] for f in body] == ["high", "medium", "info"]
+    assert [f["severity"] for f in body] == ["high", "warning", "info"]
     assert body[0]["mastg_test_id"] == "MASTG-TEST-0073"
 
 
 def test_findings_severity_filter(client, db_session_factory):
     scan_id = _scan_with_findings(
-        db_session_factory, severities=("high", "medium", "info")
+        db_session_factory, severities=("high", "warning", "info")
     )
     r = client.get(f"/api/v1/scans/{scan_id}/findings", params={"severity": "high"})
     assert [f["severity"] for f in r.json()] == ["high"]
@@ -226,11 +226,11 @@ def test_findings_bad_severity_400(client, db_session_factory):
 
 def test_findings_limit_and_offset(client, db_session_factory):
     scan_id = _scan_with_findings(
-        db_session_factory, severities=("medium", "medium", "medium", "medium")
+        db_session_factory, severities=("warning", "warning", "warning", "warning")
     )
     r = client.get(f"/api/v1/scans/{scan_id}/findings", params={"limit": 2, "offset": 1})
     titles = [f["title"] for f in r.json()]
-    assert titles == ["medium-1", "medium-2"]
+    assert titles == ["warning-1", "warning-2"]
 
 
 def test_findings_missing_scan_404(client):
@@ -631,7 +631,7 @@ def _make_ios_analysis_findings(db_session_factory, scan_id):
                 scan_id=scan_id,
                 tool="symbols",
                 title="Legacy SHA-1 hashing imported (CC_SHA1)",
-                severity="medium",
+                severity="warning",
                 category="MASVS-CRYPTO-2",
                 detail=json.dumps(
                     {"symbol": "_CC_SHA1", "note": "SHA-1 is deprecated for security uses."}
@@ -845,14 +845,14 @@ def test_tree_cache_disk_survives_and_invalidates(
 
 
 def test_get_scan_backfills_risk_score_for_legacy(client, db_session_factory):
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "medium"))
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "warning"))
     r = client.get(f"/api/v1/scans/{scan_id}")
     assert r.status_code == 200
-    # CVSS 4.0 max aggregation (owner decision, Aug 7): worst finding is
-    # high -> CVSS 8.0 -> risk round(10*8.0) = 80 (no critical band, Aug 8)
-    assert r.json()["risk_score"] == 80
+    # Banded risk index (owner decision, Aug 15): worst finding is high ->
+    # the High band base 70 (no critical band, Aug 8)
+    assert r.json()["risk_score"] == 70
     # public-facing complement: higher is better (owner decision, Aug 7)
-    assert r.json()["security_score"] == 20
+    assert r.json()["security_score"] == 30
 
 
 def test_list_scans_exposes_security_score(client, db_session_factory):
@@ -864,19 +864,19 @@ def test_list_scans_exposes_security_score(client, db_session_factory):
     r = client.get("/api/v1/scans")
     assert r.status_code == 200
     scan = next(s for s in r.json() if s["id"] == scan_id)
-    # high only -> risk 80 -> security 20 (CVSS 4.0, worst finding)
-    assert scan["risk_score"] == 80
-    assert scan["security_score"] == 20
+    # high only -> risk 70 -> security 30 (banded risk index, worst finding)
+    assert scan["risk_score"] == 70
+    assert scan["security_score"] == 30
 
 
 # ---- suppression (M5 Aug 8: per-finding false-positive suppression) ---------
 
 
 def test_suppress_hides_finding_and_recomputes_risk(client, db_session_factory):
-    # high + low -> risk 80; suppressing the high leaves only low -> risk 20.
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    # high + info -> risk 80; suppressing the high leaves only info -> risk 0.
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "info"))
     findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
-    assert [f["severity"] for f in findings] == ["high", "low"]
+    assert [f["severity"] for f in findings] == ["high", "info"]
     high_id = findings[0]["id"]
 
     r = client.post(f"/api/v1/scans/{scan_id}/findings/{high_id}/suppress")
@@ -896,16 +896,16 @@ def test_suppress_hides_finding_and_recomputes_risk(client, db_session_factory):
 
     # risk recomputed on the scan (suppressed findings don't drive posture)
     scan = client.get(f"/api/v1/scans/{scan_id}").json()
-    assert scan["risk_score"] == 20
-    assert scan["security_score"] == 80
+    assert scan["risk_score"] == 0
+    assert scan["security_score"] == 100
 
 
 def test_unsuppress_restores_finding_and_risk(client, db_session_factory):
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "info"))
     findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
     high_id = findings[0]["id"]
     client.post(f"/api/v1/scans/{scan_id}/findings/{high_id}/suppress")
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 0
 
     r = client.post(f"/api/v1/scans/{scan_id}/findings/{high_id}/unsuppress")
     assert r.status_code == 200
@@ -915,15 +915,15 @@ def test_unsuppress_restores_finding_and_risk(client, db_session_factory):
 
     assert [f["severity"] for f in client.get(f"/api/v1/scans/{scan_id}/findings").json()] == [
         "high",
-        "low",
+        "info",
     ]
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 80
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 70
 
 
 def test_suppression_invalidates_cached_ai_summary(client, db_session_factory):
     """A cached overview summary must not survive a suppress/restore toggle -
     it may cite the finding being reviewed (Aug 8 follow-up)."""
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "info"))
     with db_session_factory() as session:
         session.get(Scan, scan_id).ai_summary = "cached overview"
         session.commit()
@@ -993,7 +993,7 @@ def _scan_with_same_title_findings(
                 scan_id=scan.id,
                 tool="semgrep",
                 title="Unrelated finding",
-                severity="low",
+                severity="info",
                 file_path="com/foo/Other.java",
                 line_number=1,
             )
@@ -1008,7 +1008,7 @@ def _scan_with_same_title_findings(
 def test_suppress_batch_toggles_whole_title_group(client, db_session_factory):
     """Suppressing by title flips EVERY non-suppressed finding with that
     title (3 identical high rows -> all suppressed), leaves unrelated rows
-    alone, and recomputes risk ONCE (3 highs + 1 low -> low only = 20)."""
+    alone, and recomputes risk ONCE (3 highs + 1 info -> info only = 0)."""
     scan_id = _scan_with_same_title_findings(db_session_factory)
 
     r = client.post(
@@ -1027,8 +1027,8 @@ def test_suppress_batch_toggles_whole_title_group(client, db_session_factory):
     same_title = [f for f in all_rows if f["title"] != "Unrelated finding"]
     assert len(same_title) == 3
     assert all(f["suppressed"] is True and f["suppressed_at"] is not None for f in same_title)
-    # one recompute: the 3 highs are gone, only the low remains
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+    # one recompute: the 3 highs are gone, only the info remains
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 0
 
 
 def test_suppress_batch_is_idempotent(client, db_session_factory):
@@ -1053,7 +1053,7 @@ def test_suppress_batch_category_narrowing(client, db_session_factory):
                 scan_id=scan_id,
                 tool="plist",
                 title="Make sure to verify that your app runs on an up-to-date OS version",
-                severity="medium",
+                severity="warning",
                 category="MASVS-PLATFORM-2",
             )
         )
@@ -1080,7 +1080,7 @@ def test_unsuppress_batch_restores_title_group(client, db_session_factory):
     title = "Make sure to verify that your app runs on an up-to-date OS version"
     url = f"/api/v1/scans/{scan_id}/findings/suppress-batch"
     client.post(url, json={"title": title})
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 0
 
     r = client.post(
         f"/api/v1/scans/{scan_id}/findings/unsuppress-batch", json={"title": title}
@@ -1088,8 +1088,8 @@ def test_unsuppress_batch_restores_title_group(client, db_session_factory):
     assert r.status_code == 200
     body = r.json()
     assert body["suppressed"] == 0 and body["restored"] == 3
-    # 3 highs back -> worst+count: 80 + 2 (two extras above the first high)
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 82
+    # 3 highs back -> worst+count: 70 + 2 (two extras above the first high)
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 72
     visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
     assert len([f for f in visible if f["title"] == title]) == 3
 
@@ -1108,10 +1108,10 @@ def test_suppress_batch_requires_analyzed_409(client, db_session_factory):
 
 def test_suppress_batch_severity_band(client, db_session_factory):
     """Matching by ``severity`` alone clears the whole band - the group-
-    header bulk action. 2 highs + 1 low -> both highs suppressed, the low
-    stays, and risk recomputes once (highs gone -> 20)."""
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "low"))
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 81
+    header bulk action. 2 highs + 1 info -> both highs suppressed, the info
+    stays, and risk recomputes once (highs gone -> 0)."""
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "info"))
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 71
 
     r = client.post(
         f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"severity": "high"}
@@ -1120,8 +1120,8 @@ def test_suppress_batch_severity_band(client, db_session_factory):
     body = r.json()
     assert body["suppressed"] == 2 and body["restored"] == 0
     visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
-    assert [f["severity"] for f in visible] == ["low"]
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+    assert [f["severity"] for f in visible] == ["info"]
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 0
     # idempotent: no highs left to suppress
     assert (
         client.post(
@@ -1133,12 +1133,12 @@ def test_suppress_batch_severity_band(client, db_session_factory):
 
 def test_unsuppress_batch_severity_band(client, db_session_factory):
     """The review side's mirror: restoring the whole band brings the highs
-    back and the risk returns (worst+count: 2 highs + 1 low -> 81)."""
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "low"))
+    back and the risk returns (worst+count: 2 highs + 1 info -> 71)."""
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "info"))
     client.post(
         f"/api/v1/scans/{scan_id}/findings/suppress-batch", json={"severity": "high"}
     )
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 20
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 0
 
     r = client.post(
         f"/api/v1/scans/{scan_id}/findings/unsuppress-batch", json={"severity": "high"}
@@ -1146,13 +1146,13 @@ def test_unsuppress_batch_severity_band(client, db_session_factory):
     body = r.json()
     assert body["suppressed"] == 0 and body["restored"] == 2
     visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
-    assert [f["severity"] for f in visible] == ["high", "high", "low"]
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 81
+    assert [f["severity"] for f in visible] == ["high", "high", "info"]
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 71
 
 
 def test_suppress_batch_combined_criteria(client, db_session_factory):
     """Title + severity AND-combine: only the same-title HIGHs toggle, a
-    same-title medium stays (the per-row "Suppress all" stays title-scoped)."""
+    same-title warning stays (the per-row "Suppress all" stays title-scoped)."""
     scan_id = _scan_with_same_title_findings(db_session_factory, count=2)
     with db_session_factory() as session:
         session.add(
@@ -1160,7 +1160,7 @@ def test_suppress_batch_combined_criteria(client, db_session_factory):
                 scan_id=scan_id,
                 tool="semgrep",
                 title="Make sure to verify that your app runs on an up-to-date OS version",
-                severity="medium",
+                severity="warning",
                 category="MASVS-PLATFORM",
             )
         )
@@ -1174,7 +1174,7 @@ def test_suppress_batch_combined_criteria(client, db_session_factory):
     )
     assert r.json()["suppressed"] == 2
     remaining = client.get(f"/api/v1/scans/{scan_id}/findings").json()
-    assert sorted(f["severity"] for f in remaining) == ["low", "medium"]
+    assert sorted(f["severity"] for f in remaining) == ["info", "warning"]
 
 
 def test_suppress_batch_requires_a_criterion_422(client, db_session_factory):
@@ -1212,7 +1212,7 @@ def test_suppress_batch_returns_toggled_ids(client, db_session_factory):
     assert r.status_code == 200
     assert sorted(r.json()["finding_ids"]) == sorted(title_ids)
 
-    # undo: restore by those exact ids - the unrelated low stays unsuppressed
+    # undo: restore by those exact ids - the unrelated info stays unsuppressed
     # and only the 3 highs come back
     u = client.post(
         f"/api/v1/scans/{scan_id}/findings/unsuppress-batch",
@@ -1220,14 +1220,14 @@ def test_suppress_batch_returns_toggled_ids(client, db_session_factory):
     )
     assert u.json() == {"suppressed": 0, "restored": 3, "finding_ids": title_ids}
     visible = client.get(f"/api/v1/scans/{scan_id}/findings").json()
-    assert len(visible) == 4  # 3 highs back + the low that never left
-    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 82
+    assert len(visible) == 4  # 3 highs back + the info that never left
+    assert client.get(f"/api/v1/scans/{scan_id}").json()["risk_score"] == 72
 
 
 def test_unsuppress_batch_by_ids_skips_already_active(client, db_session_factory):
     """Restoring by ids is idempotent per id - an id that is already active
     (restored meanwhile) is simply skipped, never an error."""
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "low"))
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "high", "info"))
     findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
     high_ids = [f["id"] for f in findings if f["severity"] == "high"]
     client.post(
@@ -1276,10 +1276,10 @@ def test_summary_excludes_suppressed_findings(client, db_session_factory, monkey
         }
 
     monkeypatch.setattr(routes.insights, "summarize_scan", fake_summarize)
-    scan_id = _scan_with_findings(db_session_factory, severities=("high", "low"))
+    scan_id = _scan_with_findings(db_session_factory, severities=("high", "info"))
     findings = client.get(f"/api/v1/scans/{scan_id}/findings").json()
     client.post(f"/api/v1/scans/{scan_id}/findings/{findings[0]['id']}/suppress")
 
     r = client.post(f"/api/v1/scans/{scan_id}/summary")
     assert r.status_code == 200
-    assert captured["severities"] == ["low"]
+    assert captured["severities"] == ["info"]

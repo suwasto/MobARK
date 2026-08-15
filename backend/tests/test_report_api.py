@@ -31,7 +31,7 @@ def _scan_with_findings(db_session_factory, *, with_explanation=False):
         )
         session.add(scan)
         session.commit()
-        for i, sev in enumerate(("high", "medium", "info")):
+        for i, sev in enumerate(("high", "warning", "info")):
             session.add(
                 Finding(
                     scan_id=scan.id,

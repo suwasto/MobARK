@@ -20,8 +20,7 @@ export interface UseFindingsResult {
 
 const EMPTY_COUNTS: SeverityCounts = {
   high: 0,
-  medium: 0,
-  low: 0,
+  warning: 0,
   info: 0,
 }
 

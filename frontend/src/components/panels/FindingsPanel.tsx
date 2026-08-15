@@ -39,12 +39,11 @@ interface FindingsPanelProps {
   onJumpToCode: (finding: FindingRead) => void
 }
 
-const FILTER_ORDER: Severity[] = ['high', 'medium', 'low', 'info']
+const FILTER_ORDER: Severity[] = ['high', 'warning', 'info']
 
 const SEVERITY_CAP: Record<Severity, string> = {
   high: 'High',
-  medium: 'Medium',
-  low: 'Low',
+  warning: 'Warning',
   info: 'Info',
 }
 

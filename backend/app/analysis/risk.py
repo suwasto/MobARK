@@ -1,30 +1,32 @@
-"""M5 risk/security scores - CVSS 4.0-based 0-100 aggregates.
+"""M5 risk/security scores - banded risk index (0-100 aggregates).
 
 Single source of truth for the Overview gauge (and any future report
 surface): the dashboard, the API, and the scan job all read the same
-mapping. Owner decision (Aug 7, 2026): the scoring system is **CVSS 4.0**.
+mapping. Owner decision (Aug 15, 2026): the CVSS 4.0 model was REPLACED
+by a plain **banded risk index**. CVSS qualitative scoring is designed
+for disclosed vulnerabilities (CVEs) where a human analyst has assessed
+attack requirements, user interaction, and the other metric inputs - a
+static scanner sees candidate flaws in uncompiled/compiled code and
+cannot honestly claim that context (the MobSF pattern: a simple severity
+heuristic). The old implementation's "CVSS 4.0 · risk n/100 · band"
+caption overclaimed CVSS provenance for a midpoint heuristic; the new
+caption is the honest "risk n/100 · band".
 
-- Every severity band maps to a representative CVSS 4.0 base score - the
-  midpoint of the qualitative band per the CVSS 4.0 specification
-  (high 7.0-8.9, medium 4.0-6.9, low 0.1-3.9, none 0): high 8.0, medium
-  5.5, low 2.0, info 0. Owner decision (Aug 8, 2026): the critical band
-  was removed from the findings vocabulary - high is the top severity.
-- **risk = round(10 × max_cvss)** driven by the single worst finding, plus
-  a **breadth bonus within the worst severity band** (owner decision Aug 7:
-  max, not mean; follow-ups Aug 8: "worst + count", then band-symmetric):
-  each additional finding at the worst band adds ~1 point of risk, capped
-  at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39 - the
-  qualitative band tops 8.9/6.9/3.9 × 10, so the removed critical band is
-  never re-introduced and the gauge caption "CVSS 4.0 · risk n/100 · band"
-  stays literally true in every band). Remediating/suppressing findings
-  visibly moves the gauge within each band (11 highs = 89 · 9 = 87 · 1 =
-  80 · none = 55; 16 mediums = 69 · 10 = 63 · 2 = 56 · 1 = 55), and
-  worst-first ordering is preserved with no band overlap (any high ≥ 80 > any
-  no-high ≤ 69 > any low-only ≤ 39). Bulk bands saturate at their ceiling
-  (446 mediums read 69 until the count drops below ~16 - visible progress
-  returns in the tail). 0 when there is nothing to score.
+- **Severity vocabulary:** ``high | warning | info`` (no critical band -
+  owner decision Aug 8, 2026; the low band was dropped and former low
+  findings became informational Aug 15, 2026; ``medium`` was renamed
+  ``warning`` the same day).
+- **risk = worst-first, banded**: the worst finding picks the band - any
+  high sets the High band (base 70), otherwise warnings set the Warning
+  band (base 40) - and each additional finding at that band adds ~1 point,
+  capped at the band ceiling (high 99 · warning 69). Info findings never
+  score. Bands never overlap (any high ≥ 70 > any warning ≤ 69 > info-only
+  0), so worst-first ordering is preserved and remediating/suppressing
+  findings visibly moves the gauge within each band (11 highs = 80 · 2 =
+  71 · 1 = 70; 30 warnings = 69 · 10 = 49 · 1 = 40). 0 when there is
+  nothing to score.
 - **security = 100 - risk** - the public-facing score (owner decision, Aug
-  7: higher is better). An empty scan scores 100; risk 80 → security 20.
+  7: higher is better). An empty scan scores 100; risk 70 → security 30.
 - **Suppressed findings are excluded** (Aug 8, 2026): a false positive that
   was suppressed must not drive the posture - ``compute_risk_score`` skips
   any finding with ``suppressed=True`` (persisted ``Finding`` rows carry
@@ -36,49 +38,44 @@ on read so the two can never drift.
 """
 from __future__ import annotations
 
-# CVSS 4.0 representative base score per severity band. Order also drives
-# the findings-list sort (highest first).
-SEVERITY_CVSS = {
-    "high": 8.0,
-    "medium": 5.5,
-    "low": 2.0,
-    "info": 0.0,
+# Per-severity ordinal weight (ordering only - not the score itself).
+# info is 0: informational notes never drive the posture.
+SEVERITY_WEIGHT = {
+    "high": 3,
+    "warning": 2,
+    "info": 0,
 }
 
-# Worst + breadth, band-symmetric (owner decisions, Aug 8 2026): each
-# additional finding at the worst severity band adds ~0.9 points of risk
-# (rounded) - the more independent paths of that severity an app has, the
-# worse the posture - capped at the band's CVSS 4.0 ceiling: (base
-# representative risk, ceiling, bonus slope). Ceilings are the qualitative
-# band tops × 10 (high 8.9, medium 6.9, low 3.9) so the gauge caption stays
-# literally true, bands never overlap (any high ≥ 80 > any no-high ≤ 69 >
-# any low-only ≤ 39), and the removed critical band is never re-introduced.
+# Worst + breadth, banded (owner decision, Aug 15 2026): (base risk,
+# ceiling, bonus slope). The worst finding picks the band; each extra
+# finding at that band adds ~1 point (rounded), capped at the ceiling.
+# Bands never overlap: any high ≥ 70 > any warning ≤ 69 > info-only 0.
 _BAND_RISK = {
-    "high": (80, 89, 0.9),
-    "medium": (55, 69, 0.9),
-    "low": (20, 39, 0.9),
+    "high": (70, 99, 1.0),
+    "warning": (40, 69, 1.0),
 }
 
 # Display order by severity for the findings list.
-SEVERITY_ORDER: tuple[str, ...] = ("high", "medium", "low", "info")
+SEVERITY_ORDER: tuple[str, ...] = ("high", "warning", "info")
 
 
-def cvss_base_score(severity: str) -> float:
-    """Representative CVSS 4.0 base score for a severity band (0.0-8.0)."""
-    return SEVERITY_CVSS.get(severity, 0.0)
+def severity_weight(severity: str) -> float:
+    """Ordinal severity weight (0.0-3.0) - drives ordering, not the score."""
+    return SEVERITY_WEIGHT.get(severity, 0.0)
 
 
 def compute_risk_score(findings) -> int:
     """0-100 risk score for a collection of findings.
 
-    Worst + breadth, band-symmetric, over the scored findings (severity !=
-    info): the worst finding picks the severity band, ``round(10 * max_cvss)``
-    sets the base, and each extra finding at that band adds ~1 point capped
-    at the band's CVSS 4.0 ceiling (high 89 · medium 69 · low 39). So
-    suppressing/fixing findings visibly moves the gauge within each band
-    (11 highs = 89 · 9 = 87 · 1 = 80 · none = 55; 16 mediums = 69 · 10 = 63
-    · 2 = 56 · 1 = 55), worst-first order is preserved with no band overlap,
-    and the "CVSS 4.0 · risk n/100 · band" caption stays literally true.
+    Worst-first, banded, over the scored findings (severity in high |
+    warning): the worst finding picks the band - any high sets the High
+    band (base 70), otherwise warnings set the Warning band (base 40) -
+    and each extra finding at that band adds ~1 point capped at the band
+    ceiling (high 99 · warning 69). So suppressing/fixing findings visibly
+    moves the gauge within each band (11 highs = 80 · 2 = 71 · 1 = 70;
+    30 warnings = 69 · 10 = 49 · 1 = 40), worst-first order is preserved
+    with no band overlap (any high ≥ 70 > any warning ≤ 69 > info-only 0),
+    and the honest "risk n/100 · band" caption stays literally true.
     ``findings`` is any iterable of objects exposing ``.severity`` - the
     analysis layer's ``FindingOut`` dataclass and the persisted ``Finding``
     ORM both qualify. Unknown severities are ignored rather than crashing
@@ -90,19 +87,13 @@ def compute_risk_score(findings) -> int:
     for f in findings:
         if getattr(f, "suppressed", False):
             continue
-        cvss = cvss_base_score(f.severity)
-        if cvss > 0:
-            scored.append((f.severity, cvss))
+        if f.severity in _BAND_RISK:
+            scored.append(f.severity)
     if not scored:
         return 0
-    worst_sev, worst_cvss = max(scored, key=lambda pair: pair[1])
-    # Defensive: a severity that scores > 0 but has no band entry degrades to
-    # its plain representative score rather than crashing the scan/dashboard
-    # (the module contract - unknown severities are ignored, never fatal).
-    base, ceiling, per_extra = _BAND_RISK.get(
-        worst_sev, (round(10 * worst_cvss), round(10 * worst_cvss), 0.0)
-    )
-    extra = sum(1 for _, cvss in scored if cvss == worst_cvss) - 1
+    worst_sev = "high" if "high" in scored else "warning"
+    base, ceiling, per_extra = _BAND_RISK[worst_sev]
+    extra = scored.count(worst_sev) - 1
     bonus = min(
         ceiling - base,
         int(per_extra * max(0, extra) + 0.5),

@@ -95,10 +95,9 @@ export function OverviewPanel({
         <div className="flex flex-col items-center rounded-[5px] border border-line bg-panel p-5">
           <SecurityGauge score={scan.security_score} />
         </div>
-        <div className="grid h-full grid-cols-4 gap-3.5">
+        <div className="grid h-full grid-cols-3 gap-3.5">
           <StatBox n={counts.high} label="High" cls="text-sev-red" />
-          <StatBox n={counts.medium} label="Medium" cls="text-amber" />
-          <StatBox n={counts.low} label="Low" cls="text-sev-green" />
+          <StatBox n={counts.warning} label="Warning" cls="text-amber" />
           <StatBox n={counts.info} label="Info" cls="text-sev-slate" />
         </div>
       </div>

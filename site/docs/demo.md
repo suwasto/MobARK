@@ -1,9 +1,9 @@
 # Demo
 
 > **OWNER: add real media.** The screenshots and video below are
-> placeholders. Replace them with a capture of a real scan (see
-> `docs/progress/M5.md` for the sample artifacts used in verification —
-> e.g. InsecureBankv2.apk / iBugBazaar.ipa).
+> placeholders. Replace them with a capture of a real scan (the sample
+> artifacts used in verification — e.g. InsecureBankv2.apk /
+> iBugBazaar.ipa).
 
 ## Screenshots
 

@@ -1,4 +1,4 @@
-# Authentication (M9.1)
+# Authentication
 
 Auth is **ON by default** (owner decision, Aug 2026): a fresh install
 lands on the register/login screen, and every `/api/v1` route except
@@ -76,8 +76,8 @@ scrypt-derived KEK + AES-GCM):
 
 ## Disabling auth (dev/CI)
 
-`MASA_AUTH_ENABLED=0` restores the fully-open pre-M9.1 single-user
-behavior byte-for-byte — the dev/CI parity mode. The register/login
+`MASA_AUTH_ENABLED=0` restores the fully-open single-user behavior
+byte-for-byte — the dev/CI parity mode. The register/login
 surface becomes inert (400), `/auth/me` returns `null`, and all routes
 are reachable without a session.
 

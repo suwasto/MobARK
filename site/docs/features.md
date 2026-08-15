@@ -1,6 +1,6 @@
 # Features
 
-## Static analysis (M1–M2)
+## Static analysis
 
 - **Android (APK):** manifest inspection (permissions, exported
   components, debuggable flag, network security config, backup rules)
@@ -14,7 +14,7 @@
   from the embedded code-signature blob · import-table scanner for
   insecure crypto, WebView, and anti-debug APIs.
 
-## AI copilot (M3–M4, M6–M7)
+## AI copilot
 
 - Chat with the decompiled code through your local LLM (Ollama / LM
   Studio) or any BYOK provider (OpenAI, Anthropic, Gemini, DeepSeek,
@@ -30,13 +30,13 @@
 - Dev-only **fake LLM** (`MASA_FAKE_MODEL=1`) to demo the agent with
   zero Ollama.
 
-## Edit & recompile (M8, Android)
+## Edit & recompile (Android)
 
 - On-demand apktool decode → smali tree.
 - Agent can **propose edits** (and you can hand-edit smali) with diff
   review, then rebuild a **resigned test APK** (apksigner/zipalign).
 
-## Reports (M9)
+## Reports
 
 - Deterministic assembly (no model needed) with a **banded risk-index
   score** (`high | warning | info` severities — deliberately not CVSS,
@@ -45,7 +45,7 @@
 - Per-finding **suppression** with live re-scoring.
 - Markdown + branded **PDF** export.
 
-## Dashboard (M5)
+## Dashboard
 
 - Overview (security gauge, severity stats, AI summary, top findings),
   Findings (filter/suppress/AI explain), Dependencies, Decompiler
@@ -53,7 +53,7 @@
   per-scan graph), Report — plus a progress dialog during scans and a
   searchable Provider/Model picker in the top bar.
 
-## Multi-user auth (M9.1)
+## Multi-user auth
 
 Username/password + GitHub/Google OAuth, per-user data isolation,
 per-user encrypted key vault, sliding sessions. See

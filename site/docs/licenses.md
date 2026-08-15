@@ -42,7 +42,7 @@ Apache-2.0 / BSD).
 | markdown (Python-Markdown) | BSD-3-Clause |
 | graphifyy | MIT/Apache-2.0 dual (CLI subprocess) |
 
-**M9.1 note:** auth + vault add **zero** new runtime dependencies —
+**Auth + vault note:** the auth system + key vault add **zero** new runtime dependencies —
 passwords use stdlib `hashlib.scrypt`, OAuth is hand-rolled over the
 already-pinned `httpx`, session tokens use `secrets` + `hashlib`.
 

@@ -32,7 +32,7 @@ latest release** and rebuild your Docker images (`docker compose build
   research. Running MASA on an untrusted network exposes whatever data
   it holds — keep it on a trusted host, or put the web UI behind your
   own reverse proxy with auth.
-- **Authentication (M9.1).** Auth is on by default; the first
+- **Authentication.** Auth is on by default; the first
   registered user is the admin. Session cookies are HttpOnly +
   SameSite=Lax (Secure when `MASA_COOKIE_SECURE=1` — set it when
   serving over TLS). Per-user isolation is structural: foreign scans

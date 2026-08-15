@@ -77,12 +77,12 @@ flowchart LR
   fallback) plus the `/api/v1` routes — no separate static server.
   Backend-only dev runs without `frontend/dist`; the root then returns a
   bare API banner.
-- **Auth is the outer gate (M9.1).** `health` and `auth` are the only open
+- **Auth is the outer gate.** `health` and `auth` are the only open
   routers; every other `/api/v1` router depends on `get_current_user`
   (session cookie → user). `MASA_AUTH_ENABLED=0` restores the fully-open
   single-user mode (dev/CI parity). All scan-keyed routes resolve the owner
   from the request context (`request_ctx`), so isolation is structural.
-- **Per-user stores + vault (M9.1).** Model/search BYOK configs live in
+- **Per-user stores + vault.** Model/search BYOK configs live in
   `data/users/<uid>/`; API keys are wrapped with a per-user master key
   derived from the login password. The agent loop receives `user_id` +
   `master_key` explicitly because it runs on a worker thread that does not
@@ -92,7 +92,7 @@ flowchart LR
   worker over Redis — both services share the SQLite DB and data dir.
 - **Agent = local-first, tool-using chat.** The chat loop layers: findings
   context (Layer 1), code/file tools (Layer 2), graph tools (Layer 3),
-  edit/recompile tools (M8), and opt-in web research (`web_search` /
+  edit/recompile tools, and opt-in web research (`web_search` /
   `web_fetch` through the bundled SearXNG — SSRF-guarded, AGPL boundary
   kept by talking HTTP JSON only). Streaming is SSE
   (`POST /scans/{id}/chat/stream`).

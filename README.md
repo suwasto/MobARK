@@ -103,10 +103,23 @@ development setup and the full configuration reference.
 
 ## Project status
 
-Milestone-driven development: **M0–M9.1 shipped** (analysis, agent,
-edit/recompile, reports, auth + per-user isolation) and **M10
-(open-source readiness)** in progress — see
-[`CHANGELOG.md`](CHANGELOG.md) for the history.
+**Shipped:**
+
+- **Static analysis** — Android (manifest, jadx decompile, curated +
+  vendored MASTG semgrep rules, secrets, dependency inventory) and
+  iOS (Mach-O via LIEF, entitlements, Info.plist, insecure-import
+  scanning)
+- **AI copilot** — chat with the decompiled code via a local LLM, with
+  live tool/token streaming and opt-in web research
+- **Edit & recompile** (Android) — apktool decode, smali edits,
+  resigned test APK builds
+- **Reports** — deterministic Markdown/PDF with banded risk-index
+  scoring, per-finding suppression, AI (or no-model) explanations
+- **Multi-user auth** — username/password + GitHub/Google OAuth,
+  per-user data isolation, encrypted per-user key vault
+
+**Future plans:** dynamic analysis (runtime/device testing) is next on
+ the roadmap — see [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 ## License
 

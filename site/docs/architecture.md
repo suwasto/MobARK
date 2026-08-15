@@ -70,7 +70,7 @@ flowchart LR
   builds, and rebuilds are RQ jobs shared between the API and worker
   over Redis.
 - **Agent = local-first, tool-using chat.** Findings context (L1), file
-  tools (L2), graph tools (L3), edit/recompile tools (M8), and opt-in
+  tools (L2), graph tools (L3), edit/recompile tools, and opt-in
   web research through the bundled SearXNG (SSRF-guarded, HTTP-JSON
   only — the AGPL boundary). Streaming is SSE.
 - **Analysis pipeline.** Android stages (manifest, jadx, semgrep MASTG

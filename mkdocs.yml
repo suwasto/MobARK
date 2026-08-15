@@ -1,6 +1,6 @@
-# MASA public documentation site (M10 — open-source readiness).
+# MASA public documentation site.
 # Docs content lives in the tracked site/docs/ dir (docs/ stays gitignored —
-# it holds internal milestone trackers + sample binaries). Build output goes
+# it holds internal working notes + sample binaries). Build output goes
 # to _site/ (gitignored). Deploy: .github/workflows/pages.yml → GitHub Pages.
 site_name: MASA — Mobile Application Security Assistant
 site_description: Local-first mobile application security testing — static analysis + AI copilot for Android and iOS, no data leaves your machine.
@@ -58,6 +58,6 @@ nav:
   - Features: features.md
   - Architecture: architecture.md
   - Authentication: auth.md
-  - Milestones: milestones.md
+  - Status: status.md
   - Demo: demo.md
   - Third-party licenses: licenses.md

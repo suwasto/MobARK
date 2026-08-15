@@ -6,8 +6,7 @@ a dev environment, run the checks, and submit a pull request.
 
 ## Scope expectations
 
-- Scan data must not leave the machine by default; LLM and search are
-  user-supplied (local Ollama / LM Studio, or BYOK keys, or the bundled
+- LLM and search are user-supplied (local Ollama / LM Studio, or BYOK keys, or the bundled
   SearXNG). Features that would phone home by default are out of scope.
 - **Apache-2.0 posture.** GPL/LGPL tools (Semgrep, LGPL-2.1; SearXNG,
   AGPL-3.0) are **subprocess-only: never imported**. The rest of the

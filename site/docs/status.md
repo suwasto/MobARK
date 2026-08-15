@@ -8,7 +8,7 @@
   unpacking, Info.plist inspection, Mach-O analysis via LIEF: PIE,
   stack canary, ARC, FairPlay, dylibs, architectures: entitlement
   carving, import-table scanning).
-- **AI copilot**: chat with the decompiled code through a local LLM
+- **AI Agent**: chat with the decompiled code through a local LLM
   (Ollama / LM Studio) or any BYOK provider; findings context, code
   search/read + code-graph tools, live tool/token streaming, opt-in
   web research through a bundled SearXNG.

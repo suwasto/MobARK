@@ -1,10 +1,10 @@
 # Third-party licenses
 
 **MobARK itself is Apache-2.0** (see [LICENSE](https://github.com/suwasto/masa/blob/main/LICENSE)).
-This page is the public attribution summary; the full audit (versions,
-pins, decision history) lives in
-[`docs/licenses.md`](https://github.com/suwasto/masa/blob/main/docs/licenses.md)
-(in the repository working tree: it is gitignored).
+This page lists the third-party licenses for everything MobARK actually
+ships and uses. (The detailed internal audit — exact versions, pins and
+decision history — stays in the repository working tree and is not
+published.)
 
 ## Compliance posture
 

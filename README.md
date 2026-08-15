@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>Local-first mobile application security testing</b>: static analysis + AI copilot for Android &amp; iOS,
+  <b>Local-first mobile application security testing</b>: static analysis + AI Agent for Android &amp; iOS,
   no scan data leaves your machine.
 </p>
 
@@ -23,7 +23,7 @@ testing: Android (APK) and iOS (IPA). Upload a binary and MobARK
 decompiles it, runs static analysis (jadx / apktool / semgrep / gitleaks
 / LIEF), scores findings with a plain severity-based risk index
 (`high | warning | info`: deliberately not CVSS, which needs a human
-analyst for disclosed CVEs), and gives you an **AI copilot
+analyst for disclosed CVEs), and gives you an **AI Agent
 that can chat with the decompiled code**: all through your own local
 LLM (Ollama / LM Studio) with **nothing leaving your machine by
 default**.
@@ -34,7 +34,7 @@ default**.
   OWASP MASTG semgrep rules, secrets scanning, dependency inventory) and
   iOS (Mach-O via LIEF, entitlements, Info.plist, insecure-import
   scanning)
-- **AI copilot**: chat with the decompiled code (findings context +
+- **AI Agent**: chat with the decompiled code (findings context +
   code search/read + per-scan code graph tools), live step/token
   streaming, **opt-in web research** through a bundled SearXNG
 - **Edit & recompile** (Android): apktool decode, smali edits,
@@ -104,7 +104,7 @@ full component diagram.
   [`site/`](site/), MkDocs + Material)
 - **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - **Dependency licenses:** third-party attribution lives in
-  [`docs/licenses.md`](docs/licenses.md) (summary on the
+  [`site/docs/licenses.md`](site/docs/licenses.md) (rendered on the
   [licenses page](https://suwasto.github.io/masa/licenses/))
 - **Contributing:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - **Security:** [`SECURITY.md`](SECURITY.md)
@@ -133,7 +133,7 @@ full component diagram.
   vendored MASTG semgrep rules, secrets, dependency inventory) and
   iOS (Mach-O via LIEF, entitlements, Info.plist, insecure-import
   scanning)
-- **AI copilot**: chat with the decompiled code via a local LLM, with
+- **AI Agent**: chat with the decompiled code via a local LLM, with
   live tool/token streaming and opt-in web research
 - **Edit & recompile** (Android): apktool decode, smali edits,
   resigned test APK builds
@@ -150,5 +150,5 @@ full component diagram.
 Apache-2.0: see [`LICENSE`](LICENSE). GPL/LGPL tools in the stack
 (Semgrep, SearXNG) run subprocess-only / as separate containers; every
 imported library is permissive. See the
-[license audit](docs/licenses.md) and the
+[license audit](site/docs/licenses.md) and the
 [site licenses page](https://suwasto.github.io/masa/licenses/).

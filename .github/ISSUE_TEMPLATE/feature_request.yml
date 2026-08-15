@@ -35,7 +35,7 @@ body:
       label: Area (if known)
       options:
         - Analysis (Android/iOS)
-        - Agent / AI copilot
+        - Agent / AI Agent
         - Edit & recompile
         - Reports
         - Auth / isolation

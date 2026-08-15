@@ -14,7 +14,7 @@
   from the embedded code-signature blob · import-table scanner for
   insecure crypto, WebView, and anti-debug APIs.
 
-## AI copilot
+## AI Agent
 
 - Chat with the decompiled code through your local LLM (Ollama / LM
   Studio) or any BYOK provider (OpenAI, Anthropic, Gemini, DeepSeek,

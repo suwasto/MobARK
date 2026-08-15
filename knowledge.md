@@ -9,9 +9,9 @@ REBRAND (Aug 15, 2026): formerly MASA (Mobile Application Security
 Assistant). The old name collided with Google's MASA (Mobile Application
 Security Assessment) and the MASA defense alliance, so the project was
 renamed MobARK (Mobile Application Reverse Kit) across code, docs, and
-this log. The GitHub repo URL (github.com/suwasto/masa) is unchanged
-until the repo itself is renamed; the logo artwork was retyped to the
-new wordmark.
+this log. The GitHub repo itself was renamed too: `github.com/suwasto/masa`
+now redirects to `github.com/suwasto/MobARK`. The logo artwork was
+retyped to the new wordmark (see the follow-up section below).
 
 Read docs/mobark-prd.md, docs/mobark-techstack.md, docs/mobark-tasks.md
 before doing anything.
@@ -28,8 +28,10 @@ stays ignored); see docs/progress/M10.md. When a task touches public docs,
 editing site/ is the committed surface.
 
 Hard constraints: Apache-2.0 license (was MIT, relicensed Aug 3 2026,
-copyright Anang Suwasto). GPL/LGPL tools (Semgrep, apktool,
-jadx, ldid): subprocess only, never imported. Local-first, no
+copyright Anang Suwasto). Copyleft tools (Semgrep LGPL-2.1, SearXNG
+AGPL-3.0): subprocess/container only, never imported. jadx, apktool,
+gitleaks are permissive CLIs; ldid is not GPL (saurik's original is
+unlicensed). Scan data must not leave the machine by default; no
 network calls except opt-in web research.
 
 ## Status
@@ -2386,3 +2388,32 @@ PNG via `scripts/render_social_preview.sh` (headless Chrome of
 (description/topics/homepage → github.io), live Pages deploy
 verification, demo media, semver release. Gates: `mkdocs build` clean,
 backend pytest + ruff green, frontend tsc + vite build green.
+
+## Follow-up (Aug 15, 2026): rebrand completion + docs de-AI
+
+**COMPLETE (committed `da3b348`, pushed to origin/main).** The rebrand
+landed end-to-end and the GitHub repo itself was renamed (old
+`suwasto/masa` URL now redirects to `suwasto/MobARK`).
+
+- **Logo retyped.** The MASA wordmark raster embedded in
+  `mobark-wordmark.svg` (TopBar) and `mobark_icon_text_desc_whitetext.svg`
+  (README header / social preview) was regenerated: the title is Impact
+  at ~2.4x horizontal stretch reading "MobARK", the tagline is Arial
+  Bold tracked "MOBILE APPLICATION REVERSE KIT" (was "…SECURITY
+  ASSISTANT"). `wordmark_data.py` (PDF cover) and the social-preview PNG
+  were regenerated via the sync scripts; the icon-only marks had no text
+  and are unchanged.
+- **Architecture docs.** README gained an Architecture section; both
+  ARCHITECTURE.md and site/docs/architecture.md diagrams now show the
+  per-user store + vault data flow (key_wrap.json → sessions.vault_wrap
+  → request context → store factories), with a new request-context node.
+- **Docs de-AI pass.** 642 em dashes swept out of all tracked md files
+  (code spans, fences, and the 3 table placeholder `| — |` cells
+  protected). Filler phrases that carried meaning ("deliberately not
+  CVSS") were kept.
+- **CONTRIBUTING + license truth.** Dropped "Local-first is a hard
+  constraint" (kept the default no-exfil rule). Corrected the copyleft
+  claim: Semgrep (LGPL-2.1) + SearXNG (AGPL-3.0) are the only
+  GPL-family items; jadx, apktool, gitleaks are permissive CLIs; ldid
+  is not GPL (saurik's original is unlicensed). Same fix applied in
+  docs/licenses.md.

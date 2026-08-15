@@ -1,7 +1,7 @@
 """RQ worker entrypoint.
 
 Run with:  python worker.py
-(MASA Docker Compose starts this for the `worker` service.)
+(MobARK Docker Compose starts this for the `worker` service.)
 """
 
 from rq import Queue, Worker

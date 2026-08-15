@@ -145,7 +145,7 @@ PROVIDERS: dict[str, Provider] = {
             base_url_required=False,
             # LiteLLM builds `{api_base}/models/{model}:generateContent` - the
             # base must carry the API version root. v1beta is pinned because
-            # MASA always passes api_base; only v1beta-compatible models are
+            # MobARK always passes api_base; only v1beta-compatible models are
             # curated (litellm routes Gemini 3+ previews to v1alpha on its own).
             default_base_url="https://generativelanguage.googleapis.com/v1beta",
             # Gemini DOES have a live listing (`GET /v1beta/models`) - it's
@@ -174,7 +174,7 @@ PROVIDERS: dict[str, Provider] = {
             default_base_url="",
             models_path="/models",
         ),
-        # Dev-only (M6 follow-up): MASA_FAKE_MODEL=1 seeds this backend and
+        # Dev-only (M6 follow-up): MOBARK_FAKE_MODEL=1 seeds this backend and
         # model/client.py short-circuits it to a deterministic script - the
         # Agent dock's live steps + token streaming are demoable with zero
         # Ollama. Never contacted; the fake has no base_url and the model

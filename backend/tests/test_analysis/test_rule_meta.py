@@ -14,10 +14,10 @@ def test_mastg_rule_summary_indexed():
 
 
 def test_message_only_rule_has_no_description():
-    """The hand-curated MASA rules carry no metadata.summary - their folded
+    """The hand-curated MobARK rules carry no metadata.summary - their folded
     message IS the finding title already, so citing it would just repeat the
     row (the finding's own title line renders it)."""
-    assert rule_meta.rule_description("masa-android-webview-javascript-enabled") is None
+    assert rule_meta.rule_description("mobark-android-webview-javascript-enabled") is None
 
 
 def test_unknown_or_missing_rule_is_none():

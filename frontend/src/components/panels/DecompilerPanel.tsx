@@ -9,8 +9,8 @@ import { CodeEditor } from '../code/CodeEditor'
 import { CodeViewer } from '../code/CodeViewer'
 import { FileTree } from '../code/FileTree'
 
-const TREE_KEY = 'masa.decomp.treeW'
-const RAIL_KEY = 'masa.decomp.railW'
+const TREE_KEY = 'mobark.decomp.treeW'
+const RAIL_KEY = 'mobark.decomp.railW'
 const TREE_DEFAULT = 210
 const RAIL_DEFAULT = 220
 const TREE_MIN = 140
@@ -19,7 +19,7 @@ const RAIL_MIN = 160
 const RAIL_MAX = 460
 // M8 follow-up: the annotations rail's minimized flag - persisted like the
 // splitter widths so a collapsed rail stays collapsed across sessions.
-const RAIL_MIN_KEY = 'masa.decomp.railMin'
+const RAIL_MIN_KEY = 'mobark.decomp.railMin'
 
 function readWidth(key: string, fallback: number, min: number, max: number): number {
   try {
@@ -915,7 +915,7 @@ export function DecompilerPanel({
                   ? 'Edit & recompile is Android-only'
                   : !smaliReady
                     ? 'Decode smali first (the Smali chip) - then you can edit & recompile'
-                    : 'Rebuild the APK from your edits - signed with MASA’s test keystore'
+                    : 'Rebuild the APK from your edits - signed with MobARK’s test keystore'
               }
               onClick={() => setRecompileOpen(true)}
             >

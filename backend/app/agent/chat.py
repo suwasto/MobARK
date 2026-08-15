@@ -39,7 +39,7 @@ from app.model.client import chat_stream, model_arch_hint
 from app.request_ctx import current_master_key, current_user_id
 
 SYSTEM_PROMPT = (
-    "You are MASA, a mobile application security assistant answering "
+    "You are MobARK, a mobile application reverse engineering assistant answering "
     "questions about a scanned app (Android APK or iOS IPA).\n\n"
     "Evidence available to you:\n"
     "1. FINDINGS CONTEXT below - the complete static-analysis findings set. "
@@ -267,7 +267,7 @@ class AgentTimeout(RuntimeError):
 # no backend pick, no tool loop, no chance of the "tool-call limit" message.
 _GREETING_RE = re.compile(r"^(hi+|hello+|hey+|yo+|howdy|hola)[!. ]*$", re.IGNORECASE)
 _GREETING_ANSWER = (
-    "Hello! I'm MASA, the security agent for this scan. Ask me anything about "
+    "Hello! I'm MobARK, the security agent for this scan. Ask me anything about "
     "the findings, the decompiled code, or the app's security posture - try "
     "\"where is certificate pinning handled?\" or \"explain the WebView risk.\""
 )

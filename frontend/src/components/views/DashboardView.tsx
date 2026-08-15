@@ -29,7 +29,7 @@ type Tab =
 // from swallowing the dashboard on narrow windows. DOCK_MIN is sized so the
 // dock header ("Agent · this scan" + 🌐 Web toggle + collapse button) fits
 // without the title overlapping the toggle (owner report, Aug 9).
-const DOCK_KEY = 'masa.dockW'
+const DOCK_KEY = 'mobark.dockW'
 const DOCK_DEFAULT = 340
 const DOCK_MIN = 320
 const DOCK_MAX = 560

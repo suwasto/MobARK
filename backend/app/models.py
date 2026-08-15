@@ -29,7 +29,7 @@ class Scan(Base):
     # cannot drift (owner decision, Aug 7: higher is better).
     risk_score: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
-    # Where the uploaded artifact + working directory live under MASA_DATA_DIR.
+    # Where the uploaded artifact + working directory live under MOBARK_DATA_DIR.
     storage_path: Mapped[str | None] = mapped_column(String(1024))
     # M5: cached AI overview summary (Overview tab; POST /scans/{id}/summary).
     ai_summary: Mapped[str | None] = mapped_column(Text)

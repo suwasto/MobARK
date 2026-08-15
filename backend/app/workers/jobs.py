@@ -9,13 +9,13 @@ from app.workers.redis import get_redis
 DEFAULT_QUEUE = "default"
 
 
-def dummy_job(message: str = "hello from MASA") -> dict:
+def dummy_job(message: str = "hello from MobARK") -> dict:
     """M0 smoke-test job: proves the Redis -> RQ -> worker -> result loop."""
     time.sleep(0.5)
     return {"echo": message, "processed": True, "status": "ok"}
 
 
-def enqueue_dummy(message: str = "hello from MASA"):
+def enqueue_dummy(message: str = "hello from MobARK"):
     """Enqueue the dummy job and return the RQ Job handle."""
     queue = Queue(DEFAULT_QUEUE, connection=get_redis())
     return queue.enqueue(dummy_job, message)
@@ -307,7 +307,7 @@ def run_rebuild(scan_id: int, build_id: int) -> dict:
     re-downloadable. Every stage fails loudly (decision 8): the failing
     stage + specific reason land on ``builds.stage``/``builds.error`` -
     never a silently broken APK. Zero applied edits is allowed (default
-    rebuild of the pristine tree). The artifact is signed with MASA's
+    rebuild of the pristine tree). The artifact is signed with MobARK's
     install-scoped TEST keystore (decision 7) and the filename carries the
     ``-resigned-test-`` label (decision 9).
     """

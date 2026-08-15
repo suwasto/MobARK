@@ -1,4 +1,4 @@
-# MASA's minimal SearXNG settings (M7) — mounted read-only at
+# MobARK's minimal SearXNG settings (M7) — mounted read-only at
 # /etc/searxng/settings.yml on the always-on bundled compose service.
 #
 # `use_default_settings: true` makes this file a MERGE over the upstream
@@ -9,7 +9,7 @@
 # session cookies; this engine binds to localhost and is single-user.
 #
 # Everything else stays upstream defaults; this file ONLY enables the JSON
-# output format MASA's agent `web_search` tool consumes
+# output format MobARK's agent `web_search` tool consumes
 # (GET /search?q=…&format=json) and keeps the limiter off so the local
 # single-user instance never rate-limits itself. It is a config artifact we
 # author — NOT SearXNG code — so the AGPL boundary (unmodified upstream
@@ -22,6 +22,6 @@ search:
     - json
 
 server:
-  secret_key: "masa-local-dev-secret"
+  secret_key: "mobark-local-dev-secret"
   limiter: false
   public_instance: false

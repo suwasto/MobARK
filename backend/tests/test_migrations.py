@@ -6,7 +6,7 @@ from alembic.config import Config
 
 def test_alembic_upgrade_head_creates_tables(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'migrated.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -36,7 +36,7 @@ def test_alembic_upgrade_head_creates_tables(tmp_path, monkeypatch):
 def test_alembic_m5_columns_exist(tmp_path, monkeypatch):
     """M5 migration 0004: findings.explanation, scans.ai_summary, scans.stage."""
     db_url = f"sqlite:///{tmp_path / 'm5.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -52,7 +52,7 @@ def test_alembic_m5_columns_exist(tmp_path, monkeypatch):
 
 def test_alembic_m5_downgrade_removes_columns(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'm5-down.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -69,7 +69,7 @@ def test_alembic_m5_downgrade_removes_columns(tmp_path, monkeypatch):
 
 def test_alembic_downgrade_removes_tables(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'downgrade.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -85,7 +85,7 @@ def test_alembic_downgrade_removes_tables(tmp_path, monkeypatch):
 def test_alembic_0005_suppression_columns(tmp_path, monkeypatch):
     """M5 migration 0005: findings.suppressed + findings.suppressed_at."""
     db_url = f"sqlite:///{tmp_path / 'suppress.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -103,7 +103,7 @@ def test_alembic_0005_rewrites_critical_to_high_and_recomputes_risk(
     """Migration 0005 data pass: critical -> high + risk recompute under the
     post-critical CVSS mapping (high 8.0 -> risk 80)."""
     db_url = f"sqlite:///{tmp_path / 'critical-rewrite.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -154,7 +154,7 @@ def test_alembic_0006_worst_plus_count_recompute(tmp_path, monkeypatch):
     worst+count model (11 active highs -> 89; mediums stay 55; lows stay
     20; suppressed highs never contribute)."""
     db_url = f"sqlite:///{tmp_path / 'worst-count.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -235,7 +235,7 @@ def test_alembic_0007_band_symmetric_recompute(tmp_path, monkeypatch):
     3 mediums -> 57 (was 55 under 0006), 100 lows -> 39 (was 20), highs
     unchanged at 89."""
     db_url = f"sqlite:///{tmp_path / 'band-symmetric.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -282,7 +282,7 @@ def test_alembic_0016_drops_low_severity_and_recomputes_risk(tmp_path, monkeypat
     3 mediums + 1 low -> 57). Stops at 0016: 0017 (medium->warning + banded
     risk) re-scores with a different model."""
     db_url = f"sqlite:///{tmp_path / 'drop-low.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -351,7 +351,7 @@ def test_alembic_0017_medium_to_warning_banded_risk(tmp_path, monkeypatch):
     -> 40, a lone high 80 -> 70, 2 highs + 1 medium -> 71, and 30 warnings
     cap at 69."""
     db_url = f"sqlite:///{tmp_path / 'medium-to-warning.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -417,7 +417,7 @@ def test_alembic_0008_web_research_column(tmp_path, monkeypatch):
     """M7 migration 0008: scans.web_research_enabled (per-scan web research
     opt-in, default off - the privacy gate)."""
     db_url = f"sqlite:///{tmp_path / 'web-research.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -433,7 +433,7 @@ def test_alembic_0008_defaults_off_and_downgrades(tmp_path, monkeypatch):
     """New scans default to web research OFF (the safe posture), and the
     downgrade drops the column."""
     db_url = f"sqlite:///{tmp_path / 'web-research-down.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -466,7 +466,7 @@ def test_alembic_0009_apktool_columns(tmp_path, monkeypatch):
     """M8 migration 0009 (Phase A + B): scans.apktool_status/error + the
     edits table (DB-diff source of truth)."""
     db_url = f"sqlite:///{tmp_path / 'apktool.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -523,7 +523,7 @@ def test_alembic_0009_apktool_columns(tmp_path, monkeypatch):
 def test_alembic_0013_auth_tables(tmp_path, monkeypatch):
     """M9.1 migration 0013: users + sessions tables, scans.user_id."""
     db_url = f"sqlite:///{tmp_path / 'auth.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     from sqlalchemy import text
 
@@ -572,7 +572,7 @@ def test_alembic_0013_auth_tables(tmp_path, monkeypatch):
 
 def test_alembic_0013_downgrade_removes_auth(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'auth-down.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -592,7 +592,7 @@ def test_alembic_0014_single_admin_index(tmp_path, monkeypatch):
     from sqlalchemy import text
 
     db_url = f"sqlite:///{tmp_path / 'single-admin.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")
@@ -639,7 +639,7 @@ def test_alembic_0014_single_admin_index(tmp_path, monkeypatch):
 
 def test_alembic_0005_downgrade_removes_suppression_columns(tmp_path, monkeypatch):
     db_url = f"sqlite:///{tmp_path / 'suppress-down.db'}"
-    monkeypatch.setenv("MASA_DATABASE_URL", db_url)
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
 
     cfg = Config("alembic.ini")
     command.upgrade(cfg, "head")

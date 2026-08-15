@@ -1,4 +1,4 @@
-# MASA backend image — python:3.11 per the tech stack decision.
+# MobARK backend image — python:3.11 per the tech stack decision.
 #
 # M1 adds the Android analysis toolchain. The JVM is copied from an
 # eclipse-temurin JRE stage (both images are glibc-based) rather than
@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # --- toolchain download deps ---
 # fonts-dejavu-core (M9 Phase C): the DejaVu Sans TTF bundled for Unicode
 # PDF text - /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf, the
-# MASA_REPORT_FONT default. Bitstream-Vera-licensed (permissive), no
+# MOBARK_REPORT_FONT default. Bitstream-Vera-licensed (permissive), no
 # license-posture change (see docs/licenses.md).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         unzip curl ca-certificates fonts-dejavu-core \
@@ -42,15 +42,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
 
 # --- jadx (JVM CLI; ~33 MB zip) ---
-# Note: unzip -d only creates a single level, so /opt/masa-tools must
+# Note: unzip -d only creates a single level, so /opt/mobark-tools must
 # exist before extraction.
 ARG JADX_VERSION=1.5.6
-RUN mkdir -p /opt/masa-tools && \
+RUN mkdir -p /opt/mobark-tools && \
     curl -fsSL -o /tmp/jadx.zip \
         "https://github.com/skylot/jadx/releases/download/v${JADX_VERSION}/jadx-${JADX_VERSION}.zip" \
-    && unzip -q /tmp/jadx.zip -d /opt/masa-tools/jadx \
+    && unzip -q /tmp/jadx.zip -d /opt/mobark-tools/jadx \
     && rm /tmp/jadx.zip \
-    && /opt/masa-tools/jadx/bin/jadx --version
+    && /opt/mobark-tools/jadx/bin/jadx --version
 
 # --- gitleaks (Go binary) ---
 ARG GITLEAKS_VERSION=8.30.1
@@ -82,18 +82,18 @@ RUN python -m venv /opt/semgrep-venv \
 # wrapper calling a single binary, same as jadx/gitleaks. apktool bundles
 # its own aapt2, so no Android SDK is needed for `d`/`b`.
 ARG APKTOOL_VERSION=3.0.3
-RUN mkdir -p /opt/masa-tools/apktool && \
-    curl -fsSL -o /opt/masa-tools/apktool/apktool.jar \
+RUN mkdir -p /opt/mobark-tools/apktool && \
+    curl -fsSL -o /opt/mobark-tools/apktool/apktool.jar \
         "https://github.com/iBotPeaches/apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar" \
     && printf '#!/bin/sh\nexec java -jar "$(dirname "$0")/apktool.jar" "$@"\n' \
-        > /opt/masa-tools/apktool/apktool \
-    && chmod +x /opt/masa-tools/apktool/apktool \
-    && /opt/masa-tools/apktool/apktool --version >/dev/null 2>&1
+        > /opt/mobark-tools/apktool/apktool \
+    && chmod +x /opt/mobark-tools/apktool/apktool \
+    && /opt/mobark-tools/apktool/apktool --version >/dev/null 2>&1
 
 # --- Android build-tools: zipalign + apksigner (M8 rebuild pipeline) ---
 # Pinned build-tools download (Apache-2.0). The zip extracts to a version
 # folder (e.g. android-15/); its contents are flattened into
-# /opt/masa-tools/build-tools/ so the apksigner launcher keeps its lib/
+# /opt/mobark-tools/build-tools/ so the apksigner launcher keeps its lib/
 # next to the script and the Python wrapper resolves a stable path.
 # zipalign runs BEFORE signing (v2+ schemes preserve alignment).
 #
@@ -106,13 +106,13 @@ RUN mkdir -p /opt/masa-tools/apktool && \
 ARG BUILD_TOOLS_VERSION=35.0.1
 RUN curl -fsSL -o /tmp/build-tools.zip \
         "https://dl.google.com/android/repository/build-tools_r${BUILD_TOOLS_VERSION}_linux.zip" \
-    && mkdir -p /opt/masa-tools/build-tools \
+    && mkdir -p /opt/mobark-tools/build-tools \
     && unzip -q /tmp/build-tools.zip -d /tmp/build-tools \
-    && cp -r /tmp/build-tools/*/* /opt/masa-tools/build-tools/ \
+    && cp -r /tmp/build-tools/*/* /opt/mobark-tools/build-tools/ \
     && rm -rf /tmp/build-tools /tmp/build-tools.zip \
-    && test -x /opt/masa-tools/build-tools/zipalign \
-    && test -x /opt/masa-tools/build-tools/apksigner \
-    && /opt/masa-tools/build-tools/apksigner --version >/dev/null 2>&1
+    && test -x /opt/mobark-tools/build-tools/zipalign \
+    && test -x /opt/mobark-tools/build-tools/apksigner \
+    && /opt/mobark-tools/build-tools/apksigner --version >/dev/null 2>&1
 
 COPY backend/ /app/
 
@@ -120,7 +120,7 @@ COPY backend/ /app/
 # relative to WORKDIR /app — so main.py's conditional mount serves it.
 COPY --from=frontend /build/dist /frontend/dist
 
-ENV MASA_TOOLS_DIR=/opt/masa-tools
+ENV MOBARK_TOOLS_DIR=/opt/mobark-tools
 
 EXPOSE 8000
 

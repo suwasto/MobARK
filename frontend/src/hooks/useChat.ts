@@ -90,7 +90,7 @@ function toChatMessage(m: ChatMessageRead): ChatMessage {
 export function chatErrorMessage(kind: ChatErrorKind, detail: string): string {
   switch (kind) {
     case 'no-model':
-      return 'No chat model is connected yet. Open Settings (top-right ⚙), point MASA at a local backend such as Ollama and pick a model - then I can answer questions about this scan.'
+      return 'No chat model is connected yet. Open Settings (top-right ⚙), point MobARK at a local backend such as Ollama and pick a model - then I can answer questions about this scan.'
     case 'not-analyzed':
       return 'This scan has not finished analyzing yet - the agent becomes available once the pipeline is done.'
     case 'upstream':

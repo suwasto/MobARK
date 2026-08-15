@@ -186,7 +186,7 @@ export function ProgressScreen({ onClose }: ProgressScreenProps) {
             </button>
           </div>
           <p className="mt-4 text-[11px] leading-relaxed text-bone-faint">
-            MASA keeps analyzing in the background - dismiss this dialog and
+            MobARK keeps analyzing in the background - dismiss this dialog and
             keep using the last scan; this one appears in “Open a different
             scan” when it’s done.
           </p>

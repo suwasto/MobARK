@@ -30,7 +30,7 @@ _DK_BYTES = 32
 
 # The cookie name is the only magic string the auth surface and the
 # frontend share.
-SESSION_COOKIE = "masa_session"
+SESSION_COOKIE = "mobark_session"
 
 
 def hash_password(password: str) -> str:

@@ -215,7 +215,7 @@ def update_search_backend(backend_id: str, payload: SearchBackendUpsert) -> Sear
 # engine until it answers. Only works when the API process has Docker on its
 # host (host-run dev mode); inside the app container there is no docker
 # CLI/socket and the error carries the manual command, exactly like every
-# other self-explaining failure in MASA.
+# other self-explaining failure in MobARK.
 
 
 class _StartError(Exception):
@@ -235,7 +235,7 @@ def _find_compose_file() -> Path | None:
     is found (e.g. inside the app container) - the plain command then fails
     with compose's own "no configuration file" error, surfaced as-is.
 
-    Assumption (documented layout): the first match walking upward IS MASA's
+    Assumption (documented layout): the first match walking upward IS MobARK's
     compose file. In a nested checkout inside a larger project with its own
     compose file, the wrong file could be picked - the 502 then surfaces the
     real error (stderr tail) so it stays diagnosable."""

@@ -177,7 +177,7 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
           {/* Persistent, un-dismissable test-build label (decision 10). */}
           <div className="recompile-warn" role="note">
             <strong>⚠ Resigned test build.</strong> The rebuilt APK is signed
-            with MASA&rsquo;s install-scoped test keystore - not the app&rsquo;s
+            with MobARK&rsquo;s install-scoped test keystore - not the app&rsquo;s
             original certificate. Install only on a test device. The artifact
             filename always carries the <code>-resigned-test-</code> label.
           </div>

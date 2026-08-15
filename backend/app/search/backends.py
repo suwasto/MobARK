@@ -2,7 +2,7 @@
 
 Mirrors ``model/backends.py`` (M3) in shape and semantics:
 ``search_backends.json`` in data_dir with ``0600`` perms, env-seeded from
-``MASA_SEARXNG_BASE_URL``, runtime-editable.
+``MOBARK_SEARXNG_BASE_URL``, runtime-editable.
 
 **One Active engine (radio)** - owner decision, Aug 9: exactly one search
 backend may be Active at a time. ``enable_only`` persists that invariant
@@ -33,7 +33,7 @@ USER_STORE_DIR = "users"
 
 _SEARXNG_URL_FIELD = "searxng_base_url"
 # Settings field per KEYED provider: the env var that seeds its API key
-# (MASA_BRAVE_API_KEY etc. - pydantic-settings derives the names from the
+# (MOBARK_BRAVE_API_KEY etc. - pydantic-settings derives the names from the
 # field names). Keyed providers seed only when a real key is set; the
 # Settings form is the runtime path.
 _KEYED_KEY_FIELD = {

@@ -30,14 +30,14 @@ def test_keyed_providers_require_key_and_have_defaults():
     """Each keyed row: key required, env var named, a default base URL, and
     its own query style dispatching the client branch."""
     expected = {
-        "brave": ("Brave Search", "MASA_BRAVE_API_KEY", "https://api.search.brave.com", "brave"),
+        "brave": ("Brave Search", "MOBARK_BRAVE_API_KEY", "https://api.search.brave.com", "brave"),
         "serper": (
             "Serper (Google SERP)",
-            "MASA_SERPER_API_KEY",
+            "MOBARK_SERPER_API_KEY",
             "https://google.serper.dev",
             "serper",
         ),
-        "mojeek": ("Mojeek", "MASA_MOJEK_API_KEY", "https://www.mojeek.com", "mojeek"),
+        "mojeek": ("Mojeek", "MOBARK_MOJEK_API_KEY", "https://www.mojeek.com", "mojeek"),
     }
     for pid, (name, env, base, style) in expected.items():
         p = SEARCH_PROVIDERS[pid]

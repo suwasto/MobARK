@@ -5,18 +5,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """MASA backend configuration.
+    """MobARK backend configuration.
 
-    All values can be overridden via environment variables using the ``MASA_``
-    prefix (e.g. ``MASA_REDIS_URL``) or a local ``.env`` file.
+    All values can be overridden via environment variables using the
+    ``MOBARK_`` prefix (e.g. ``MOBARK_REDIS_URL``) or a local ``.env`` file.
     """
 
-    model_config = SettingsConfigDict(env_prefix="MASA_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="MOBARK_", env_file=".env", extra="ignore")
 
-    app_name: str = "MASA"
+    app_name: str = "MobARK"
     version: str = "0.1.0"
 
-    database_url: str = "sqlite:///./data/masa.db"
+    database_url: str = "sqlite:///./data/mobark.db"
     redis_url: str = "redis://localhost:6379/0"
     data_dir: Path = Path("./data")
     log_level: str = "INFO"
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # ---- M1 analysis tools ----
     # Directory containing vendored tool installs (Docker layout). On the
     # host the tools are resolved from PATH unless the *_CMD overrides are set.
-    tools_dir: Path = Path("/opt/masa-tools")
+    tools_dir: Path = Path("/opt/mobark-tools")
     jadx_cmd: str | None = None
     gitleaks_cmd: str | None = None
     semgrep_cmd: str | None = None
@@ -36,8 +36,8 @@ class Settings(BaseSettings):
 
     # ---- M8 edit & recompile: apktool (Android smali decode) ----
     # apktool.jar runs under the bundled JRE in the container (the
-    # /opt/masa-tools/apktool/apktool wrapper script); on the host it
-    # resolves from PATH unless MASA_APKTOOL_CMD is set.
+    # /opt/mobark-tools/apktool/apktool wrapper script); on the host it
+    # resolves from PATH unless MOBARK_APKTOOL_CMD is set.
     apktool_cmd: str | None = None
     apktool_timeout_seconds: int = 1200
     # M8 follow-up (Aug 12): warm pre-decode + stuck-queue guard. Pre-decode
@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     apktool_queue_stall_seconds: int = 120
     # ---- M8 Phase C: rebuild pipeline tools + timings ----
     # zipalign + apksigner (Android build-tools 35.0.0, bundled under
-    # /opt/masa-tools/build-tools/) and keytool (ships in the bundled JRE -
+    # /opt/mobark-tools/build-tools/) and keytool (ships in the bundled JRE -
     # no tools_subdir). Each can be overridden with a *_CMD env var.
     zipalign_cmd: str | None = None
     apksigner_cmd: str | None = None
@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
 
     # No hard default (M3 owner decision): blank means the user picks a model
-    # from what the backend actually serves. Set MASA_DEFAULT_CHAT_MODEL to
+    # from what the backend actually serves. Set MOBARK_DEFAULT_CHAT_MODEL to
     # seed a concrete default into every backend's config.
     default_chat_model: str = ""
 
@@ -95,18 +95,18 @@ class Settings(BaseSettings):
     graphify_timeout_seconds: int = 1800
 
     # ---- M4/M6 agent chat ----
-    # Dev-only fake LLM (M6 follow-up): MASA_FAKE_MODEL=1 seeds a
+    # Dev-only fake LLM (M6 follow-up): MOBARK_FAKE_MODEL=1 seeds a
     # deterministic "fake" backend whose completions never touch a real
     # server - the dock's live tool steps + token streaming can be demoed
     # with zero Ollama. See app/model/fake.py for the script.
     # Alias note (live-verified Aug 9): pydantic-settings derives env names
     # from FIELD NAMES - ``fake_model_enabled`` would silently become
-    # MASA_FAKE_MODEL_ENABLED, not the documented MASA_FAKE_MODEL. The
+    # MOBARK_FAKE_MODEL_ENABLED, not the documented MOBARK_FAKE_MODEL. The
     # string alias fixes the env name; pydantic-settings uses the raw alias
-    # for env lookup (the MASA_ prefix is NOT re-applied to aliases).
+    # for env lookup (the MOBARK_ prefix is NOT re-applied to aliases).
     fake_model_enabled: bool = Field(
         default=False,
-        validation_alias="MASA_FAKE_MODEL",
+        validation_alias="MOBARK_FAKE_MODEL",
     )
     # Hard overall deadline (seconds) for the whole agent tool loop in
     # answer_question - a hung LLM call can never block the API worker beyond
@@ -135,7 +135,7 @@ class Settings(BaseSettings):
     # the search store only when set via env (mirrors the model BYOK
     # seeding - no keyless entry is ever seeded); the Settings -> Search &
     # research add-form is the runtime path. Env names derive from the field
-    # names: MASA_BRAVE_API_KEY, MASA_SERPER_API_KEY, MASA_MOJEK_API_KEY.
+    # names: MOBARK_BRAVE_API_KEY, MOBARK_SERPER_API_KEY, MOBARK_MOJEK_API_KEY.
     brave_api_key: str | None = None
     serper_api_key: str | None = None
     mojeek_api_key: str | None = None
@@ -148,7 +148,7 @@ class Settings(BaseSettings):
     # ---- M9 report export (Phase C) ----
     # TTF bundled in the image for Unicode PDF text (DejaVu Sans from
     # fonts-dejavu-core: /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf on
-    # Debian). Hosts/tests may point this at any TTF via MASA_REPORT_FONT;
+    # Debian). Hosts/tests may point this at any TTF via MOBARK_REPORT_FONT;
     # when the file is missing the PDF falls back to reportlab's built-in
     # Helvetica (ASCII/Latin-1 still renders) - never a crash.
     report_font_path: Path = Path(
@@ -171,7 +171,7 @@ class Settings(BaseSettings):
     # ---- M9.1 auth (Phase A) ----
     # Auth ON by default (owner decision, Aug 14): a fresh install lands on
     # the register/login screen and every /api/v1 route except health + auth
-    # sits behind a session. MASA_AUTH_ENABLED=0 restores today's fully-open
+    # sits behind a session. MOBARK_AUTH_ENABLED=0 restores today's fully-open
     # behavior byte-for-byte (dev/CI parity mode - the old unauthenticated
     # test suites run against it).
     auth_enabled: bool = True

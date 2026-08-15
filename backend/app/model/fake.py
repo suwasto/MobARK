@@ -1,7 +1,7 @@
 """Dev-only deterministic fake LLM (M6 follow-up) - demo the Agent dock's
 live tool steps + token streaming with zero Ollama.
 
-``MASA_FAKE_MODEL=1`` (``Settings.fake_model_enabled``) seeds a ``fake``
+``MOBARK_FAKE_MODEL=1`` (``Settings.fake_model_enabled``) seeds a ``fake``
 backend into the M3 store; ``model/client.py`` short-circuits its chat calls
 here. The fake never touches a real server - instead it scripts one
 deterministic turn that still runs the REAL agent loop + REAL tools:
@@ -50,7 +50,7 @@ _TOOL_CALLS_STREAM = [
 ]
 _PLAIN_ANSWER = (
     "This is a dev-demo answer from the built-in fake model "
-    "(MASA_FAKE_MODEL=1) - no LLM was contacted. It streams like a real "
+    "(MOBARK_FAKE_MODEL=1) - no LLM was contacted. It streams like a real "
     "answer so the dock's token + tool-step UI can be verified without "
     "Ollama running."
 )
@@ -64,7 +64,7 @@ _PLAIN_ANSWER = (
 # source URL - from the page when it read cleanly, else from the search
 # results themselves (a bot-hostile page must never be retried until the
 # round limit; hit live in the containerized e2e, Aug 9: medium.com 403s the
-# honest MASA UA).
+# honest MobARK UA).
 _WEB_THINK_TEXT = (
     "This needs current external information - let me search the web for "
     "known advisories, then read the top source."
@@ -113,7 +113,7 @@ def _compose_web_answer(messages: list[dict]) -> str:
             page = result
     tail = (
         "This is a dev-demo answer from the built-in fake model "
-        "(MASA_FAKE_MODEL=1); no LLM was contacted."
+        "(MOBARK_FAKE_MODEL=1); no LLM was contacted."
     )
     if page:
         title = page.get("title") or page.get("url")
@@ -374,8 +374,8 @@ def _edit_instruction(messages: list[dict]) -> str:
             content = _MENTION_RE.sub(
                 "", _EDIT_TARGET_RE.sub("", m.get("content") or "")
             ).strip()
-            return content if content else "MASA demo edit"
-    return "MASA demo edit"
+            return content if content else "MobARK demo edit"
+    return "MobARK demo edit"
 
 
 def _edit_search_pattern(messages: list[dict]) -> str:
@@ -435,7 +435,7 @@ def _edit_new_content(
         idx = tag.end()
         return original[:idx] + ' android:debuggable="false"' + original[idx:]
     if target.endswith(".smali"):
-        note = f"# MASA demo edit - {instruction}"
+        note = f"# MobARK demo edit - {instruction}"
         return original.rstrip() + "\n\n" + note + "\n"
     return None
 
@@ -471,7 +471,7 @@ def _compose_edit_answer(propose: dict, search_hits: list[dict]) -> str:
     )
     return (
         head + " This is a dev-demo answer from the built-in fake model "
-        "(MASA_FAKE_MODEL=1); no LLM was contacted."
+        "(MOBARK_FAKE_MODEL=1); no LLM was contacted."
     )
 
 
@@ -479,7 +479,7 @@ def _compose_edit_failed(error: str) -> str:
     return (
         f"I could not propose the edit: {error}. "
         "This is a dev-demo answer from the built-in fake model "
-        "(MASA_FAKE_MODEL=1); no LLM was contacted."
+        "(MOBARK_FAKE_MODEL=1); no LLM was contacted."
     )
 
 
@@ -742,7 +742,7 @@ def _compose_answer(messages: list[dict]) -> str:
             "I found WebView usage in the decompiled source. The first match "
             f"is in `{loc}` - `{snippet}`. "
             "This is a dev-demo answer from the built-in fake model "
-            "(MASA_FAKE_MODEL=1); no LLM was contacted."
+            "(MOBARK_FAKE_MODEL=1); no LLM was contacted."
         )
         return text
     if manifest:
@@ -753,7 +753,7 @@ def _compose_answer(messages: list[dict]) -> str:
             head += f" (package/bundle `{package}`)"
         return (
             head + ". This is a dev-demo answer from the built-in fake model "
-            "(MASA_FAKE_MODEL=1); no LLM was contacted."
+            "(MOBARK_FAKE_MODEL=1); no LLM was contacted."
         )
     return _PLAIN_ANSWER
 

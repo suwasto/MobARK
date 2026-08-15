@@ -22,7 +22,7 @@ class GitleaksError(Exception):
 def gitleaks_binary() -> str:
     bin_path = resolve_binary("gitleaks", "gitleaks_cmd", tools_subdir="gitleaks/gitleaks")
     if bin_path is None:
-        raise GitleaksError("gitleaks not found on PATH (set MASA_GITLEAKS_CMD)")
+        raise GitleaksError("gitleaks not found on PATH (set MOBARK_GITLEAKS_CMD)")
     return bin_path
 
 

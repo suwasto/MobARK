@@ -48,7 +48,7 @@ DbSession = Annotated[Session, Depends(get_db)]
 
 def _set_session_cookie(response: Response, raw_token: str) -> None:
     """The HttpOnly + SameSite=Lax session cookie. ``Secure`` only when the
-    app is served over TLS (``MASA_COOKIE_SECURE=1``) - same-origin SPA +
+    app is served over TLS (``MOBARK_COOKIE_SECURE=1``) - same-origin SPA +
     JSON bodies + the Origin check (Phase A middleware) cover the local
     HTTP case without it."""
     response.set_cookie(
@@ -90,12 +90,12 @@ def _clear_stored_keys(user_id: int) -> None:
 
 def _require_auth_enabled() -> None:
     """Auth-off parity mode: the register/login surface is inert - a fresh
-    ``MASA_AUTH_ENABLED=0`` install is fully open by design (dev/CI), and a
+    ``MOBARK_AUTH_ENABLED=0`` install is fully open by design (dev/CI), and a
     login screen with no guard behind it would just confuse."""
     if not settings.auth_enabled:
         raise HTTPException(
             status_code=400,
-            detail="authentication is disabled (MASA_AUTH_ENABLED=0)",
+            detail="authentication is disabled (MOBARK_AUTH_ENABLED=0)",
         )
 
 
@@ -330,7 +330,7 @@ _OAUTH_STATE_TTL = 600  # seconds: long enough for the provider round-trip
 
 
 def _oauth_cookie_name(provider: str) -> str:
-    return f"masa_oauth_{provider}"
+    return f"mobark_oauth_{provider}"
 
 
 def _read_oauth_cookie(request: Request, provider: str) -> dict | None:
@@ -356,8 +356,8 @@ def _oauth_fail(key: str) -> RedirectResponse:
 def oauth_start(provider: str, response: Response) -> RedirectResponse:
     """Send the browser to the provider's authorize URL.
 
-    404 for an unknown OR unconfigured provider (``MASA_GITHUB_CLIENT_ID/
-    SECRET`` / ``MASA_GOOGLE_CLIENT_ID/SECRET`` unset) - the login page
+    404 for an unknown OR unconfigured provider (``MOBARK_GITHUB_CLIENT_ID/
+    SECRET`` / ``MOBARK_GOOGLE_CLIENT_ID/SECRET`` unset) - the login page
     only renders buttons for configured providers, so this should never be
     hit from the UI; a raw client gets the configure-in-env detail.
     """
@@ -365,7 +365,7 @@ def oauth_start(provider: str, response: Response) -> RedirectResponse:
         raise HTTPException(
             status_code=404,
             detail=f"oauth provider {provider!r} is not configured - set the "
-            "client id/secret env vars (MASA_<PROVIDER>_CLIENT_ID/SECRET)",
+            "client id/secret env vars (MOBARK_<PROVIDER>_CLIENT_ID/SECRET)",
         )
     state = oauth.new_state()
     verifier = oauth.new_code_verifier() if oauth.PROVIDERS[provider].pkce else None

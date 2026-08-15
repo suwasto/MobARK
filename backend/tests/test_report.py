@@ -211,7 +211,7 @@ def test_android_report_full_body(tmp_path, monkeypatch, db_session_factory):
     )
 
     # Header + score band
-    assert "# MASA security report" in body
+    assert "# MobARK security report" in body
     assert "**App:** app.apk (android)" in body
     assert "risk 80/100 · High" in body
     assert security_from_risk(80) == 20

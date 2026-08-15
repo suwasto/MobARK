@@ -83,9 +83,9 @@ def test_ensure_keystore_generates_once(monkeypatch, tmp_path):
 
     monkeypatch.setattr(rebuild, "run_tool", fake_run)
     ks1, pass1 = rebuild.ensure_keystore()
-    assert ks1.name == "masa-test.jks"
+    assert ks1.name == "mobark-test.jks"
     assert ks1.is_file()
-    pf = tmp_path / "masa-test.jks.pass"
+    pf = tmp_path / "mobark-test.jks.pass"
     assert pf.is_file()
     assert pf.read_text().strip() == pass1
     assert len(pass1) >= 24
@@ -93,7 +93,7 @@ def test_ensure_keystore_generates_once(monkeypatch, tmp_path):
     assert oct(pf.stat().st_mode & 0o777) == "0o600"
     # the keytool argv carries the JKS storetype + the fixed alias
     assert "-storetype" in calls[0]
-    assert "masa-test" in calls[0]
+    assert "mobark-test" in calls[0]
 
     ks2, pass2 = rebuild.ensure_keystore()  # second call reuses, no regen
     assert ks2 == ks1
@@ -167,7 +167,7 @@ def _fake_pipeline_tools(monkeypatch, tmp_path):
         if cmd[0] == "apksigner" and "verify" in cmd:
             return RunResult(
                 0,
-                "Signer #1 certificate DN: CN=MASA Test Signer\n"
+                "Signer #1 certificate DN: CN=MobARK Test Signer\n"
                 "Signer #1 certificate SHA-256 digest: "
                 "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899\n",
                 "",
@@ -183,7 +183,7 @@ def _fake_pipeline_tools(monkeypatch, tmp_path):
     monkeypatch.setattr(
         rebuild,
         "ensure_keystore",
-        lambda: (tmp_path / "masa-test.jks", "test-pass"),
+        lambda: (tmp_path / "mobark-test.jks", "test-pass"),
     )
     return signed_payload
 
@@ -289,7 +289,7 @@ def test_build_apk_verify_gate_failure_fails_loudly(monkeypatch, tmp_path):
     monkeypatch.setattr(
         rebuild,
         "ensure_keystore",
-        lambda: (tmp_path / "masa-test.jks", "test-pass"),
+        lambda: (tmp_path / "mobark-test.jks", "test-pass"),
     )
     with pytest.raises(RebuildError) as exc:
         rebuild.build_apk(_Scan(), [], build_id=6)

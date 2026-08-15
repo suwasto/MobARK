@@ -180,7 +180,7 @@ export function ModelPicker() {
     (m) => !mq || m.toLowerCase().includes(mq),
   )
   // An enabled backend with an EMPTY model string (e.g. the seed default
-  // when no MASA_DEFAULT_CHAT_MODEL is set) is the same as None - the
+  // when no MOBARK_DEFAULT_CHAT_MODEL is set) is the same as None - the
   // `?? 'Model: None'` label and the None-row active state must treat it as
   // no model.
   const currentModel =

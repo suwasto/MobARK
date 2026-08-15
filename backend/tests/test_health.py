@@ -12,7 +12,7 @@ def test_root(client):
         assert "<!doctype html" in r.text.lower()
     else:
         body = r.json()
-        assert body["app"] == "MASA"
+        assert body["app"] == "MobARK"
         assert "version" in body
 
 

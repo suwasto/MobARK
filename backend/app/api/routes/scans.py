@@ -112,7 +112,7 @@ ArtifactFile = Annotated[UploadFile, File()]
 
 
 class _UploadTooLarge(Exception):
-    """Internal sentinel: streamed upload exceeded MASA_MAX_UPLOAD_MB."""
+    """Internal sentinel: streamed upload exceeded MOBARK_MAX_UPLOAD_MB."""
 
 
 def _get_scan_or_404(db: Session, scan_id: int) -> Scan:
@@ -222,7 +222,7 @@ async def create_scan(db: DbSession, file: ArtifactFile) -> Scan:
 
     Error semantics: 400 unsupported extension or not-a-zip (the scan row is
     rolled back so nothing phantom appears in the queue) · 413 over
-    ``MASA_MAX_UPLOAD_MB`` · 500 the RQ enqueue failed (Redis down) - the
+    ``MOBARK_MAX_UPLOAD_MB`` · 500 the RQ enqueue failed (Redis down) - the
     saved artifact stays but the scan is marked ``failed`` with the reason
     rather than sitting in ``queued`` forever.
     """

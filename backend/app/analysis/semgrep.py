@@ -1,7 +1,7 @@
 """Semgrep subprocess wrapper + JSON report normalizer.
 
 Rules live in two vendored directories under ``app/analysis/rules/``:
-``masa/`` (hand-curated Java/Kotlin rules) and ``mastg/`` (rules vendored
+``mobark/`` (hand-curated Java/Kotlin rules) and ``mastg/`` (rules vendored
 from the OWASP MASTG repo, see ``scripts/sync_mastg.py``). Semgrep runs
 with ``--oss-only --metrics off`` and always as a subprocess.
 """
@@ -29,7 +29,7 @@ class SemgrepError(Exception):
 def semgrep_binary() -> str:
     bin_path = resolve_binary("semgrep", "semgrep_cmd", tools_subdir="semgrep/semgrep")
     if bin_path is None:
-        raise SemgrepError("semgrep not found (set MASA_SEMGREP_CMD)")
+        raise SemgrepError("semgrep not found (set MOBARK_SEMGREP_CMD)")
     return bin_path
 
 
@@ -89,7 +89,7 @@ def scan_source_tree(
 
 def _collect_rule_dirs() -> list[Path]:
     dirs: list[Path] = []
-    for name in ("masa", "mastg"):
+    for name in ("mobark", "mastg"):
         d = RULES_DIR / name
         if d.is_dir() and any(d.glob("*.yml")):
             dirs.append(d)

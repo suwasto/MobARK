@@ -18,12 +18,12 @@ class JadxError(Exception):
 def jadx_binary() -> str:
     bin_path = resolve_binary("jadx", "jadx_cmd", tools_subdir="jadx/bin/jadx")
     if bin_path is None:
-        raise JadxError("jadx not found on PATH (install it or set MASA_JADX_CMD)")
+        raise JadxError("jadx not found on PATH (install it or set MOBARK_JADX_CMD)")
     return bin_path
 
 
 def _java_env() -> dict[str, str] | None:
-    """Point jadx at a specific JVM when MASA_JAVA_HOME is set."""
+    """Point jadx at a specific JVM when MOBARK_JAVA_HOME is set."""
     java_home = settings.java_home
     if not java_home:
         return None

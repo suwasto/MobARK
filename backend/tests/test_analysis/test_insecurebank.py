@@ -1,6 +1,6 @@
 """M1 integration tests against the real, deliberately-vulnerable sample.
 
-Requires jadx, gitleaks and semgrep on PATH (or MASA_*_CMD overrides) and
+Requires jadx, gitleaks and semgrep on PATH (or MOBARK_*_CMD overrides) and
 androguard installed. Run with:  pytest -m integration
 """
 from pathlib import Path

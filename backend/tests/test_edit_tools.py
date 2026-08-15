@@ -468,7 +468,7 @@ def test_fake_edit_demo_uses_bar_target_hint(demo_scan, monkeypatch):
         edit = session.query(Edit).filter(Edit.scan_id == scan_id).one()
         assert edit.file_path == "smali/com/foo/AuthManager.smali"
         assert edit.status == "proposed"
-        assert "# MASA demo edit" in edit.new_content
+        assert "# MobARK demo edit" in edit.new_content
 
 
 def test_fake_edit_demo_editable_mention_targets_that_file(demo_scan, monkeypatch):
@@ -489,7 +489,7 @@ def test_fake_edit_demo_editable_mention_targets_that_file(demo_scan, monkeypatc
         edit = session.query(Edit).filter(Edit.scan_id == scan_id).one()
         assert edit.file_path == "smali/com/foo/AuthManager.smali"
         assert edit.status == "proposed"
-        assert "# MASA demo edit" in edit.new_content
+        assert "# MobARK demo edit" in edit.new_content
 
 
 def test_fake_edit_demo_manifest_mention_targets_manifest(demo_scan, monkeypatch):
@@ -541,7 +541,7 @@ def test_fake_edit_demo_jadx_mention_maps_via_smali_sibling(demo_scan, monkeypat
         edit = session.query(Edit).filter(Edit.scan_id == scan_id).one()
         assert edit.file_path == "smali/com/foo/AuthManager.smali"
         assert edit.status == "proposed"
-        assert "# MASA demo edit" in edit.new_content
+        assert "# MobARK demo edit" in edit.new_content
 
 
 def test_fake_edit_jadx_mention_no_sibling_is_honest_error(demo_scan, monkeypatch):

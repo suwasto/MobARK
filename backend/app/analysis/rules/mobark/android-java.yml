@@ -1,8 +1,8 @@
-# MASA-curated Semgrep rules for decompiled Android Java/Kotlin code.
+# MobARK-curated Semgrep rules for decompiled Android Java/Kotlin code.
 # Rule ids are stable so findings can be tracked across rule updates.
 # Messages embed "[MASVS-<CONTROL>]" so the normalizer can set the category.
 rules:
-  - id: masa-android-webview-javascript-enabled
+  - id: mobark-android-webview-javascript-enabled
     languages: [java]
     # Owner calibration (Aug 7): JS enabled in a WebView that can load
     # remote/attacker content is a script-injection / potential RCE surface.
@@ -14,7 +14,7 @@ rules:
     patterns:
       - pattern: $W.setJavaScriptEnabled(true)
 
-  - id: masa-android-webview-file-access
+  - id: mobark-android-webview-file-access
     languages: [java]
     # Owner calibration (Aug 7): local file read/disclosure surface.
     severity: ERROR
@@ -26,7 +26,7 @@ rules:
       - pattern: $W.setAllowUniversalAccessFromFileURLs(true)
       - pattern: $W.setAllowFileAccessFromFileURLs(true)
 
-  - id: masa-android-cleartext-http-url
+  - id: mobark-android-cleartext-http-url
     languages: [java]
     severity: WARNING
     message: >
@@ -36,7 +36,7 @@ rules:
       - pattern: new URL("http://$REST")
       - pattern: new URL('http://$REST')
 
-  - id: masa-android-all-hostname-verifier
+  - id: mobark-android-all-hostname-verifier
     languages: [java]
     severity: ERROR
     message: >
@@ -46,7 +46,7 @@ rules:
       - pattern: ALLOW_ALL_HOSTNAME_VERIFIER
       - pattern: $H.setHostnameVerifier(null)
 
-  - id: masa-android-insecure-trust-manager
+  - id: mobark-android-insecure-trust-manager
     languages: [java]
     severity: ERROR
     message: >
@@ -60,7 +60,7 @@ rules:
             ...
           }
 
-  - id: masa-android-hardcoded-secret-key
+  - id: mobark-android-hardcoded-secret-key
     languages: [java]
     # Owner calibration (Aug 7): hardcoded key material (MASVS-CRYPTO-1).
     severity: ERROR
@@ -70,7 +70,7 @@ rules:
     patterns:
       - pattern: new SecretKeySpec($KEY, $ALGO)
 
-  - id: masa-android-weak-cipher
+  - id: mobark-android-weak-cipher
     languages: [java]
     # Owner calibration (Aug 7): broken ciphers (DES/RC4/MD5/RSA-ECB).
     severity: ERROR
@@ -82,7 +82,7 @@ rules:
       - pattern: Cipher.getInstance("MD5/$REST")
       - pattern: Cipher.getInstance("RSA/ECB/$REST")
 
-  - id: masa-android-insecure-random
+  - id: mobark-android-insecure-random
     languages: [java]
     severity: WARNING
     message: >

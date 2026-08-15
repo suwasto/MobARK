@@ -27,7 +27,7 @@
 - **Opt-in web research** (per-scan toggle): `web_search` +
   `web_fetch` through the bundled SearXNG, SSRF-guarded, with citation
   links back into the decompiled tree.
-- Dev-only **fake LLM** (`MASA_FAKE_MODEL=1`) to demo the agent with
+- Dev-only **fake LLM** (`MOBARK_FAKE_MODEL=1`) to demo the agent with
   zero Ollama.
 
 ## Edit & recompile (Android)
@@ -39,7 +39,7 @@
 ## Reports
 
 - Deterministic assembly (no model needed) with a **banded risk-index
-  score** (`high | warning | info` severities — deliberately not CVSS,
+  score** (`high | warning | info` severities: deliberately not CVSS,
   which needs a human analyst for disclosed CVEs) and per-finding
   explanations.
 - Per-finding **suppression** with live re-scoring.
@@ -50,7 +50,7 @@
 - Overview (security gauge, severity stats, AI summary, top findings),
   Findings (filter/suppress/AI explain), Dependencies, Decompiler
   (file tree + code viewer + annotation rail), Code maps (searchable
-  per-scan graph), Report — plus a progress dialog during scans and a
+  per-scan graph), Report: plus a progress dialog during scans and a
   searchable Provider/Model picker in the top bar.
 
 ## Multi-user auth

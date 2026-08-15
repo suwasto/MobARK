@@ -80,7 +80,7 @@ _MAX_EDITABLE_READ_CHARS = 50_000
 
 # M7 web tools: offered ONLY when BOTH gates hold - the scan's web-research
 # opt-in (scans.web_research_enabled) AND an Active search engine
-# (SearchStore.active()). They are the one deliberate egress in MASA, so the
+# (SearchStore.active()). They are the one deliberate egress in MobARK, so the
 # model never even sees them otherwise (same filter as _ANDROID_ONLY_TOOLS).
 _WEB_TOOLS = frozenset({"web_search", "web_fetch"})
 _MAX_WEB_RESULTS = 10
@@ -794,7 +794,7 @@ def run_secrets_scan(scan_id: int, path: str = "") -> list[dict]:
     _guard_secrets_target(target)
 
     report_fd, report_name = tempfile.mkstemp(
-        prefix=f"masa-secrets-{scan_id}-", suffix=".json"
+        prefix=f"mobark-secrets-{scan_id}-", suffix=".json"
     )
     os.close(report_fd)
     try:

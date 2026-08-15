@@ -101,7 +101,7 @@ def client_credentials(provider_id: str) -> tuple[str | None, str | None]:
 
 
 def redirect_uri(provider_id: str) -> str:
-    """The OAuth redirect_uri - derived ONLY from ``MASA_PUBLIC_BASE_URL``,
+    """The OAuth redirect_uri - derived ONLY from ``MOBARK_PUBLIC_BASE_URL``,
     never from the request (an attacker cannot redirect the flow to their
     own origin by tampering with query params or the Host header)."""
     return f"{settings.public_base_url.rstrip('/')}/api/v1/auth/oauth/{provider_id}/callback"

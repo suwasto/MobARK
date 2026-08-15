@@ -1,13 +1,13 @@
 """Vendored semgrep rule metadata for deterministic report explanations.
 
-The rule YAMLs under ``app/analysis/rules/{masa,mastg}/*.yml`` carry
+The rule YAMLs under ``app/analysis/rules/{mobark,mastg}/*.yml`` carry
 per-rule metadata: the rule ``id`` (what semgrep's ``check_id`` reports - a
 finding's ``detail.check_id``) and, on most rules, ``metadata.summary`` - a
 one-line description DISTINCT from the finding title. The report's no-AI
 per-finding explanation cites this summary so a finding reads richer without
 a chat model.
 
-Rules without a summary (the 8 hand-curated MASA rules) are skipped: their
+Rules without a summary (the 8 hand-curated MobARK rules) are skipped: their
 ``message`` is a folded one-liner that IS the finding title already - citing
 it again would just repeat the row. Loaded once, lazily, and cached - same
 vendored-data pattern as ``mastg.py``; scan-time analysis never touches the
@@ -31,7 +31,7 @@ def rule_descriptions() -> dict[str, str]:
     omitted, last rule wins on a duplicate id - never a crash.
     """
     out: dict[str, str] = {}
-    for sub in ("masa", "mastg"):
+    for sub in ("mobark", "mastg"):
         d = RULES_DIR / sub
         if not d.is_dir():
             continue

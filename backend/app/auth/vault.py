@@ -11,7 +11,7 @@ Envelope (two layers - the 1Password model):
 - A random 32-byte MASTER KEY per user wraps every API key (AES-GCM, a
   fresh nonce per key). It never touches disk in plaintext.
 - The master key is itself wrapped by a KEK derived from a secret the user
-  knows: the MASA password for local users (``hashlib.scrypt``, the same
+  knows: the MobARK password for local users (``hashlib.scrypt``, the same
   cost parameters as ``app/auth/security.py``), or a dedicated vault
   passphrase for OAuth-only users (who have no password).
 - ``key_wrap.json`` (0600) under the user's store dir holds the wrapped
@@ -225,7 +225,7 @@ def destroy_vault(user_id: int) -> None:
 
 
 def _session_key(raw_token: str) -> bytes:
-    return hashlib.sha256(b"masa-vault-session:" + raw_token.encode()).digest()
+    return hashlib.sha256(b"mobark-vault-session:" + raw_token.encode()).digest()
 
 
 def wrap_for_session(mk: bytes, raw_token: str) -> str:

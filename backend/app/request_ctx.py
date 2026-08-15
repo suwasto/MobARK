@@ -30,9 +30,9 @@ from __future__ import annotations
 from contextvars import ContextVar
 
 current_user_id: ContextVar[int | None] = ContextVar(
-    "masa_current_user_id", default=None
+    "mobark_current_user_id", default=None
 )
 
 current_master_key: ContextVar[bytes | None] = ContextVar(
-    "masa_current_master_key", default=None
+    "mobark_current_master_key", default=None
 )

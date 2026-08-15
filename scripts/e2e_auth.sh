@@ -21,7 +21,7 @@
 #   Phase 6 - OAuth providers: absent by default (providers == [local]);
 #     with GitHub/Google client env set, the list gains both (the login
 #     view's button rule - no config, no button).
-#   Phase 7 - auth-off parity: MASA_AUTH_ENABLED=0 restores the fully-open
+#   Phase 7 - auth-off parity: MOBARK_AUTH_ENABLED=0 restores the fully-open
 #     behavior - /scans readable with NO session, /auth/me -> null,
 #     register/login inert (400).
 #
@@ -42,7 +42,7 @@ API="$BASE/api/v1"
 APK="${1:-$ROOT/docs/InsecureBankv2.apk}"
 PYTHON="${PYTHON:-$ROOT/backend/.venv/bin/python}"
 FRESH="${FRESH:-1}"
-WORK="$(mktemp -d /tmp/masa_auth_e2e.XXXXXX)"
+WORK="$(mktemp -d /tmp/mobark_auth_e2e.XXXXXX)"
 KEEP_STACK="${KEEP_STACK:-0}"
 cleanup() {
   rm -rf "$WORK"
@@ -76,7 +76,7 @@ else:
 # ---- fresh volume ------------------------------------------------------------
 
 if [ "$FRESH" = "1" ]; then
-  echo "== fresh volume (down -v wipes masa-data + redis-data) =="
+  echo "== fresh volume (down -v wipes mobark-data + redis-data) =="
   docker compose down -v >/dev/null 2>&1 || true
 fi
 
@@ -120,7 +120,7 @@ ADMIN=$(curl -fsS -c "$WORK/admin.jar" -X POST "$API/auth/register" \
 echo "  user: $(printf '%s' "$ADMIN" | json_get user.username) admin=$(printf '%s' "$ADMIN" | json_get user.is_admin)"
 [ "$(printf '%s' "$ADMIN" | json_get user.is_admin)" = "true" ] \
   || fail "first registered user must be admin"
-grep -q "masa_session" "$WORK/admin.jar" || fail "register did not set the session cookie"
+grep -q "mobark_session" "$WORK/admin.jar" || fail "register did not set the session cookie"
 pass "admin registered + session cookie"
 
 # logout -> me 401; login -> me 200 (the session surface round-trip)
@@ -181,7 +181,7 @@ docker compose exec -T app sh -c \
   'printf "PK\x03\x04" > /tmp/unowned.apk && python -m app.cli scan /tmp/unowned.apk' \
   >/dev/null
 UNOWNED_ID=$(docker compose exec -T app python -c \
-  "import sqlite3; c=sqlite3.connect('/data/masa.db'); print(c.execute('SELECT id FROM scans ORDER BY id DESC LIMIT 1').fetchone()[0])")
+  "import sqlite3; c=sqlite3.connect('/data/mobark.db'); print(c.execute('SELECT id FROM scans ORDER BY id DESC LIMIT 1').fetchone()[0])")
 echo "  unowned scan $UNOWNED_ID"
 
 # invisible to everyone before the claim (admin included)
@@ -223,8 +223,8 @@ case "$PROV" in *github*) fail "github must be ABSENT without env keys: $PROV" ;
 pass "providers = [local] without OAuth env"
 
 echo "  restart with GitHub/Google env set..."
-MASA_GITHUB_CLIENT_ID=ci-test MASA_GITHUB_CLIENT_SECRET=ci-test \
-MASA_GOOGLE_CLIENT_ID=ci-test.apps.googleusercontent.com MASA_GOOGLE_CLIENT_SECRET=ci-test \
+MOBARK_GITHUB_CLIENT_ID=ci-test MOBARK_GITHUB_CLIENT_SECRET=ci-test \
+MOBARK_GOOGLE_CLIENT_ID=ci-test.apps.googleusercontent.com MOBARK_GOOGLE_CLIENT_SECRET=ci-test \
   docker compose up -d app worker >/dev/null
 for _ in $(seq 1 60); do
   if curl -fsS "$API/health" >/dev/null 2>&1; then break; fi
@@ -238,8 +238,8 @@ pass "providers include github + google with env keys"
 
 # ---- Phase 7: auth-off parity ----------------------------------------------------
 
-echo "== Phase 7: MASA_AUTH_ENABLED=0 restores the open behavior =="
-MASA_AUTH_ENABLED=0 docker compose up -d app worker >/dev/null
+echo "== Phase 7: MOBARK_AUTH_ENABLED=0 restores the open behavior =="
+MOBARK_AUTH_ENABLED=0 docker compose up -d app worker >/dev/null
 for _ in $(seq 1 60); do
   if curl -fsS "$API/health" >/dev/null 2>&1; then break; fi
   sleep 2

@@ -12,8 +12,8 @@
  * M5 design tokens (Tailwind v4, CSS-first - no tailwind.config.js).
  *
  * Neutrals + severity colors come from the dashboard mockups
- * (docs/masa-dashboard-*.html). The primary accent - `steel` - is the MASA
- * brand emerald taken from docs/icons/masa_icon_only.svg (owner decision,
+ * (docs/mobark-dashboard-*.html). The primary accent - `steel` - is the MobARK
+ * brand emerald taken from docs/icons/mobark_icon_only.svg (owner decision,
  * M5 Phase B): it replaces the mockup's blue #5C9BB8 so the whole UI reads
  * as the brand, while keeping the semantic severity hues intact.
  * ------------------------------------------------------------------------- */
@@ -26,7 +26,7 @@
   --color-bone: #e8e6df;
   --color-bone-dim: #9ba3a9;
   --color-bone-faint: #6c747a;
-  /* Brand emerald family (from masa_icon_only.svg) - primary accent. */
+  /* Brand emerald family (from mobark_icon_only.svg) - primary accent. */
   --color-steel: #23cf92;
   --color-steel-dim: #018a5e;
   --color-emerald: #1ed394;

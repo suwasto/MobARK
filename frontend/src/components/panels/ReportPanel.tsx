@@ -177,7 +177,7 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
             <Markdown text={body.markdown} />
           </div>
           <div className="mt-3 border-t border-line-soft pt-2.5 font-mono text-[10px] text-bone-faint">
-            Assembled {formatRelative(body.generatedAt)} · MASA security
+            Assembled {formatRelative(body.generatedAt)} · MobARK security
             report · what Export .md downloads
           </div>
         </div>
@@ -200,7 +200,7 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
             </div>
           )}
           <div className="mt-3 border-t border-line-soft pt-2.5 font-mono text-[10px] text-bone-faint">
-            Assembled {formatRelative(body.generatedAt)} · MASA security report
+            Assembled {formatRelative(body.generatedAt)} · MobARK security report
           </div>
         </div>
       )}

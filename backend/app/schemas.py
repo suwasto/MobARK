@@ -870,7 +870,7 @@ class AuthResponse(BaseModel):
 
 class ProvidersResponse(BaseModel):
     """What the login page renders. ``auth_enabled`` lets the frontend skip
-    the login screen entirely in dev/CI parity mode (``MASA_AUTH_ENABLED=0``);
+    the login screen entirely in dev/CI parity mode (``MOBARK_AUTH_ENABLED=0``);
     ``providers`` lists the configured sign-in methods - Phase A ships
     ``local`` always; Phase B appends ``github``/``google`` only when their
     client id + secret env vars are set (buttons render only for configured

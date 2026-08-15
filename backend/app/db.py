@@ -28,7 +28,7 @@ engine = create_engine(settings.database_url, connect_args=_connect_args)
 
 @event.listens_for(engine, "connect")
 def _set_sqlite_pragma(dbapi_connection, _connection_record) -> None:
-    """SQLite does not enforce foreign keys by default; MASA relies on ON DELETE CASCADE."""
+    """SQLite does not enforce foreign keys by default; MobARK relies on ON DELETE CASCADE."""
     if settings.database_url.startswith("sqlite"):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")

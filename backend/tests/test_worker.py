@@ -15,7 +15,7 @@ def test_dummy_job_returns_expected_result():
 def test_dummy_job_round_trip_via_rq():
     """M0 acceptance: enqueue -> worker processes -> job finished with result.
 
-    Requires Redis reachable at MASA_REDIS_URL and a running RQ worker, e.g.:
+    Requires Redis reachable at MOBARK_REDIS_URL and a running RQ worker, e.g.:
         docker compose up -d redis worker
     or, with a local Redis:  python worker.py
     """

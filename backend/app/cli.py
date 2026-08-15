@@ -351,7 +351,7 @@ def cmd_model_health(backend_id: str | None) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="masa-cli", description="MASA M1 analysis CLI")
+    parser = argparse.ArgumentParser(prog="mobark-cli", description="MobARK M1 analysis CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_run = sub.add_parser("run", help="run analysis synchronously")

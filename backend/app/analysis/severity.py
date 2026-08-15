@@ -13,15 +13,15 @@ from __future__ import annotations
 # Aug 15, 2026).
 SEMGREP_SEVERITY = {"ERROR": "high", "WARNING": "warning", "INFO": "info"}
 
-# Per-rule severity overrides for the curated MASA rules (the vendored MASTG
+# Per-rule severity overrides for the curated MobARK rules (the vendored MASTG
 # rules keep their as-shipped severity - their calibration is a separate
 # decision). Semgrep's ERROR already maps to high (the top severity since
 # the critical band was removed), so these entries document which rules are
 # treated as the worst class rather than changing the mapped value.
 SEMGREP_OVERRIDES = {
     # Complete TLS verification bypass - direct MITM compromise.
-    "masa-android-all-hostname-verifier": "high",
-    "masa-android-insecure-trust-manager": "high",
+    "mobark-android-all-hostname-verifier": "high",
+    "mobark-android-insecure-trust-manager": "high",
 }
 
 # Gitleaks has no severity concept; secrets default to ``high`` with a

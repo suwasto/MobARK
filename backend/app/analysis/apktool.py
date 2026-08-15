@@ -24,12 +24,12 @@ class ApktoolError(Exception):
 
 def apktool_binary() -> str:
     """The apktool launcher: a *_CMD override, the vendored wrapper script
-    (container: /opt/masa-tools/apktool/apktool -> java -jar apktool.jar),
+    (container: /opt/mobark-tools/apktool/apktool -> java -jar apktool.jar),
     or apktool on PATH (host dev)."""
     bin_path = resolve_binary("apktool", "apktool_cmd", tools_subdir="apktool/apktool")
     if bin_path is None:
         raise ApktoolError(
-            "apktool not found on PATH (install it or set MASA_APKTOOL_CMD)"
+            "apktool not found on PATH (install it or set MOBARK_APKTOOL_CMD)"
         )
     return bin_path
 

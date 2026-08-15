@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new feature or improvement for MASA
+description: Propose a new feature or improvement for MobARK
 labels: ["enhancement"]
 body:
   - type: markdown

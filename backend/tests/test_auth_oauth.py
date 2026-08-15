@@ -6,7 +6,7 @@ state+verifier cookie, the callback happy path per provider (token exchange
 data + profile fetch), the google ``email_verified`` gate, state rejection
 (CSRF), verified-email account linking, the first-OAuth-user admin + legacy
 claim, provider-unreachable -> clean error redirect, and the redirect_uri
-always deriving from ``MASA_PUBLIC_BASE_URL``.
+always deriving from ``MOBARK_PUBLIC_BASE_URL``.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def oauth_env(monkeypatch):
     monkeypatch.setattr(app.config.settings, "github_client_secret", "gh_secret")
     monkeypatch.setattr(app.config.settings, "google_client_id", "gg_id")
     monkeypatch.setattr(app.config.settings, "google_client_secret", "gg_secret")
-    monkeypatch.setattr(app.config.settings, "public_base_url", "http://masa.example")
+    monkeypatch.setattr(app.config.settings, "public_base_url", "http://mobark.example")
     return None
 
 
@@ -93,7 +93,7 @@ def _cookie_payload(response, provider: str) -> dict:
     from http.cookies import SimpleCookie
 
     jar = SimpleCookie(response.headers["set-cookie"])
-    return json.loads(jar[f"masa_oauth_{provider}"].value)
+    return json.loads(jar[f"mobark_oauth_{provider}"].value)
 
 
 # ---- start: URL shape + state/PKCE cookie -----------------------------------
@@ -104,13 +104,13 @@ def test_start_github_url_shape_and_state_cookie(unauth_client, oauth_env):
     assert params["client_id"] == ["gh_id"]
     assert params["response_type"] == ["code"]
     assert params["redirect_uri"] == [
-        "http://masa.example/api/v1/auth/oauth/github/callback"
+        "http://mobark.example/api/v1/auth/oauth/github/callback"
     ]
     assert "read:user" in params["scope"][0]
     # github: state only, NO PKCE
     assert "code_challenge" not in params
     cookie_header = r.headers["set-cookie"]
-    assert "masa_oauth_github" in cookie_header
+    assert "mobark_oauth_github" in cookie_header
     assert "httponly" in cookie_header.lower()
     assert "path=/api/v1/auth/oauth/github" in cookie_header.lower()
     payload = _cookie_payload(r, "github")
@@ -122,7 +122,7 @@ def test_start_google_includes_pkce(unauth_client, oauth_env):
     r, params, _state = _start(unauth_client, "google")
     assert params["client_id"] == ["gg_id"]
     assert params["redirect_uri"] == [
-        "http://masa.example/api/v1/auth/oauth/google/callback"
+        "http://mobark.example/api/v1/auth/oauth/google/callback"
     ]
     assert params["code_challenge_method"] == ["S256"]
     assert params["code_challenge"][0]
@@ -147,7 +147,7 @@ def test_start_unknown_provider_404(unauth_client, oauth_env):
 
 
 def test_redirect_uri_derived_only_from_config(unauth_client, oauth_env):
-    """The redirect_uri comes from MASA_PUBLIC_BASE_URL - the request cannot
+    """The redirect_uri comes from MOBARK_PUBLIC_BASE_URL - the request cannot
     influence it (no user-supplied redirect param exists; the exchange posts
     the config-derived URI too)."""
     _start(unauth_client, "github")
@@ -159,7 +159,7 @@ def test_redirect_uri_derived_only_from_config(unauth_client, oauth_env):
     )
     params = parse_qs(urlsplit(r2.headers["location"]).query)
     assert params["redirect_uri"] == [
-        "http://masa.example/api/v1/auth/oauth/github/callback"
+        "http://mobark.example/api/v1/auth/oauth/github/callback"
     ]
 
 
@@ -187,13 +187,13 @@ def test_callback_github_happy_path(
     data = calls["post"]["data"]
     assert data["code"] == "the-code"
     assert data["client_secret"] == "gh_secret"
-    assert data["redirect_uri"] == "http://masa.example/api/v1/auth/oauth/github/callback"
+    assert data["redirect_uri"] == "http://mobark.example/api/v1/auth/oauth/github/callback"
     # Profile fetch: Bearer token on the /user endpoint.
     assert calls["get"]["url"] == GITHUB_PROFILE_URL
     assert calls["get"]["headers"]["Authorization"] == "Bearer tok_123"
 
     # The session cookie authenticates /auth/me as the created user.
-    assert unauth_client.cookies.get("masa_session")
+    assert unauth_client.cookies.get("mobark_session")
     me = unauth_client.get("/api/v1/auth/me")
     assert me.status_code == 200
     assert me.json()["username"] == "alice"

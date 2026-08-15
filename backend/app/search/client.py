@@ -18,7 +18,7 @@ has its own small request + parse branch (see ``app/search/providers.py``):
 (>=1.8.0 - Apache-2.0; earlier versions were GPLv3+)** article extraction.
 SSRF-guarded: http(s) scheme only, private/reserved hosts refused at the
 first hop AND on every redirect hop - the agent must never read the user's
-local network (this is the one deliberate egress in MASA).
+local network (this is the one deliberate egress in MobARK).
 
 ``check_backend`` powers the Settings probe: the lightweight pass accepts any
 2xx from the base URL (SearXNG) - keyed engines have no meaningful root
@@ -411,7 +411,7 @@ def web_fetch(
                 # never materializes fully in RAM (review catch; the old
                 # ``resp.content[:max_bytes]`` buffered the whole body first).
                 with client.stream(
-                    "GET", current, headers={"User-Agent": "MASA-agent/0.1"}
+                    "GET", current, headers={"User-Agent": "MobARK-agent/0.1"}
                 ) as resp:
                     if resp.status_code in (301, 302, 303, 307, 308):
                         location = resp.headers.get("location")
@@ -482,7 +482,7 @@ def check_backend(backend: SearchBackend, *, probe: bool = False) -> SearchHealt
         # exists, so a real query IS the honest health check; it also
         # validates the key, surfacing "rejected the API key" cleanly).
         try:
-            rows = query(backend, "MASA connectivity probe", limit=1)
+            rows = query(backend, "MobARK connectivity probe", limit=1)
         except Exception as exc:  # noqa: BLE001 - the probe NEVER raises (the
             # model-health contract); an unexpected engine response (bad JSON
             # shape, parser hiccup) must degrade to a readable failure, not a

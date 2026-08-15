@@ -1,6 +1,6 @@
-"""Safe subprocess runner for MASA's external CLI tools.
+"""Safe subprocess runner for MobARK's external CLI tools.
 
-Every tool MASA shells out to (jadx, gitleaks, semgrep) goes through
+Every tool MobARK shells out to (jadx, gitleaks, semgrep) goes through
 :func:`run_tool` so policy lives in one place: per-tool timeouts, bounded
 capture, and explicit timed-out reporting. Tools are always invoked as
 subprocesses, never imported, per the project's license posture.

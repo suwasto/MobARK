@@ -1,4 +1,4 @@
-# MASA backend — pinned runtime dependencies (M0 + M1).
+# MobARK backend — pinned runtime dependencies (M0 + M1).
 # See docs/licenses.md for the full dependency/license audit.
 #
 # semgrep and gitleaks are CLIs installed separately (Dockerfile), invoked

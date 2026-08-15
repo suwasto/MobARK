@@ -12,7 +12,7 @@ Signing uses **one install-scoped TEST keystore** (decision 7): generated
 once into ``data_dir`` (0600, with a random passphrase stored alongside in a
 0600 file), reused for every rebuild. The output is a *test build* - the
 filename always carries the ``-resigned-test-`` label (decision 9), and the
-certificate is self-signed MASA, never the app's real identity.
+certificate is self-signed MobARK, never the app's real identity.
 
 All tools are subprocess-only (apktool / zipalign / apksigner / keytool are
 Apache-2.0; keytool ships in the bundled JRE) - never imported.
@@ -50,7 +50,7 @@ class BuildArtifact:
     cert_sha256: str
 
 
-_KEYSTORE_ALIAS = "masa-test"
+_KEYSTORE_ALIAS = "mobark-test"
 _KEYSTORE_VALIDITY_DAYS = 10000
 
 
@@ -58,11 +58,11 @@ _KEYSTORE_VALIDITY_DAYS = 10000
 
 
 def keystore_path() -> Path:
-    return settings.data_dir / "masa-test.jks"
+    return settings.data_dir / "mobark-test.jks"
 
 
 def _passfile_path() -> Path:
-    return settings.data_dir / "masa-test.jks.pass"
+    return settings.data_dir / "mobark-test.jks.pass"
 
 
 def _write_0600(path: Path, data: str | bytes) -> None:
@@ -76,11 +76,11 @@ def _write_0600(path: Path, data: str | bytes) -> None:
 
 def _keytool_binary() -> str:
     """keytool ships in the bundled JRE (on PATH in the container); on the
-    host it resolves from PATH too, unless MASA_KEYTOOL_CMD is set."""
+    host it resolves from PATH too, unless MOBARK_KEYTOOL_CMD is set."""
     bin_path = resolve_binary("keytool", "keytool_cmd")
     if bin_path is None:
         raise RebuildError(
-            "signing", "keytool not found - it ships with the JRE (set MASA_KEYTOOL_CMD)"
+            "signing", "keytool not found - it ships with the JRE (set MOBARK_KEYTOOL_CMD)"
         )
     return bin_path
 
@@ -90,7 +90,7 @@ def ensure_keystore() -> tuple[Path, str]:
 
     Returns ``(path, passphrase)``. The passphrase is a fresh random token
     written next to the keystore (both 0600); subsequent calls reuse the
-    stored pair - one keystore per MASA install, exactly like the BYOK key
+    stored pair - one keystore per MobARK install, exactly like the BYOK key
     store precedent. Never the app's real identity: this is a self-signed
     dev keystore for resigned test builds only.
     """
@@ -115,7 +115,7 @@ def ensure_keystore() -> tuple[Path, str]:
         "-keyalg", "RSA",
         "-keysize", "2048",
         "-validity", str(_KEYSTORE_VALIDITY_DAYS),
-        "-dname", "CN=MASA Test Signer, OU=MASA, O=MASA, C=US",
+        "-dname", "CN=MobARK Test Signer, OU=MobARK, O=MobARK, C=US",
         "-storetype", "JKS",
         "-noprompt",
     ]
@@ -142,7 +142,7 @@ def _zipalign_binary() -> str:
         raise RebuildError(
             "zipping",
             "zipalign not found - it ships in the image's build-tools "
-            "(set MASA_ZIPALIGN_CMD)",
+            "(set MOBARK_ZIPALIGN_CMD)",
         )
     return bin_path
 
@@ -155,7 +155,7 @@ def _apksigner_binary() -> str:
         raise RebuildError(
             "signing",
             "apksigner not found - it ships in the image's build-tools "
-            "(set MASA_APKSIGNER_CMD)",
+            "(set MOBARK_APKSIGNER_CMD)",
         )
     return bin_path
 

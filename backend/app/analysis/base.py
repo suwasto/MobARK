@@ -1,4 +1,4 @@
-"""Shared types for MASA analysis stages.
+"""Shared types for MobARK analysis stages.
 
 ``FindingOut`` is the single normalized findings shape every stage emits.
 The DB persistence layer maps it onto the ``findings`` table.

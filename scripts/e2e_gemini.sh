@@ -5,7 +5,7 @@
 # DB + tools) with an actual Google model to prove the agent's edit flow and
 # multi-session persistence work end to end. Default model: Gemini 3.5
 # Flash-Lite (gemini-3.5-flash-lite, stable - the curated list in
-# app/model/providers.py). Override with MASA_E2E_MODEL.
+# app/model/providers.py). Override with MOBARK_E2E_MODEL.
 #
 #   Phase 1 - configure + probe: POST /model/backends {gemini, key, model},
 #     disable any other enabled-with-model backend (pick_chat_backend takes
@@ -25,8 +25,8 @@
 #     history feeds the model across turns.
 #
 # Usage:  scripts/e2e_gemini.sh [apk]
-#   APK defaults to docs/InsecureBankv2.apk. Requires MASA_GEMINI_API_KEY.
-#   MASA_E2E_MODEL overrides the model id (default gemini-3.5-flash-lite).
+#   APK defaults to docs/InsecureBankv2.apk. Requires MOBARK_GEMINI_API_KEY.
+#   MOBARK_E2E_MODEL overrides the model id (default gemini-3.5-flash-lite).
 #   SKIP_BUILD=1 skips the (incremental) docker compose build.
 #   KEEP_STACK=1 leaves the compose stack up (manual inspection).
 set -euo pipefail
@@ -38,8 +38,8 @@ BASE="${BASE:-http://localhost:8000}"
 API="$BASE/api/v1"
 APK="${1:-$ROOT/docs/InsecureBankv2.apk}"
 PYTHON="${PYTHON:-$ROOT/backend/.venv/bin/python}"
-MODEL="${MASA_E2E_MODEL:-gemini-3.5-flash-lite}"
-WORK="$(mktemp -d /tmp/masa_gemini_e2e.XXXXXX)"
+MODEL="${MOBARK_E2E_MODEL:-gemini-3.5-flash-lite}"
+WORK="$(mktemp -d /tmp/mobark_gemini_e2e.XXXXXX)"
 KEEP_STACK="${KEEP_STACK:-0}"
 cleanup() {
   rm -rf "$WORK"
@@ -52,7 +52,7 @@ trap cleanup EXIT
 pass() { printf '  \033[32mok\033[0m %s\n' "$1"; }
 fail() { printf '\033[31mFAIL:\033[0m %s\n' "$1"; exit 1; }
 
-: "${MASA_GEMINI_API_KEY:?MASA_GEMINI_API_KEY is required - set it to a Google AI Studio API key (the script POSTs it to /model/backends)}"
+: "${MOBARK_GEMINI_API_KEY:?MOBARK_GEMINI_API_KEY is required - set it to a Google AI Studio API key (the script POSTs it to /model/backends)}"
 
 # Print one value from a JSON doc on stdin: strings raw, bools lowercase,
 # null -> empty.
@@ -161,7 +161,7 @@ done
 echo "== Phase 1: Gemini backend ($MODEL) =="
 code=$(curl -sS -o "$WORK/backend.json" -w '%{http_code}' -X POST "$API/model/backends" \
   -H 'Content-Type: application/json' \
-  -d "{\"provider_id\": \"gemini\", \"api_key\": \"$MASA_GEMINI_API_KEY\", \"model\": \"$MODEL\"}")
+  -d "{\"provider_id\": \"gemini\", \"api_key\": \"$MOBARK_GEMINI_API_KEY\", \"model\": \"$MODEL\"}")
 [ "$code" = "201" ] || [ "$code" = "200" ] || fail "could not configure the Gemini backend (HTTP $code): $(cat "$WORK/backend.json")"
 pass "backend configured"
 

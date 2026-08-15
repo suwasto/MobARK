@@ -38,7 +38,7 @@ export type View = 'empty' | 'progress' | 'loaded'
  * (dev/CI parity - the login screen never appears). */
 export type AuthState = 'booting' | 'anon' | 'authed'
 
-const ACTIVE_SCAN_KEY = 'masa.activeScanId'
+const ACTIVE_SCAN_KEY = 'mobark.activeScanId'
 
 interface AppContextValue {
   /** First load in flight - shell shows the boot splash. */

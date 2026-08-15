@@ -1,8 +1,8 @@
-# MASA public documentation site.
+# MobARK public documentation site.
 # Docs content lives in the tracked site/docs/ dir (docs/ stays gitignored —
 # it holds internal working notes + sample binaries). Build output goes
 # to _site/ (gitignored). Deploy: .github/workflows/pages.yml → GitHub Pages.
-site_name: MASA — Mobile Application Security Assistant
+site_name: MobARK — Mobile Application Reverse Kit
 site_description: Local-first mobile application security testing — static analysis + AI copilot for Android and iOS, no data leaves your machine.
 site_url: https://suwasto.github.io/masa/
 repo_url: https://github.com/suwasto/masa

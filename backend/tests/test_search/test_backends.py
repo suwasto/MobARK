@@ -32,7 +32,7 @@ def test_seed_creates_bundled_searxng_enabled(tmp_path):
 
 
 def test_seed_respects_searxng_base_url_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("MASA_SEARXNG_BASE_URL", "http://searxng.local:8080")
+    monkeypatch.setenv("MOBARK_SEARXNG_BASE_URL", "http://searxng.local:8080")
     store = SearchStore(tmp_path, settings_obj=Settings())
     assert store.read()[0].base_url == "http://searxng.local:8080"
 
@@ -68,7 +68,7 @@ def test_store_honors_existing_file_over_env(tmp_path, monkeypatch):
     store = SearchStore(tmp_path, settings_obj=_settings())
     store.read()
     store.upsert("searxng", base_url="http://192.168.1.20:8888")
-    monkeypatch.setenv("MASA_SEARXNG_BASE_URL", "http://other:8888")
+    monkeypatch.setenv("MOBARK_SEARXNG_BASE_URL", "http://other:8888")
     reloaded = SearchStore(tmp_path, settings_obj=Settings()).read()
     assert reloaded[0].base_url == "http://192.168.1.20:8888"
 
@@ -202,14 +202,14 @@ def test_repr_never_leaks_api_key():
 
 def test_keyed_providers_seed_only_with_env_key(tmp_path, monkeypatch):
     """Mirror of the model BYOK rule: a keyed search provider seeds only when
-    a real API key is configured via env (MASA_BRAVE_API_KEY etc.) - no
+    a real API key is configured via env (MOBARK_BRAVE_API_KEY etc.) - no
     unusable keyless entry is ever created. Seeded DISABLED so the radio
     keeps the bundled engine Active by default."""
-    monkeypatch.delenv("MASA_BRAVE_API_KEY", raising=False)
+    monkeypatch.delenv("MOBARK_BRAVE_API_KEY", raising=False)
     plain = SearchStore(tmp_path / "plain", settings_obj=Settings()).read()
     assert [b.id for b in plain] == ["searxng"]
 
-    monkeypatch.setenv("MASA_BRAVE_API_KEY", "bsk-env-secret")
+    monkeypatch.setenv("MOBARK_BRAVE_API_KEY", "bsk-env-secret")
     keyed = SearchStore(tmp_path / "keyed", settings_obj=Settings()).read()
     ids = [b.id for b in keyed]
     assert ids == ["searxng", "brave"]

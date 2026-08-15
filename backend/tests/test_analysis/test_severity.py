@@ -16,10 +16,10 @@ def test_semgrep_curated_overrides_are_high():
     # Owner calibration (Aug 7): complete TLS verification bypasses were
     # critical; after the critical band was removed (Aug 8) they are high -
     # the top severity.
-    assert semgrep_severity("masa-android-all-hostname-verifier", "ERROR") == "high"
-    assert semgrep_severity("masa-android-insecure-trust-manager", "ERROR") == "high"
+    assert semgrep_severity("mobark-android-all-hostname-verifier", "ERROR") == "high"
+    assert semgrep_severity("mobark-android-insecure-trust-manager", "ERROR") == "high"
     # Non-overridden rules keep the native mapping.
-    assert semgrep_severity("masa-android-webview-javascript-enabled", "ERROR") == "high"
+    assert semgrep_severity("mobark-android-webview-javascript-enabled", "ERROR") == "high"
     assert semgrep_severity("some-mastg-rule", "WARNING") == "warning"
     assert semgrep_severity("unknown", "NONSENSE") == "info"
 

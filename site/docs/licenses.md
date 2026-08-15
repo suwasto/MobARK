@@ -1,22 +1,22 @@
 # Third-party licenses
 
-**MASA itself is Apache-2.0** (see [LICENSE](https://github.com/suwasto/masa/blob/main/LICENSE)).
+**MobARK itself is Apache-2.0** (see [LICENSE](https://github.com/suwasto/masa/blob/main/LICENSE)).
 This page is the public attribution summary; the full audit (versions,
 pins, decision history) lives in
 [`docs/licenses.md`](https://github.com/suwasto/masa/blob/main/docs/licenses.md)
-(in the repository working tree — it is gitignored).
+(in the repository working tree: it is gitignored).
 
 ## Compliance posture
 
-MASA ships under Apache-2.0. Any **GPL/LGPL-licensed tool** in the stack
+MobARK ships under Apache-2.0. Any **GPL/LGPL-licensed tool** in the stack
 is invoked strictly as a **subprocess / separate container** and never
-imported as a library — the copyleft never crosses a process boundary:
+imported as a library: the copyleft never crosses a process boundary:
 
-- **Semgrep** (LGPL-2.1) — CLI subprocess from an isolated venv
-- **SearXNG** (AGPL-3.0) — unmodified separate container, reached only
+- **Semgrep** (LGPL-2.1): CLI subprocess from an isolated venv
+- **SearXNG** (AGPL-3.0): unmodified separate container, reached only
   over its HTTP JSON API
 
-All libraries actually imported by MASA are permissive (MIT /
+All libraries actually imported by MobARK are permissive (MIT /
 Apache-2.0 / BSD).
 
 ## Backend runtime dependencies (pinned in `backend/requirements.txt`)
@@ -42,7 +42,7 @@ Apache-2.0 / BSD).
 | markdown (Python-Markdown) | BSD-3-Clause |
 | graphifyy | MIT/Apache-2.0 dual (CLI subprocess) |
 
-**Auth + vault note:** the auth system + key vault add **zero** new runtime dependencies —
+**Auth + vault note:** the auth system + key vault add **zero** new runtime dependencies:
 passwords use stdlib `hashlib.scrypt`, OAuth is hand-rolled over the
 already-pinned `httpx`, session tokens use `secrets` + `hashlib`.
 
@@ -80,9 +80,9 @@ already-pinned `httpx`, session tokens use `secrets` + `hashlib`.
 
 ## Data & rules (not code dependencies)
 
-- **OWASP MASTG mapping + vendored semgrep rules** — CC BY-SA 4.0
+- **OWASP MASTG mapping + vendored semgrep rules**: CC BY-SA 4.0
   (two rules rewritten from scratch to remove GPL-3.0 traced bodies).
-- **Sample test artifacts** — InsecureBankv2.apk, iBugBazaar.ipa
+- **Sample test artifacts**: InsecureBankv2.apk, iBugBazaar.ipa
   (used for integration testing only).
 
 The standing rule: run the audit check (`cd backend &&

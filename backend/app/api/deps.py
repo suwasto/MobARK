@@ -41,7 +41,7 @@ async def get_current_user(request: Request, db: DbSession) -> User | None:
     session has no vault wrap - OAuth users who haven't unlocked, or
     auth-off mode).
 
-    Auth-off mode (``MASA_AUTH_ENABLED=0``) returns None - the dev/CI
+    Auth-off mode (``MOBARK_AUTH_ENABLED=0``) returns None - the dev/CI
     parity mode where every guarded route behaves exactly as before M9.1
     (no session, no cookie, no checks, system store).
     """

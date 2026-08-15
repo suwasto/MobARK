@@ -18,7 +18,7 @@ export function BackendsTab() {
   return (
     <div>
       <p className="field-hint" style={{ marginBottom: 16 }}>
-        MASA talks to any locally-served, OpenAI-compatible endpoint. Point it
+        MobARK talks to any locally-served, OpenAI-compatible endpoint. Point it
         at Ollama or LM Studio - no cloud calls unless you enable one in
         &ldquo;Bring your own key&rdquo;.
       </p>

@@ -35,7 +35,7 @@ _SOURCE_CONTEXT_CHARS = 4000
 _DETAIL_CHARS = 1500
 
 _EXPLAIN_SYSTEM = (
-    "You are MASA, a mobile application security assistant. Explain ONE "
+    "You are MobARK, a mobile application reverse engineering assistant. Explain ONE "
     "static-analysis finding in plain language for a mobile pentester: what "
     "it means, why it is a risk in this app, and a concrete fix. Answer in "
     "3-6 sentences. Ground every claim in the finding data and source "
@@ -43,7 +43,7 @@ _EXPLAIN_SYSTEM = (
 )
 
 _SUMMARY_SYSTEM = (
-    "You are MASA, a mobile application security assistant. Write a concise "
+    "You are MobARK, a mobile application reverse engineering assistant. Write a concise "
     "executive summary of this static-analysis scan (3-5 sentences): the "
     "overall security posture, the most important findings and why they "
     "matter, and the top priorities to fix. Ground every claim in the JSON "

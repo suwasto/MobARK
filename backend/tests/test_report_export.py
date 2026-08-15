@@ -63,7 +63,7 @@ def test_get_report_returns_assembled_body(
     r = client.get(f"/api/v1/scans/{scan_id}/report")
     assert r.status_code == 200
     body = r.json()
-    assert "# MASA security report" in body["markdown"]
+    assert "# MobARK security report" in body["markdown"]
     assert "## Executive summary" in body["markdown"]
     # The body renders with NO model configured - never a 400 (decision 10),
     # and the summary is a deterministic roll-up, not an AI placeholder
@@ -100,7 +100,7 @@ def test_get_report_empty_scan_and_pdf_exports(
     text = " ".join(
         (page.extract_text() or "") for page in PdfReader(io.BytesIO(r.content)).pages
     )
-    assert "MASA security report" in " ".join(text.split())
+    assert "MobARK security report" in " ".join(text.split())
 
 
 def test_get_report_suppressed_only_footnote(
@@ -265,7 +265,7 @@ def test_export_pdf_magic_and_section_headings(
     reader = PdfReader(io.BytesIO(pdf))
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
     text = " ".join(text.split())  # normalize extraction whitespace
-    assert "MASA security report" in text
+    assert "MobARK security report" in text
     assert "Executive summary" in text
     assert "Insecure WebView" in text
     assert "WebView.java:42" in text
@@ -354,7 +354,7 @@ def test_render_pdf_rejects_invalid_output(monkeypatch):
         report_pdf, "_render_bounded", lambda fragment, stem, meta=None: b""
     )
     try:
-        report_pdf.render_pdf("# MASA security report", stem="app")
+        report_pdf.render_pdf("# MobARK security report", stem="app")
     except report_pdf.ReportPdfError as exc:
         assert "invalid or empty" in str(exc)
     else:  # pragma: no cover - the gate must raise
@@ -366,7 +366,7 @@ def test_render_pdf_size_cap(monkeypatch):
 
     monkeypatch.setattr(app.config.settings, "report_pdf_max_html_bytes", 32)
     try:
-        report_pdf.render_pdf("# MASA security report" * 20, stem="app")
+        report_pdf.render_pdf("# MobARK security report" * 20, stem="app")
     except report_pdf.ReportPdfError as exc:
         assert "too large" in str(exc)
     else:  # pragma: no cover
@@ -433,14 +433,14 @@ def test_font_registration_falls_back_to_helvetica(tmp_path, monkeypatch):
     fake.write_bytes(b"definitely not a ttf")
     monkeypatch.setattr(app.config.settings, "report_font_path", fake)
     assert report_pdf._register_font() == "Helvetica"
-    # The DejaVu "MasaReport" family branch is exercised in the image (Phase
+    # The DejaVu "MobarkReport" family branch is exercised in the image (Phase
     # E containerized e2e) - no real TTF is available on the host.
 
 
 def test_wordmark_data_is_vendored_and_render_ready():
     """The wordmark module (scripts/sync_wordmark.py output) carries the
     vector logo paths + a decodable raster - the PDF cover draws the REAL
-    MASA brand, not a text approximation."""
+    real logo, not a text approximation."""
     import base64 as _b64
     import io as _io
     import re
@@ -460,7 +460,7 @@ def test_wordmark_data_is_vendored_and_render_ready():
         / "frontend"
         / "src"
         / "assets"
-        / "masa-wordmark.svg"
+        / "mobark-wordmark.svg"
     )
     assert svg.is_file(), "wordmark SVG missing"
     live_sha = hashlib.sha256(svg.read_bytes()).hexdigest()
@@ -500,7 +500,7 @@ def test_wordmark_failure_falls_back_to_text(monkeypatch, capsys):
 
     monkeypatch.setattr(report_pdf, "_draw_wordmark", _boom)
     body = (
-        "# MASA security report\n\n"
+        "# MobARK security report\n\n"
         "- **App:** app.apk (android)\n\n"
         "- **Security score:** 50/100 - Medium security (risk "
         "50/100 · Medium)\n\n"
@@ -513,14 +513,14 @@ def test_wordmark_failure_falls_back_to_text(monkeypatch, capsys):
     text = " ".join(
         (page.extract_text() or "") for page in PdfReader(io.BytesIO(pdf)).pages
     )
-    assert "MASA SECURITY ASSESSMENT" in text  # the text fallback
+    assert "MOBARK SECURITY ASSESSMENT" in text  # the text fallback
 
 
 def test_cover_meta_parses_header_and_breakdown():
     """The cover derives its facts from the assembled body's own header +
     severity breakdown lines (one body, two media - no parallel assembly)."""
     meta = report_pdf._cover_meta(
-        "# MASA security report\n\n"
+        "# MobARK security report\n\n"
         "- **App:** InsecureBankv2.apk (android)\n"
         "- **Analyzed:** 2026-08-12 12:36 UTC\n"
         "- **Security score:** 12/100 - Low security (risk "
@@ -544,7 +544,7 @@ def test_cover_meta_parses_header_and_breakdown():
 def test_cover_meta_tolerates_missing_facts():
     """A truncated / no-AI / unscoreable body still yields a clean cover - no
     field is required (the gauge shows "-" when there is no score)."""
-    meta = report_pdf._cover_meta("# MASA security report\n\nNo findings.\n")
+    meta = report_pdf._cover_meta("# MobARK security report\n\nNo findings.\n")
     assert meta["app"] is None
     assert meta["score"] is None
     assert meta["counts"] == {}
@@ -564,7 +564,7 @@ def test_cover_page_renders_brand_and_gauge():
     from pypdf import PdfReader
 
     body = (
-        "# MASA security report\n\n"
+        "# MobARK security report\n\n"
         "- **App:** InsecureBankv2.apk (android)\n"
         "- **Analyzed:** 2026-08-12 12:36 UTC\n"
         "- **Security score:** 12/100 - Low security (risk "
@@ -580,7 +580,7 @@ def test_cover_page_renders_brand_and_gauge():
     assert len(reader.pages) >= 2  # cover + at least one body page
     text = " ".join((page.extract_text() or "") for page in reader.pages)
     text = " ".join(text.split())
-    # The brand band draws the REAL wordmark: the raster "MASA" text is
+    # The brand band draws the real wordmark: the raster brand text is
     # embedded as an image on page 1 (vector logo paths are not extractable
     # text - the image presence IS the contract gate here).
     page1_images = list(reader.pages[0].images)

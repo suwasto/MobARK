@@ -1,4 +1,4 @@
-# MASA — local-first mobile pentest dashboard
+# MobARK — local-first mobile pentest dashboard
 # Services: app (FastAPI) + worker (RQ) + redis + searxng all always-on — a
 # plain `docker compose up` starts the whole stack, including the bundled
 # SearXNG the agent's web research searches through (M7; owner change Aug 14:
@@ -7,7 +7,7 @@
 # is stopped).
 #
 # Prerequisites:
-#   - Ollama / LM Studio running on the HOST (MASA never bundles an LLM; M3+ connects outward)
+#   - Ollama / LM Studio running on the HOST (MobARK never bundles an LLM; M3+ connects outward)
 #   - Docker with the Compose v2 plugin (or standalone docker-compose)
 
 services:
@@ -31,54 +31,54 @@ services:
       redis:
         condition: service_healthy
     environment:
-      MASA_DATABASE_URL: sqlite:////data/masa.db
-      MASA_REDIS_URL: redis://redis:6379/0
-      MASA_DATA_DIR: /data
-      MASA_LOG_LEVEL: INFO
+      MOBARK_DATABASE_URL: sqlite:////data/mobark.db
+      MOBARK_REDIS_URL: redis://redis:6379/0
+      MOBARK_DATA_DIR: /data
+      MOBARK_LOG_LEVEL: INFO
       # M9.1 auth: ON by default (owner decision). A fresh stack lands on the
       # register/login screen; the first registered user is the admin.
-      # Set MASA_AUTH_ENABLED=0 to restore the fully-open pre-M9.1 behavior
-      # (dev/CI parity). MASA_SESSION_DAYS / MASA_COOKIE_SECURE are the other
+      # Set MOBARK_AUTH_ENABLED=0 to restore the fully-open pre-M9.1 behavior
+      # (dev/CI parity). MOBARK_SESSION_DAYS / MOBARK_COOKIE_SECURE are the other
       # knobs (cookie Secure=1 when serving over TLS).
-      MASA_AUTH_ENABLED: ${MASA_AUTH_ENABLED:-1}
-      MASA_SESSION_DAYS: ${MASA_SESSION_DAYS:-7}
-      MASA_COOKIE_SECURE: ${MASA_COOKIE_SECURE:-0}
+      MOBARK_AUTH_ENABLED: ${MOBARK_AUTH_ENABLED:-1}
+      MOBARK_SESSION_DAYS: ${MOBARK_SESSION_DAYS:-7}
+      MOBARK_COOKIE_SECURE: ${MOBARK_COOKIE_SECURE:-0}
       # M9.1 OAuth: pass through the provider credentials + the public base
       # URL (redirect_uris derive from it). Unset = the provider's button
       # does not render (owner decision 1).
-      MASA_GITHUB_CLIENT_ID: ${MASA_GITHUB_CLIENT_ID:-}
-      MASA_GITHUB_CLIENT_SECRET: ${MASA_GITHUB_CLIENT_SECRET:-}
-      MASA_GOOGLE_CLIENT_ID: ${MASA_GOOGLE_CLIENT_ID:-}
-      MASA_GOOGLE_CLIENT_SECRET: ${MASA_GOOGLE_CLIENT_SECRET:-}
-      MASA_PUBLIC_BASE_URL: ${MASA_PUBLIC_BASE_URL:-http://localhost:8000}
+      MOBARK_GITHUB_CLIENT_ID: ${MOBARK_GITHUB_CLIENT_ID:-}
+      MOBARK_GITHUB_CLIENT_SECRET: ${MOBARK_GITHUB_CLIENT_SECRET:-}
+      MOBARK_GOOGLE_CLIENT_ID: ${MOBARK_GOOGLE_CLIENT_ID:-}
+      MOBARK_GOOGLE_CLIENT_SECRET: ${MOBARK_GOOGLE_CLIENT_SECRET:-}
+      MOBARK_PUBLIC_BASE_URL: ${MOBARK_PUBLIC_BASE_URL:-http://localhost:8000}
       # M3: reach the host's LLM servers from inside the container. On Linux
       # this needs the extra_hosts host-gateway mapping below.
-      MASA_OLLAMA_BASE_URL: http://host.docker.internal:11434
-      MASA_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      MOBARK_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      MOBARK_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
       # M7: reach the bundled SearXNG from INSIDE the compose network — the
       # host-published localhost:8888 is not visible in-container (owner
       # report, Aug 9: Connection refused on the seeded default). The search
       # store seeds from this on first read; an existing search_backends.json
       # keeps its own URL (edit it in Settings -> Search & research).
-      MASA_SEARXNG_BASE_URL: http://searxng:8080
-      # Dev-only fake LLM (M6 follow-up): MASA_FAKE_MODEL=1 seeds the
+      MOBARK_SEARXNG_BASE_URL: http://searxng:8080
+      # Dev-only fake LLM (M6 follow-up): MOBARK_FAKE_MODEL=1 seeds the
       # deterministic "fake" backend so the Agent dock's live tool steps +
       # token streaming (incl. the M7 web-research demo) work with zero
       # Ollama. Default off — real installs never see it.
-      MASA_FAKE_MODEL: ${MASA_FAKE_MODEL:-0}
+      MOBARK_FAKE_MODEL: ${MOBARK_FAKE_MODEL:-0}
       # M9 e2e: seed the Google Gemini API key (BYOK) into the stack. The
       # Settings BYOK flow + POST /model/backends are the runtime paths;
       # this env is the scripted path (scripts/e2e_gemini.sh configures via
       # the API regardless, so a store that already exists keeps working).
-      MASA_GEMINI_API_KEY: ${MASA_GEMINI_API_KEY:-}
+      MOBARK_GEMINI_API_KEY: ${MOBARK_GEMINI_API_KEY:-}
       # M4 agent chat: local models (especially thinking models with big
       # findings contexts) are slow — give the tool loop a realistic budget.
       # The per-request payload.timeout_seconds can still override this.
-      MASA_CHAT_TIMEOUT_SECONDS: 600
+      MOBARK_CHAT_TIMEOUT_SECONDS: 600
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - masa-data:/data
+      - mobark-data:/data
     ports:
       - "8000:8000"
     # Run migrations, then start the API.
@@ -121,40 +121,42 @@ services:
       # Must match the `app` service: worker and API share the /data DB.
       # (Without this, the worker would default to the image's own ./data
       # dir, splitting the database between services.)
-      MASA_DATABASE_URL: sqlite:////data/masa.db
-      MASA_REDIS_URL: redis://redis:6379/0
-      MASA_DATA_DIR: /data
-      MASA_LOG_LEVEL: INFO
+      MOBARK_DATABASE_URL: sqlite:////data/mobark.db
+      MOBARK_REDIS_URL: redis://redis:6379/0
+      MOBARK_DATA_DIR: /data
+      MOBARK_LOG_LEVEL: INFO
       # M9.1 auth: same knobs as the app service (the worker never touches
       # the auth surface, but the env stays consistent across services).
-      MASA_AUTH_ENABLED: ${MASA_AUTH_ENABLED:-1}
-      MASA_SESSION_DAYS: ${MASA_SESSION_DAYS:-7}
-      MASA_COOKIE_SECURE: ${MASA_COOKIE_SECURE:-0}
+      MOBARK_AUTH_ENABLED: ${MOBARK_AUTH_ENABLED:-1}
+      MOBARK_SESSION_DAYS: ${MOBARK_SESSION_DAYS:-7}
+      MOBARK_COOKIE_SECURE: ${MOBARK_COOKIE_SECURE:-0}
       # M9.1 OAuth: same passthrough as the app service (harmless when unset;
       # the worker never initiates OAuth but keeps identical env).
-      MASA_GITHUB_CLIENT_ID: ${MASA_GITHUB_CLIENT_ID:-}
-      MASA_GITHUB_CLIENT_SECRET: ${MASA_GITHUB_CLIENT_SECRET:-}
-      MASA_GOOGLE_CLIENT_ID: ${MASA_GOOGLE_CLIENT_ID:-}
-      MASA_GOOGLE_CLIENT_SECRET: ${MASA_GOOGLE_CLIENT_SECRET:-}
-      MASA_PUBLIC_BASE_URL: ${MASA_PUBLIC_BASE_URL:-http://localhost:8000}
+      MOBARK_GITHUB_CLIENT_ID: ${MOBARK_GITHUB_CLIENT_ID:-}
+      MOBARK_GITHUB_CLIENT_SECRET: ${MOBARK_GITHUB_CLIENT_SECRET:-}
+      MOBARK_GOOGLE_CLIENT_ID: ${MOBARK_GOOGLE_CLIENT_ID:-}
+      MOBARK_GOOGLE_CLIENT_SECRET: ${MOBARK_GOOGLE_CLIENT_SECRET:-}
+      MOBARK_PUBLIC_BASE_URL: ${MOBARK_PUBLIC_BASE_URL:-http://localhost:8000}
       # M3: same host-LLM reachability as the app service.
-      MASA_OLLAMA_BASE_URL: http://host.docker.internal:11434
-      MASA_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
+      MOBARK_OLLAMA_BASE_URL: http://host.docker.internal:11434
+      MOBARK_LM_STUDIO_BASE_URL: http://host.docker.internal:1234/v1
       # M7: same SearXNG reachability as the app service (the worker can run
       # web-research scans too once the dock opt-in + engine are on).
-      MASA_SEARXNG_BASE_URL: http://searxng:8080
+      MOBARK_SEARXNG_BASE_URL: http://searxng:8080
       # Dev-only fake LLM — same knob as the app service.
-      MASA_FAKE_MODEL: ${MASA_FAKE_MODEL:-0}
+      MOBARK_FAKE_MODEL: ${MOBARK_FAKE_MODEL:-0}
       # Same Gemini key passthrough as the app service (the worker can run
       # web-research scans too; harmless when unset).
-      MASA_GEMINI_API_KEY: ${MASA_GEMINI_API_KEY:-}
+      MOBARK_GEMINI_API_KEY: ${MOBARK_GEMINI_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - masa-data:/data
+      - mobark-data:/data
     command: python worker.py
 
+name: mobark
+
 volumes:
-  masa-data:
+  mobark-data:
   redis-data:
   searxng-data:

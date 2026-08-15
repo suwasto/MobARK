@@ -2,17 +2,17 @@
 # M10 Phase F - render the GitHub social-preview PNG (~1280x640) from the
 # dark-background header art. Uses headless Chrome (same approach as the e2e
 # screenshots): load an HTML page with the dark background + the vendored
-# brand SVG, screenshot the viewport, write site/assets/masa-social-preview.png.
+# brand SVG, screenshot the viewport, write site/assets/mobark-social-preview.png.
 #
 # Usage:  scripts/render_social_preview.sh
 #   CHROME=/path/to/chrome  - override the Chrome binary (auto-detected on macOS/Linux).
-#   OUT=site/assets/masa-social-preview.png - override the output path.
+#   OUT=site/assets/mobark-social-preview.png - override the output path.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-OUT="${OUT:-$ROOT/site/assets/masa-social-preview.png}"
+OUT="${OUT:-$ROOT/site/assets/mobark-social-preview.png}"
 HTML="$ROOT/site/assets/demo/social-preview.html"
 
 if command -v google-chrome >/dev/null 2>&1; then

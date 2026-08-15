@@ -69,7 +69,7 @@ def _make_decoded_scan(db_session_factory, tmp_path, monkeypatch, *, platform="a
     )
     (root / "res" / "values").mkdir(parents=True)
     (root / "res" / "values" / "strings.xml").write_text(
-        '<resources><string name="app_name">MASA</string></resources>\n'
+        '<resources><string name="app_name">MobARK</string></resources>\n'
     )
     return scan_id
 

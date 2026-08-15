@@ -190,7 +190,7 @@ export function ProposalsModal({
             These are <strong>agent proposals</strong> - stored as diffs, never
             applied automatically. Review each file and Apply or Reject it.
             Applied edits join the effective content and are compiled by the
-            next <strong>Edit &amp; recompile</strong> (signed with MASA&rsquo;s
+            next <strong>Edit &amp; recompile</strong> (signed with MobARK&rsquo;s
             test keystore).
           </p>
           {proposals.length === 0 ? (

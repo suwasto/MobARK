@@ -830,7 +830,7 @@ def test_greeting_answered_without_llm_or_backend(env, monkeypatch):
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", fake_pick)
     monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
     result = answer_question(scan_id, "hi")
-    assert "MASA" in result.answer
+    assert "MobARK" in result.answer
     assert result.citations == []
     assert calls["chat"] == 0
     assert calls["pick"] == 0
@@ -842,7 +842,7 @@ def test_greeting_variants_short_circuit(env, monkeypatch):
     monkeypatch.setattr(chat_mod, "client_chat", lambda *a, **k: _resp(_msg("nope")))
     for q in ("Hello!", "hey", "yo", "HI", "howdy", "hola!"):
         result = answer_question(scan_id, q)
-        assert "MASA" in result.answer
+        assert "MobARK" in result.answer
 
 
 def test_greeting_like_question_still_uses_llm(env, monkeypatch):

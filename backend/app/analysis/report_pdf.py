@@ -13,7 +13,7 @@ WHY reportlab and not xhtml2pdf (owner decision, Aug 12 2026 follow-up):
 the Phase C audit (the project's own ``pip-licenses`` check) found
 xhtml2pdf 0.2.17's transitive tree IMPORTS **LGPL python-bidi** (eagerly,
 for RTL text shaping) and **LGPLv3 svglib** (lazy, for SVG images) - a
-violation of MASA's hard posture that all imported libraries are permissive
+violation of MobARK's hard posture that all imported libraries are permissive
 (MIT/Apache-2.0/BSD). WeasyPrint's tree has the same problem (pyphen is
 LGPL/MPL). reportlab is BSD-3-Clause, was already a transitive, and
 rendering the constrained fragment directly (instead of through a full HTML
@@ -23,13 +23,13 @@ LGPL pair + the PAdES (pyHanko) bloat entirely. Severity chips are colored
 boxes with the conventional severity palette (High red · Medium amber ·
 Info slate - owner direction, deliberately distinct from the frontend
 dashboard's brand palette; see below), mono ``file:line``, DejaVu
-Sans TTF family for Unicode text (``MASA_REPORT_FONT`` + its
+Sans TTF family for Unicode text (``MOBARK_REPORT_FONT`` + its
 -Bold/-Oblique/-Mono siblings; Helvetica fallback when missing - never a
 crash).LAYOUT (redesigned Aug 12, 2026 - the manual-review follow-up):
-- **Cover page**: a deep-emerald brand band (the REAL MASA wordmark
+- **Cover page**: a deep-emerald brand band (the real product wordmark
   rendered from the SVG asset - ``scripts/sync_wordmark.py`` vendors
-  ``frontend/src/assets/masa-wordmark.svg`` into ``wordmark_data.py``:
-  vector logo paths + the white raster "MASA" text, cropped to the SVG's
+  ``frontend/src/assets/mobark-wordmark.svg`` into ``wordmark_data.py``:
+  vector logo paths + the white raster brand text, cropped to the SVG's
   pattern-visible region; the same file the TopBar renders; app filename +
   platform chip), a canvas-drawn **security gauge** (the frontend
   SecurityGauge's discrete CVSS 4.0 band colors), the three severity count
@@ -54,8 +54,8 @@ Info slate** (the low band was dropped and medium renamed warning Aug 15,
 standard pentest deliverable while the app keeps its brand palette.
 
 Bounded render (the Phase C contract): the HTML fragment is size-capped
-(``MASA_REPORT_PDF_MAX_HTML_BYTES``) and the render runs under a hard
-deadline (``MASA_REPORT_PDF_TIMEOUT_SECONDS``) on a worker thread - a stuck
+(``MOBARK_REPORT_PDF_MAX_HTML_BYTES``) and the render runs under a hard
+deadline (``MOBARK_REPORT_PDF_TIMEOUT_SECONDS``) on a worker thread - a stuck
 engine can never block the API worker forever. Output is sanity-gated:
 ``%PDF`` magic + a non-trivial size - a silent empty file is a hard error,
 never a 200.
@@ -186,7 +186,7 @@ _FONT_LOCK = threading.Lock()
 
 
 def _register_font() -> str:
-    """Register ``MASA_REPORT_FONT`` + its sibling variants and return the
+    """Register ``MOBARK_REPORT_FONT`` + its sibling variants and return the
     regular family name, or \"Helvetica\" when the file is missing/unreadable
     (never raises). Also registers the bold/italic/mono siblings and the
     family mapping so ``<b>/<i>`` get real glyphs."""
@@ -199,16 +199,16 @@ def _register_font() -> str:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
 
-        pdfmetrics.registerFont(TTFont("MasaReport", str(path)))
-        _FONT_NAME = "MasaReport"
+        pdfmetrics.registerFont(TTFont("MobarkReport", str(path)))
+        _FONT_NAME = "MobarkReport"
         # DejaVu Sans ships -Bold/-Oblique/-BoldOblique beside the regular
         # file; register whatever exists so Paragraph <b>/<i> are real.
-        family = {"normal": "MasaReport", "bold": "MasaReport",
-                  "italic": "MasaReport", "boldItalic": "MasaReport"}
+        family = {"normal": "MobarkReport", "bold": "MobarkReport",
+                  "italic": "MobarkReport", "boldItalic": "MobarkReport"}
         for suffix, name, key in (
-            ("-Bold", "MasaReport-Bold", "bold"),
-            ("-Oblique", "MasaReport-Oblique", "italic"),
-            ("-BoldOblique", "MasaReport-BoldOblique", "boldItalic"),
+            ("-Bold", "MobarkReport-Bold", "bold"),
+            ("-Oblique", "MobarkReport-Oblique", "italic"),
+            ("-BoldOblique", "MobarkReport-BoldOblique", "boldItalic"),
         ):
             variant = path.with_name(path.stem + suffix + path.suffix)
             if variant.is_file():
@@ -217,14 +217,14 @@ def _register_font() -> str:
                     family[key] = name
                 except Exception:  # noqa: BLE001 - a bad variant degrades
                     pass
-        pdfmetrics.registerFontFamily("MasaReport", **family)
-        _BOLD_NAME = family["bold"] if family["bold"] != "MasaReport" else None
+        pdfmetrics.registerFontFamily("MobarkReport", **family)
+        _BOLD_NAME = family["bold"] if family["bold"] != "MobarkReport" else None
         # Mono face for file:line / code spans (DejaVuSansMono alongside).
         mono = path.with_name("DejaVuSansMono.ttf")
         if mono.is_file():
             try:
-                pdfmetrics.registerFont(TTFont("MasaMono", str(mono)))
-                _MONO_NAME = "MasaMono"
+                pdfmetrics.registerFont(TTFont("MobarkMono", str(mono)))
+                _MONO_NAME = "MobarkMono"
             except Exception:  # noqa: BLE001
                 pass
         return _FONT_NAME
@@ -553,11 +553,11 @@ def _flowables_for(fragment: str, width: float) -> list:
 
 
 # ---- wordmark -------------------------------------------------------------
-# The real MASA wordmark is vendored from frontend/src/assets/masa-wordmark.svg
+# The product wordmark is vendored from frontend/src/assets/mobark-wordmark.svg
 # by scripts/sync_wordmark.py into wordmark_data.py (the M1 MASTG-vendoring
 # precedent - the app image only ships backend/ + frontend/dist, so the SVG
 # is parsed ONCE at sync time into a render-ready module). The vector logo
-# paths use only the M/L/H/V/Z subset (no curves); the white "MASA" raster
+# paths use only the M/L/H/V/Z subset (no curves); the white raster brand
 # text is a small RGBA PNG composited onto the emerald band with mask='auto'.
 # Rendering is best-effort: ANY failure (bad vendored data, reportlab issue)
 # degrades to the plain text wordmark - never a crash.
@@ -636,8 +636,8 @@ def _wordmark_art(height: float) -> tuple[object, float]:
 
 
 def _draw_wordmark(canvas, cx: float, top: float, height: float) -> None:
-    """Draw the real MASA wordmark on the band: vector logo paths + the
-    white "MASA" raster text, centered on ``cx`` with its top at ``top``.
+    """Draw the product wordmark on the band: vector logo paths + the
+    white raster brand text, centered on ``cx`` with its top at ``top``.
     Raises on any failure - the cover falls back to the text wordmark."""
     from reportlab.graphics import renderPDF
     from reportlab.lib.utils import ImageReader
@@ -820,12 +820,12 @@ def _cover_canvas(meta: dict, canvas, doc) -> None:
     canvas.setFillColor(HexColor("#ffffff"))
     canvas.setFont(_bold_name(), 11)
     try:
-        # The REAL MASA wordmark (SVG-derived vector logo + white raster
+        # The product wordmark (SVG-derived vector logo + white raster
         # text) - a vendored-data/reportlab failure degrades to the plain
         # text wordmark, never a crash.
         _draw_wordmark(canvas, W / 2, H - 34, 50)
     except Exception:  # noqa: BLE001 - bad vendored data degrades to text
-        canvas.drawCentredString(W / 2, H - 50, "MASA SECURITY ASSESSMENT")
+        canvas.drawCentredString(W / 2, H - 50, "MOBARK SECURITY ASSESSMENT")
     app = meta.get("app") or stem
     if len(app) > 40:
         app = app[:38] + "…"  # long stems stay inside the band
@@ -906,7 +906,7 @@ def _cover_canvas(meta: dict, canvas, doc) -> None:
     canvas.saveState()
     canvas.setFont(_font_name(), 7.5)
     canvas.setFillColor(HexColor(_MUTED))
-    canvas.drawString(doc.leftMargin, 0.8 * 72, "MASA security report — Confidential")
+    canvas.drawString(doc.leftMargin, 0.8 * 72, "MobARK security report — Confidential")
     canvas.drawRightString(W - doc.rightMargin, 0.8 * 72, "page 1")
     canvas.restoreState()
 
@@ -932,14 +932,14 @@ def _body_page(canvas, doc) -> None:
     )
     canvas.setFont(_font_name(), 7.5)
     canvas.setFillColor(HexColor(_MUTED))
-    canvas.drawString(doc.leftMargin, H - doc.topMargin + 4, "MASA security report")
+    canvas.drawString(doc.leftMargin, H - doc.topMargin + 4, "MobARK security report")
     canvas.restoreState()
     # Footer: brand left, page number right (reportlab handles page numbers -
     # xhtml2pdf's @page margin boxes could not).
     canvas.saveState()
     canvas.setFont(_font_name(), 7.5)
     canvas.setFillColor(HexColor(_MUTED))
-    canvas.drawString(doc.leftMargin, 0.8 * 72, "MASA security report")
+    canvas.drawString(doc.leftMargin, 0.8 * 72, "MobARK security report")
     canvas.drawRightString(
         W - doc.rightMargin, 0.8 * 72, f"page {doc.page}"
     )
@@ -965,8 +965,8 @@ def _build_doc(fragment: str, stem: str, meta: dict | None = None) -> bytes:
         rightMargin=right,
         topMargin=top,
         bottomMargin=bottom,
-        title=f"MASA security report - {stem}",
-        author="MASA",
+        title=f"MobARK security report - {stem}",
+        author="MobARK",
     )
     meta = dict(meta or {})
     meta["stem"] = stem
@@ -985,7 +985,7 @@ def _build_doc(fragment: str, stem: str, meta: dict | None = None) -> bytes:
 
 
 def _render_bounded(fragment: str, stem: str, meta: dict | None = None) -> bytes:
-    """Render under ``MASA_REPORT_PDF_TIMEOUT_SECONDS`` - a hung or erroring
+    """Render under ``MOBARK_REPORT_PDF_TIMEOUT_SECONDS`` - a hung or erroring
     engine surfaces as ReportPdfError, never a hang or an empty success."""
     holder: dict[str, object] = {}
 
@@ -1017,7 +1017,7 @@ def render_pdf(body: str, *, stem: str) -> bytes:
     """Render the assembled body to branded PDF bytes.
 
     Bounds (the Phase C contract): the HTML fragment handed to the renderer
-    is size-capped (``MASA_REPORT_PDF_MAX_HTML_BYTES``) and the render runs
+    is size-capped (``MOBARK_REPORT_PDF_MAX_HTML_BYTES``) and the render runs
     under a hard deadline; the output is sanity-gated (``%PDF`` magic +
     non-trivial size) - a silent empty file is a ReportPdfError, never a
     silent 200.

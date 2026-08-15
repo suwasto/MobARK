@@ -92,7 +92,7 @@ def test_register_first_user_is_admin_and_sets_cookie(unauth_client, db_session_
     body = r.json()["user"]
     assert body["username"] == "alice"
     assert body["is_admin"] is True  # first registered user = admin (decision 5)
-    assert "masa_session" in r.headers["set-cookie"]
+    assert "mobark_session" in r.headers["set-cookie"]
     with db_session_factory() as db:
         assert count_users(db) == 1
 
@@ -166,7 +166,7 @@ def test_login_success_sets_cookie_and_me_round_trip(unauth_client):
     )
     assert r.status_code == 200
     assert r.json()["user"]["username"] == "alice"
-    assert "masa_session" in r.headers["set-cookie"]
+    assert "mobark_session" in r.headers["set-cookie"]
     # The login cookie now authenticates /auth/me.
     me = unauth_client.get("/api/v1/auth/me")
     assert me.status_code == 200
@@ -185,31 +185,32 @@ def test_login_by_email(unauth_client):
     assert r.status_code == 200
 
 
-def test_login_masa_default_credentials(unauth_client, db_session_factory):
-    """The `masa:masa` login works end to end.
+def test_login_mobark_default_credentials(unauth_client, db_session_factory):
+    """The `mobark:mobark` login works end to end.
 
-    ``masa`` is only 4 chars, so it can't go through the register route's
-    8-char minimum (that's by design - it's a demo/host-seeded credential,
-    not a self-registration). Seed the account directly in the DB the same
-    way the conftest fixture does, then prove the login round-trip: 200 +
-    session cookie, and the cookie now authenticates /auth/me.
+    ``mobark`` is only 6 chars, so the *password* can't pass the register
+    route's 8-char minimum (that's by design - it's a demo/host-seeded
+    credential, not a self-registration). Seed the account directly in the
+    DB the same way the conftest fixture does, then prove the login
+    round-trip: 200 + session cookie, and the cookie now authenticates
+    /auth/me.
     """
     with db_session_factory() as db:
-        user = User(username="masa", password_hash=hash_password("masa"))
+        user = User(username="mobark", password_hash=hash_password("mobark"))
         db.add(user)
         db.commit()
 
     r = unauth_client.post(
         "/api/v1/auth/login",
-        json={"username": "masa", "password": "masa"},
+        json={"username": "mobark", "password": "mobark"},
     )
     assert r.status_code == 200
-    assert r.json()["user"]["username"] == "masa"
-    assert "masa_session" in r.headers["set-cookie"]
+    assert r.json()["user"]["username"] == "mobark"
+    assert "mobark_session" in r.headers["set-cookie"]
 
     me = unauth_client.get("/api/v1/auth/me")
     assert me.status_code == 200
-    assert me.json()["username"] == "masa"
+    assert me.json()["username"] == "mobark"
 
 
 def test_login_no_user_enumeration(unauth_client, db_session_factory):
@@ -377,7 +378,7 @@ def test_get_with_foreign_origin_not_blocked(unauth_client):
     assert r.status_code == 401  # the auth guard, not the origin middleware
 
 
-# ---- auth-off parity mode (MASA_AUTH_ENABLED=0 - dev/CI) --------------------
+# ---- auth-off parity mode (MOBARK_AUTH_ENABLED=0 - dev/CI) ------------------
 
 
 def test_auth_off_open_routes(unauth_client, monkeypatch):

@@ -4,7 +4,7 @@
 
 Please **do not open a public issue** for security vulnerabilities.
 Report them privately via **GitHub private vulnerability reporting**
-(the repository's Security tab → "Report a vulnerability") — or email
+(the repository's Security tab → "Report a vulnerability"), or email
 the maintainer (see the GitHub profile).
 
 Please include:
@@ -19,7 +19,7 @@ after a fix is released (coordinated disclosure).
 
 ## Supported versions
 
-MASA is pre-1.0 and iterates quickly. Security fixes land on `main`
+MobARK is pre-1.0 and iterates quickly. Security fixes land on `main`
 and ship with the next release; there is no LTS line yet. **Run the
 latest release** and rebuild your Docker images (`docker compose build
 && docker compose up -d`) to pick up fixes.
@@ -27,20 +27,20 @@ latest release** and rebuild your Docker images (`docker compose build
 ## Security posture
 
 - **Local-first by design.** Scan data (APK/IPA uploads, decompiled
-  trees, findings) stays on the machine running MASA; the default
+  trees, findings) stays on the machine running MobARK; the default
   configuration makes no outbound network calls except opt-in agent web
-  research. Running MASA on an untrusted network exposes whatever data
-  it holds — keep it on a trusted host, or put the web UI behind your
+  research. Running MobARK on an untrusted network exposes whatever data
+  it holds: keep it on a trusted host, or put the web UI behind your
   own reverse proxy with auth.
 - **Authentication.** Auth is on by default; the first
   registered user is the admin. Session cookies are HttpOnly +
-  SameSite=Lax (Secure when `MASA_COOKIE_SECURE=1` — set it when
+  SameSite=Lax (Secure when `MOBARK_COOKIE_SECURE=1`: set it when
   serving over TLS). Per-user isolation is structural: foreign scans
   read as 404 (no existence leak).
 - **Demo credentials.** The documented local test users
   (`admin` / `password123`, `alice` / `password123`) are **for local
   evaluation only**. Never expose an install with known credentials to
-  a network — change them or register your own accounts.
+  a network: change them or register your own accounts.
 - **Keys at rest.** BYOK model/search API keys are encrypted at rest in
   a per-user vault (scrypt KEK + AES-GCM); the password is the key-
   encryption key.
@@ -52,7 +52,7 @@ latest release** and rebuild your Docker images (`docker compose build
 
 | Setting | Recommendation |
 |---|---|
-| `MASA_COOKIE_SECURE=1` | when serving over TLS |
-| `MASA_PUBLIC_BASE_URL` | set to the real public origin (OAuth redirects derive from it) |
+| `MOBARK_COOKIE_SECURE=1` | when serving over TLS |
+| `MOBARK_PUBLIC_BASE_URL` | set to the real public origin (OAuth redirects derive from it) |
 | OAuth client id/secret | only set the providers you actually use |
-| `MASA_AUTH_ENABLED` | keep `1` (default) on any non-throwaway install |
+| `MOBARK_AUTH_ENABLED` | keep `1` (default) on any non-throwaway install |

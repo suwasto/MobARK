@@ -1,7 +1,7 @@
 """Dev-only fake LLM tests (M6 follow-up) - no network, no Ollama.
 
 The fake is the deterministic stand-in for a real model: seeded by the
-MASA_FAKE_MODEL knob, short-circuited in model/client.py, and scripted in
+MOBARK_FAKE_MODEL knob, short-circuited in model/client.py, and scripted in
 app/model/fake.py. These tests pin the script's shapes (chunk stream,
 buffered response, composed answer) and the store seeding/reconcile logic.
 """
@@ -43,16 +43,16 @@ def _tool_results(messages):
 
 def test_fake_knob_reads_documented_env_var(monkeypatch):
     """Regression: pydantic-settings derives env names from FIELD names, so
-    ``fake_model_enabled`` would silently become MASA_FAKE_MODEL_ENABLED -
-    the documented knob MASA_FAKE_MODEL needs the explicit alias. The
-    live demo run exposed this: the server ignored MASA_FAKE_MODEL=1."""
+    ``fake_model_enabled`` would silently become MOBARK_FAKE_MODEL_ENABLED -
+    the documented knob MOBARK_FAKE_MODEL needs the explicit alias. The
+    live demo run exposed this: the server ignored MOBARK_FAKE_MODEL=1."""
     from app.config import Settings
 
-    monkeypatch.setenv("MASA_FAKE_MODEL", "1")
+    monkeypatch.setenv("MOBARK_FAKE_MODEL", "1")
     assert Settings().fake_model_enabled is True
-    monkeypatch.setenv("MASA_FAKE_MODEL", "0")
+    monkeypatch.setenv("MOBARK_FAKE_MODEL", "0")
     assert Settings().fake_model_enabled is False
-    monkeypatch.delenv("MASA_FAKE_MODEL")
+    monkeypatch.delenv("MOBARK_FAKE_MODEL")
     assert Settings().fake_model_enabled is False
 
 
@@ -109,7 +109,7 @@ def test_store_reconciles_fake_out_when_knob_off(monkeypatch, tmp_path):
 def test_fake_chat_plain_answer_without_tools():
     response = fake_chat_response([{"role": "user", "content": "hi"}], tools=None)
     content = response.choices[0].message.content
-    assert "MASA_FAKE_MODEL" in content
+    assert "MOBARK_FAKE_MODEL" in content
     assert not getattr(response.choices[0].message, "tool_calls", None)
 
 
@@ -137,7 +137,7 @@ def test_fake_chat_round2_composes_answer_from_real_hits():
     response = fake_chat_response(messages, tools=[{"type": "function"}])
     content = response.choices[0].message.content
     assert "com/app/W.java:42" in content
-    assert "MASA_FAKE_MODEL" in content
+    assert "MOBARK_FAKE_MODEL" in content
     assert not getattr(response.choices[0].message, "tool_calls", None)
 
 
@@ -197,14 +197,14 @@ def test_fake_stream_round2_only_answer_tokens():
     assert all(c.choices[0].delta.tool_calls is None for c in chunks)
     answer = "".join(c.choices[0].delta.content for c in chunks)
     assert "com/app/W.java:42" in answer
-    assert "MASA_FAKE_MODEL" in answer
+    assert "MOBARK_FAKE_MODEL" in answer
 
 
 def test_fake_stream_plain_without_tools():
     chunks = list(fake_stream_chunks([{"role": "user", "content": "hi"}], tools=None))
     assert all(c.choices[0].delta.tool_calls is None for c in chunks)
     text = "".join(c.choices[0].delta.content for c in chunks)
-    assert "MASA_FAKE_MODEL" in text
+    assert "MOBARK_FAKE_MODEL" in text
 
 
 def test_fake_stream_rounds_flow_through_real_accumulator():
@@ -289,7 +289,7 @@ def test_fake_web_round2_fetches_top_result_once():
 
 def test_fake_web_round3_failed_fetch_never_retried_cites_results():
     """Regression (containerized e2e, Aug 9): a 403'd page (e.g. medium.com
-    blocking the honest MASA UA) must NOT be re-fetched - the next response
+    blocking the honest MobARK UA) must NOT be re-fetched - the next response
     composes the answer from the search results, citing the top URL, so the
     demo always lands a citation within the default 3 tool rounds instead of
     looping on the same failed fetch until the round limit."""
@@ -340,7 +340,7 @@ def test_client_chat_short_circuits_fake(monkeypatch):
 
     monkeypatch.setattr(client_mod.litellm, "completion", boom)
     response = client_mod.chat(_fake_backend(), [{"role": "user", "content": "hi"}])
-    assert "MASA_FAKE_MODEL" in response.choices[0].message.content
+    assert "MOBARK_FAKE_MODEL" in response.choices[0].message.content
     assert calls["n"] == 0
 
 

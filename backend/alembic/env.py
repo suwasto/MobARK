@@ -14,10 +14,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# MASA_DATABASE_URL (env var) wins over app settings, so tests and CI can
+# MOBARK_DATABASE_URL (env var) wins over app settings, so tests and CI can
 # point Alembic at a scratch database without changing code.
 config.set_main_option(
-    "sqlalchemy.url", os.environ.get("MASA_DATABASE_URL") or settings.database_url
+    "sqlalchemy.url", os.environ.get("MOBARK_DATABASE_URL") or settings.database_url
 )
 
 target_metadata = Base.metadata

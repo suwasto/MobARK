@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vendor OWASP MASTG data into the MASA repo.
+"""Vendor OWASP MASTG data into the MobARK repo.
 
 Downloads the OWASP/owasp-mastg tarball at a pinned ref and writes:
 

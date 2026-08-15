@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useApp } from '../state/AppContext'
 import type { ScanRead } from '../types'
-import wordmarkUrl from '../assets/masa-wordmark.svg'
+import wordmarkUrl from '../assets/mobark-wordmark.svg'
 import { ModelPicker } from './ModelPicker'
 
 interface TopBarProps {
@@ -68,8 +68,8 @@ export function TopBar({ onPickFile, uploading, onOpenSettings, scan }: TopBarPr
     <header className="flex items-center justify-between gap-4 border-b border-line bg-panel px-5">
       {/* Brand */}
       <div className="flex min-w-0 items-center gap-3">
-        <img src={wordmarkUrl} alt="MASA" className="h-[22px] w-auto shrink-0" draggable={false} />
-        <span className="brand-tag hidden lg:inline">Mobile Application Security Assistant</span>
+        <img src={wordmarkUrl} alt="MobARK" className="h-[22px] w-auto shrink-0" draggable={false} />
+        <span className="brand-tag hidden lg:inline">Mobile Application Reverse Kit</span>
       </div>
 
       {/* Actions */}

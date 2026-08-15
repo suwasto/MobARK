@@ -6,7 +6,7 @@
 # the FULL compose stack against the REAL sample artifacts and verifies the
 # report surface end to end:
 #
-#   Phase 1 - Android, no AI (MASA_FAKE_MODEL=0, the honest default):
+#   Phase 1 - Android, no AI (MOBARK_FAKE_MODEL=0, the honest default):
 #     upload InsecureBankv2.apk -> done -> GET /report asserts the sections
 #     AND the no-AI fallback note (decision 10 - the body never 400s on a
 #     missing model); export?format=md streams the SAME cached body with a
@@ -17,7 +17,7 @@
 #     body changes.
 #   Phase 2 - iOS parity: iBugBazaar.ipa -> the binary-profile body + both
 #     exports render (decision 8).
-#   Phase 3 - AI surface: restart the stack with MASA_FAKE_MODEL=1 (the
+#   Phase 3 - AI surface: restart the stack with MOBARK_FAKE_MODEL=1 (the
 #     deterministic dev LLM) -> POST /report/regenerate -> the executive
 #     summary + per-finding explanations land in the cached body.
 #
@@ -40,7 +40,7 @@ PYTHON="${PYTHON:-$ROOT/backend/.venv/bin/python}"
 # guaranteed teardown: the stack is brought down on BOTH success and
 # failure so a failed gate never strands the containers. KEEP_STACK=1
 # skips the down (manual inspection).
-WORK="$(mktemp -d /tmp/masa_e2e.XXXXXX)"
+WORK="$(mktemp -d /tmp/mobark_e2e.XXXXXX)"
 KEEP_STACK="${KEEP_STACK:-0}"
 cleanup() {
   rm -rf "$WORK"
@@ -118,7 +118,7 @@ echo "  scan $AND_ID"
 wait_scan_done "$AND_ID" || fail "scan $AND_ID failed or timed out"
 
 md=$(curl -fsS "$API/scans/$AND_ID/report" | "$PYTHON" -c 'import sys,json;print(json.load(sys.stdin)["markdown"])')
-for needle in "# MASA security report" "## Executive summary" "## Severity breakdown" "## Findings" "## Android surface" "## Dependencies"; do
+for needle in "# MobARK security report" "## Executive summary" "## Severity breakdown" "## Findings" "## Android surface" "## Dependencies"; do
   case "$md" in *"$needle"*) : ;; *) fail "report lacks section: $needle" ;; esac
 done
 case "$md" in *"No AI summary yet"*) pass "no-AI fallback note present (decision 10)" ;; *) fail "expected the no-AI fallback note" ;; esac
@@ -136,7 +136,7 @@ pass "markdown export matches the body"
 # pdf export: %PDF magic + headings + page numbers
 curl -fsS -o "$WORK/report.pdf" "$API/scans/$AND_ID/report/export?format=pdf"
 pdf_text=$(pdf_headings "$WORK/report.pdf") || fail "pdf gate: $pdf_text"
-for needle in "MASA security report" "Executive summary" "InsecureBankv2" "page 1"; do
+for needle in "MobARK security report" "Executive summary" "InsecureBankv2" "page 1"; do
   case "$pdf_text" in *"$needle"*) : ;; *) fail "pdf lacks: $needle" ;; esac
 done
 pass "pdf export: %PDF + headings + page numbers"
@@ -168,8 +168,8 @@ case "$ios_text" in *"iOS binary profile"*) pass "iOS PDF renders the binary pro
 
 # ---- Phase 3: AI surface via the fake model -----------------------------------
 
-echo "== Phase 3: regenerate with the fake model (MASA_FAKE_MODEL=1) =="
-MASA_FAKE_MODEL=1 docker compose up -d app worker
+echo "== Phase 3: regenerate with the fake model (MOBARK_FAKE_MODEL=1) =="
+MOBARK_FAKE_MODEL=1 docker compose up -d app worker
 # The recreate re-runs migrations + uvicorn startup (and seeds the fake
 # backend at import) - wait for health before POSTing.
 for _ in $(seq 1 60); do
@@ -189,5 +189,5 @@ pass "regenerate + cache identity (ai_summary) recompute"
 # ---- gate ----------------------------------------------------------------------
 
 echo "== image size =="
-docker images masa-app:latest --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+docker images mobark-app:latest --format '{{.Repository}}:{{.Tag}} {{.Size}}'
 echo "== PASSED =="

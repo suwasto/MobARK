@@ -326,7 +326,7 @@ def test_chat_stream_not_analyzed_409_and_unknown_404(client, db_session_factory
 
 
 def test_chat_stream_fake_backend_demo_e2e(client, db_session_factory, monkeypatch, tmp_path):
-    """THE dev demo, end-to-end: MASA_FAKE_MODEL=1 + the real agent loop +
+    """THE dev demo, end-to-end: MOBARK_FAKE_MODEL=1 + the real agent loop +
     real tools, streamed through the SSE route - no Ollama anywhere. The
     client sees thinking tokens, two live tool steps (real results), then the
     answer frame with the composed citation + full tool_runs trace."""

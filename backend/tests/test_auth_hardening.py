@@ -11,7 +11,7 @@ tests close the edge list from the plan:
   migration 0014) plus the register route's IntegrityError re-derivation
   are tested at three levels: the schema guarantee, a real threaded race
   through the API, and the sequential second-user-is-not-admin property.
-- **auth-off parity for owned scans** - with MASA_AUTH_ENABLED=0 an OWNED
+- **auth-off parity for owned scans** - with MOBARK_AUTH_ENABLED=0 an OWNED
   scan (user_id set) is fully readable without a session; ownership is
   invisible in parity mode, byte-for-byte the pre-M9.1 open behavior.
 """

@@ -74,7 +74,7 @@ export function LoginView() {
         <div className="mb-7 flex flex-col items-center text-center">
           <BrandMark className="mb-4 h-11 w-auto opacity-90" />
           <h1 className="font-mono text-[17px] font-semibold">
-            {mode === 'login' ? 'Sign in to MASA' : 'Create an account'}
+            {mode === 'login' ? 'Sign in to MobARK' : 'Create an account'}
           </h1>
           <p className="mt-1.5 max-w-[320px] text-[12.5px] leading-relaxed text-bone-faint">
             {firstRun

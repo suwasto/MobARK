@@ -21,7 +21,7 @@ function parseBlock(block: string): SSEEvent | null {
     } else if (line.startsWith('data:')) {
       dataLines.push(line.slice('data:'.length).trimStart())
     }
-    // Other field types (id:, retry:) are not used by MASA's stream.
+    // Other field types (id:, retry:) are not used by MobARK's stream.
   }
   if (dataLines.length === 0) return null
   return { event, data: dataLines.join('\n') }

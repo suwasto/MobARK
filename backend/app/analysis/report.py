@@ -323,7 +323,7 @@ def assemble_report(
     lines: list[str] = []
 
     # ---- Header ----------------------------------------------------------
-    lines.append("# MASA security report")
+    lines.append("# MobARK security report")
     lines.append("")
     lines.append(f"- **App:** {scan.filename} ({platform})")
     lines.append(f"- **Analyzed:** {_fmt_dt(getattr(scan, 'created_at', None))}")

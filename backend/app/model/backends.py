@@ -4,7 +4,7 @@ Owner decisions (Aug 5, 2026):
 - Keys are stored plaintext in ``model_backends.json`` with ``0600`` perms;
   encryption-at-rest is deferred to M5 (already an M5 checklist item).
 - No hard default chat model: ``model`` seeds blank; the user picks one from
-  what the backend actually serves (``MASA_DEFAULT_CHAT_MODEL`` can seed it).
+  what the backend actually serves (``MOBARK_DEFAULT_CHAT_MODEL`` can seed it).
 - Keys are never logged: ``api_key`` is excluded from the dataclass repr and
   never returned by the API (only ``has_api_key``).
 """
@@ -114,7 +114,7 @@ def _seed_backends(cfg: Settings) -> list[ModelBackend]:
     (POST /api/v1/model/backends) instead.
 
     The dev-only ``fake`` backend (M6 follow-up) is seeded ONLY when
-    ``cfg.fake_model_enabled`` (MASA_FAKE_MODEL=1) - it must never appear in
+    ``cfg.fake_model_enabled`` (MOBARK_FAKE_MODEL=1) - it must never appear in
     a real deployment. It is inserted FIRST so ``pick_chat_backend`` resolves
     it deterministically: with the knob on, chat/explain/summary all demo
     against the fake without touching a real model.
@@ -127,7 +127,7 @@ def _seed_backends(cfg: Settings) -> list[ModelBackend]:
             # Custom backends are user-created via the API, not seeded.
             continue
         if provider_id == "fake":
-            # Dev-only: seeded above, gated by the MASA_FAKE_MODEL knob.
+            # Dev-only: seeded above, gated by the MOBARK_FAKE_MODEL knob.
             continue
         base_url = getattr(cfg, _BASE_URL_FIELD.get(provider_id, ""), "") or (
             provider.default_base_url
@@ -371,7 +371,7 @@ class BackendStore:
         """Keep the dev-only fake backend in lockstep with the config knob.
 
         The store file is the source of truth after first read, so flipping
-        MASA_FAKE_MODEL later must still take effect: the knob ON adds a
+        MOBARK_FAKE_MODEL later must still take effect: the knob ON adds a
         missing fake entry, the knob OFF removes a stale one - each case
         persists the reconciled list (idempotent, so a converged store never
         rewrites itself).

@@ -51,7 +51,7 @@ def test_semgrep_normalizer_maps_fields_and_category(tmp_path):
         {
             "results": [
                 {
-                    "check_id": "masa-android-webview-javascript-enabled",
+                    "check_id": "mobark-android-webview-javascript-enabled",
                     "path": "/work/decompiled/sources/a/b/Web.java",
                     "start": {"line": 42, "col": 1},
                     "end": {"line": 42, "col": 20},
@@ -62,7 +62,7 @@ def test_semgrep_normalizer_maps_fields_and_category(tmp_path):
                     },
                 },
                 {
-                    "check_id": "masa-android-insecure-trust-manager",
+                    "check_id": "mobark-android-insecure-trust-manager",
                     "path": "/work/decompiled/sources/a/b/Tls.java",
                     "start": {"line": 7},
                     "extra": {"severity": "ERROR", "message": "[MASVS-NETWORK-3] Bad TLS."},
@@ -81,7 +81,7 @@ def test_semgrep_normalizer_maps_fields_and_category(tmp_path):
     assert f.category == "MASVS-PLATFORM-3"  # parsed from message
     assert f.file_path == "sources/a/b/Web.java"
     assert f.line_number == 42
-    assert f.detail["check_id"] == "masa-android-webview-javascript-enabled"
+    assert f.detail["check_id"] == "mobark-android-webview-javascript-enabled"
 
     # ERROR -> high by default; the curated override also lands on high (the
     # top severity since the critical band was removed, Aug 8).

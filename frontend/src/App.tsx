@@ -29,7 +29,7 @@ function Shell() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Poll every 2.5s while the active scan is queued/running, or while ANY
-  // background scan is still going (the progress-dialog copy: "MASA keeps
+  // background scan is still going (the progress-dialog copy: "MobARK keeps
   // analyzing in the background") so completion always lands on the list.
   const anyScanRunning = useMemo(
     () => scans.some((s) => s.status === 'queued' || s.status === 'running'),

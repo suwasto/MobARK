@@ -19,7 +19,7 @@ def test_decode_argv_and_timeout(monkeypatch, tmp_path):
     """The exact apktool argv (d -f -o <out> <apk>) and the explicit timeout
     win over the settings default."""
     monkeypatch.setattr(
-        apktool, "apktool_binary", lambda: "/opt/masa-tools/apktool/apktool"
+        apktool, "apktool_binary", lambda: "/opt/mobark-tools/apktool/apktool"
     )
     captured = {}
 
@@ -34,7 +34,7 @@ def test_decode_argv_and_timeout(monkeypatch, tmp_path):
     out = tmp_path / "out"
     apktool.decode(apk, out, timeout=42)
     assert captured["cmd"] == [
-        "/opt/masa-tools/apktool/apktool",
+        "/opt/mobark-tools/apktool/apktool",
         "d",
         "-f",
         "-o",

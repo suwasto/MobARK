@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MASA are documented here. The format is based on
+All notable changes to MobARK are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
@@ -9,7 +9,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Public documentation site: tracked `site/` MkDocs project (Material
-  theme) with curated pages — index, quickstart, features,
+  theme) with curated pages: index, quickstart, features,
   architecture, auth, status, demo, third-party licenses
   ([mkdocs.yml](mkdocs.yml)).
 - Community files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
@@ -38,7 +38,7 @@ summarized for context.
   scan isolation (foreign scans 404)
 - Per-user encrypted key vault (scrypt KEK + AES-GCM) for BYOK/search
   keys; host-operator CLI password reset
-- `MASA_AUTH_ENABLED=0` dev/CI parity mode
+- `MOBARK_AUTH_ENABLED=0` dev/CI parity mode
 
 ### Reports (Aug 12, 2026)
 
@@ -60,7 +60,7 @@ summarized for context.
 
 - App-oriented agent tools (manifest, class, permissions, secrets re-
   scan, string search); SSE token/tool-step streaming; dev-only fake
-  LLM (`MASA_FAKE_MODEL=1`)
+  LLM (`MOBARK_FAKE_MODEL=1`)
 
 ### Dashboard (Aug 8, 2026)
 

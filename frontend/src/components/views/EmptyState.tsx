@@ -80,7 +80,7 @@ export function EmptyState({ onFile, error }: EmptyStateProps) {
 
         <h1 className="font-mono text-[19px] font-semibold">No scan loaded yet</h1>
         <p className="mb-8 mt-2 max-w-[400px] text-[13px] leading-relaxed text-bone-faint">
-          Upload an APK or IPA to get started. MASA decompiles it locally, runs
+          Upload an APK or IPA to get started. MobARK decompiles it locally, runs
           static analysis, and lets you chat with an AI agent about what it
           finds.
         </p>

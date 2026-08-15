@@ -17,9 +17,9 @@ def test_seed_creates_file_with_local_backends_only(tmp_path, monkeypatch):
     """BYOK backends are no longer seeded keyless (owner decision, Aug 8
     2026) - an unusable cloud entry only confuses Settings. Fresh installs
     get local backends; cloud providers are added via the BYOK menu."""
-    # Deterministic: a dev machine may have MASA_*_API_KEY exported.
+    # Deterministic: a dev machine may have MOBARK_*_API_KEY exported.
     for key in ("OPENAI", "ANTHROPIC", "DEEPSEEK", "OPENROUTER", "GEMINI"):
-        monkeypatch.delenv(f"MASA_{key}_API_KEY", raising=False)
+        monkeypatch.delenv(f"MOBARK_{key}_API_KEY", raising=False)
     store = BackendStore(tmp_path, settings_obj=_settings())
     backends = store.read()
     ids = {b.id for b in backends}
@@ -30,7 +30,7 @@ def test_seed_creates_file_with_local_backends_only(tmp_path, monkeypatch):
 
 def test_seed_byok_backends_when_key_configured(tmp_path, monkeypatch):
     """BYOK backends seed only when a real key is configured (env/settings)."""
-    monkeypatch.setenv("MASA_OPENAI_API_KEY", "sk-secret-123")
+    monkeypatch.setenv("MOBARK_OPENAI_API_KEY", "sk-secret-123")
     by_id = {b.id: b for b in BackendStore(tmp_path, settings_obj=Settings()).read()}
     assert "openai" in by_id
     assert by_id["openai"].api_key == "sk-secret-123"
@@ -44,8 +44,8 @@ def test_seed_local_backends_have_dummy_keys(tmp_path):
 
 
 def test_seed_respects_env_overrides(tmp_path, monkeypatch):
-    monkeypatch.setenv("MASA_OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-    monkeypatch.setenv("MASA_OPENAI_API_KEY", "sk-secret-123")
+    monkeypatch.setenv("MOBARK_OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+    monkeypatch.setenv("MOBARK_OPENAI_API_KEY", "sk-secret-123")
     backends = {b.id: b for b in BackendStore(tmp_path, settings_obj=Settings()).read()}
     assert backends["ollama"].base_url == "http://host.docker.internal:11434"
     assert backends["openai"].api_key == "sk-secret-123"
@@ -57,7 +57,7 @@ def test_seed_blank_model_by_default(tmp_path):
 
 
 def test_default_chat_model_env_seeds_model(tmp_path, monkeypatch):
-    monkeypatch.setenv("MASA_DEFAULT_CHAT_MODEL", "qwen2.5-coder")
+    monkeypatch.setenv("MOBARK_DEFAULT_CHAT_MODEL", "qwen2.5-coder")
     backends = BackendStore(tmp_path, settings_obj=Settings()).read()
     assert all(b.model == "qwen2.5-coder" for b in backends)
 
@@ -66,7 +66,7 @@ def test_store_honors_existing_file_over_env(tmp_path, monkeypatch):
     store = BackendStore(tmp_path, settings_obj=_settings())
     store.read()  # seed
     store.upsert("ollama", base_url="http://192.168.1.50:11434")
-    monkeypatch.setenv("MASA_OLLAMA_BASE_URL", "http://other:11434")
+    monkeypatch.setenv("MOBARK_OLLAMA_BASE_URL", "http://other:11434")
     reloaded = {b.id: b for b in BackendStore(tmp_path, settings_obj=Settings()).read()}
     assert reloaded["ollama"].base_url == "http://192.168.1.50:11434"
 

@@ -1,6 +1,6 @@
 # MobARK: Architecture
 
-MobARK (Mobile Application Reverse Kit) is a self-hosted, local-first
+MobARK (Mobile Application Reverse Kit) is a self-hosted
 dashboard for static analysis of Android (APK) and iOS (IPA) apps, with a
 chat-with-decompiled-code agent. This document is the module-level map;
 the interactive entity graph lives in `graphify-out/graph.html` (rebuild
@@ -146,7 +146,7 @@ flowchart LR
 - **Long work is async.** Scan analysis, apktool decode, code-graph
   builds, and rebuilds are RQ jobs enqueued by the API and run by the
   worker over Redis: both services share the SQLite DB and data dir.
-- **Agent = local-first, tool-using chat.** The chat loop layers: findings
+- **Agent = tool-using chat.** The chat loop layers: findings
   context (Layer 1), code/file tools (Layer 2), graph tools (Layer 3),
   edit/recompile tools, and opt-in web research (`web_search` /
   `web_fetch` through the bundled SearXNG: SSRF-guarded, AGPL boundary
@@ -157,7 +157,7 @@ flowchart LR
   dependency inventory, apktool decode on demand) and iOS stages
   (unzip, Info.plist, Mach-O via LIEF, entitlement carving, symbol
   import scanning) into persisted `Finding` rows, then computes the
-  CVSS 4.0 band-symmetric risk score.
+  banded risk index (high | warning | info, deliberately not CVSS).
 
 ## Key modules
 

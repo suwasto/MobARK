@@ -1,10 +1,10 @@
 # MobARK: Mobile Application Reverse Kit
 
-MobARK is a **self-hosted, local-first dashboard** for mobile application
+MobARK is a **self-hosted dashboard** for mobile application
 security testing (Android + iOS) with a built-in AI Agent. Static
 analysis of APK/IPA files, chat-with-decompiled-code via a local LLM
 (Ollama / LM Studio), and report generation: all without any scan data
-leaving your machine.
+leaving your infrastructure.
 
 <div class="grid cards" markdown>
 
@@ -36,10 +36,11 @@ leaving your machine.
     Username/password + GitHub/Google OAuth, per-user data isolation,
     and per-user encrypted key storage (vault).
 
--   :material-home-lock: **Local-first**
+-   :material-server: **Self-hosted**
 
-    Nothing leaves your machine by default. The app, worker, Redis, and
-    the search engine all run locally under `docker compose`.
+    Nothing leaves your infrastructure by default. The app, worker,
+    Redis, and the search engine all run under `docker compose` on
+    hosts you control.
 
 </div>
 
@@ -50,16 +51,16 @@ docker compose up --build
 ```
 
 Open http://localhost:8000, register the first account (it becomes the
-instance **admin**), upload an APK or IPA, and MobARK analyzes it locally.
-See [Quickstart](quickstart.md) for the full walkthrough: including the
-demo users you can create for a local install.
+instance **admin**), upload an APK or IPA, and MobARK analyzes it on your
+own infrastructure. See [Quickstart](quickstart.md) for the full
+walkthrough: including the admin/first-account flow and configuration.
 
-## Why local-first?
+## Why self-hosted?
 
 MobARK is designed for security work on artifacts you may not want to
 upload anywhere: mobile app binaries, decompiled source, embedded
-secrets. Every analysis stage runs on your machine: the LLM is your
-local Ollama/LM Studio (or a BYOK cloud key you provide), and the only
-outbound network traffic is the *opt-in* agent web research. The
-project is Apache-2.0 and the compliance posture is documented in
+secrets. Every analysis stage runs on your own infrastructure: the LLM
+is your local Ollama/LM Studio (or a BYOK cloud key you provide), and
+the only outbound network traffic is the *opt-in* agent web research.
+The project is Apache-2.0 and the compliance posture is documented in
 [Third-party licenses](licenses.md).

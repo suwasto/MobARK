@@ -24,7 +24,7 @@ decompiles it, runs static analysis (jadx / apktool / semgrep / gitleaks
 (`high | warning | info`: deliberately not CVSS, which needs a human
 analyst for disclosed CVEs), and gives you an **AI Agent
 that can chat with the decompiled code**: all through your own local
-LLM (Ollama / LM Studio) with **nothing leaving your machine by
+LLM (Ollama / LM Studio) with **nothing leaving your infrastructure by
 default**.
 
 ## Features
@@ -43,8 +43,8 @@ default**.
   per-finding suppression, AI (or no-model) explanations
 - **Multi-user auth**: username/password + GitHub/Google OAuth,
   per-user data isolation, encrypted per-user key vault
-- **Local-first**: app, worker, Redis, and the search engine all run
-  locally under `docker compose`
+- **Self-hosted**: app, worker, Redis, and the search engine all run
+  under `docker compose` on infrastructure you control
 
 ## Quick start (Docker)
 
@@ -55,18 +55,20 @@ docker compose up --build
 ```
 
 Open **http://localhost:8000**. Auth is on by default: a fresh install
-lands on the register/login screen and the **first registered account
-becomes the admin**.
+lands on the register/login screen. There are no seeded accounts: the
+**first account you register becomes the instance admin**, and every
+later account is a regular user who only sees their own scans. The
+first account also automatically **claims any unowned scans** (data
+scanned while auth was off, or via the CLI without `--user`), so that
+history lands on the admin's dashboard.
 
-For a quick local evaluation, register these two demo accounts:
+For example, to try it as the admin, register a first account with the
+username of your choice (e.g. `admin`) and **a password you pick
+yourself**: the `password123` shown in these docs is only an example,
+not a default or seeded credential.
 
-| Username | Password | Role |
-|---|---|---|
-| `admin` | `password123` | Admin: register first |
-| `alice` | `password123` | Regular user: sees only her own scans |
-
-> **Warning:** demo credentials are for local installs only: never
-> expose an install with known passwords to a network.
+> **Warning:** never expose an install with example passwords to a
+> network: use real, unique passwords on any install that faces one.
 
 To skip auth entirely (dev/CI): set `MOBARK_AUTH_ENABLED=0` in `.env`.
 
@@ -89,7 +91,7 @@ FastAPI origin (no separate static server).
 - **Long work is async.** Scan analysis, apktool decode, code-graph
   builds, and rebuilds are RQ jobs shared between the API and the worker
   over Redis.
-- **Agent = local-first, tool-using chat.** The chat loop layers findings
+- **Agent = tool-using chat.** The chat loop layers findings
   context, file tools, graph tools, and edit/recompile tools, with
   opt-in web research through the bundled SearXNG (SSRF-guarded, HTTP
   JSON only). Streaming is SSE.

@@ -182,8 +182,9 @@ def summarize_scan(
     """Executive summary of a whole scan (cached on ``scan.ai_summary``).
 
     Grounded in severity counts, total, security score (higher = better,
-    CVSS 4.0-driven - worst finding plus a breadth bonus within its
-    severity band), and the top findings by severity.
+    banded risk index-driven - worst finding plus a breadth bonus within
+    its severity band; deliberately not CVSS), and the top findings by
+    severity.
     Returns ``{summary, cached, model, generated_at}`` and mutates
     ``scan.ai_summary``; the route commits. A cached summary is returned
     without any LLM call unless ``regenerate`` is set (the UI's Regenerate

@@ -7,9 +7,9 @@ body:
       value: |
         Thanks for proposing a feature! Please check the
         [open issues](https://github.com/suwasto/MobARK/issues) first, and keep the
-        project's constraints in mind: **local-first** (no data leaves the
-        machine by default) and the **Apache-2.0 posture** (permissive-only
-        imported libraries; GPL/LGPL tools subprocess-only).
+project's constraints in mind: **self-hosted** (no data leaves your
+install by default) and the **Apache-2.0 posture** (permissive-only
+imported libraries; GPL/LGPL tools subprocess-only).
   - type: textarea
     id: problem
     attributes:

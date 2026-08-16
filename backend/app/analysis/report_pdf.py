@@ -32,7 +32,8 @@ crash).LAYOUT (redesigned Aug 12, 2026 - the manual-review follow-up):
   vector logo paths + the white raster brand text, cropped to the SVG's
   pattern-visible region; the same file the TopBar renders; app filename +
   platform chip), a canvas-drawn **security gauge** (the frontend
-  SecurityGauge's discrete CVSS 4.0 band colors), the three severity count
+  SecurityGauge's discrete risk-band colors - crimson/amber/emerald, the
+  banded risk index; deliberately not CVSS), the three severity count
   boxes, package/bundle + analyzed-date meta, and a scope/disclaimer
   footer. The cover derives its facts by parsing the assembled body's own
   header + breakdown lines (machine-generated, stable vocabulary) - one

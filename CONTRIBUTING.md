@@ -1,6 +1,6 @@
 # Contributing to MobARK
 
-Thanks for your interest! MobARK is a self-hosted, local-first mobile
+Thanks for your interest! MobARK is a self-hosted mobile
 application security testing dashboard. This guide covers how to set up
 a dev environment, run the checks, and submit a pull request.
 
@@ -43,9 +43,9 @@ npm run dev                  # http://localhost:5173 - proxies /api -> http://lo
 docker compose up --build    # http://localhost:8000
 ```
 
-Register the first account (it becomes the admin). For local demos the
-documented test users are `admin` / `password123` and `alice` /
-`password123`: see [site/docs/quickstart.md](site/docs/quickstart.md).
+Register the first account (it becomes the admin): there are no seeded
+accounts, and the passwords shown in the docs are examples, not real
+credentials. See [site/docs/quickstart.md](site/docs/quickstart.md).
 
 ## Checks (run before submitting)
 

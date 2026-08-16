@@ -11,8 +11,9 @@ scan row + its non-suppressed findings + optional derived payloads
 without a DB, network, or model.
 
 Section contract (the report at a glance):
-- Header: app filename, platform, scan date, security score + CVSS 4.0 band
-  caption (the SecurityGauge contract), package/bundle id when derivable.
+- Header: app filename, platform, scan date, security score + risk band
+  caption (the SecurityGauge contract; deliberately not CVSS), package/
+  bundle id when derivable.
 - Executive summary: cached ``scan.ai_summary``; a plain note when blank
   (the body never 400s on a missing model - decision 10).
 - Severity breakdown: counts + risk line - ``risk.py`` is the source of

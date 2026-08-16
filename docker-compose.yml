@@ -1,4 +1,4 @@
-# MobARK — local-first mobile pentest dashboard
+# MobARK — self-hosted mobile pentest dashboard
 # Services: app (FastAPI) + worker (RQ) + redis + searxng all always-on — a
 # plain `docker compose up` starts the whole stack, including the bundled
 # SearXNG the agent's web research searches through (M7; owner change Aug 14:

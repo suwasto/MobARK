@@ -3,7 +3,7 @@
 # it holds internal working notes + sample binaries). Build output goes
 # to _site/ (gitignored). Deploy: .github/workflows/pages.yml -> GitHub Pages.
 site_name: MobARK - Mobile Application Reverse Kit
-site_description: Local-first mobile application security testing - static analysis + AI Agent for Android and iOS, no data leaves your machine.
+site_description: Self-hosted mobile application security testing - static analysis + AI Agent for Android and iOS, no data leaves your infrastructure.
 site_url: https://suwasto.github.io/MobARK/
 repo_url: https://github.com/suwasto/MobARK
 repo_name: suwasto/MobARK

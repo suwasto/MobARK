@@ -37,6 +37,7 @@
 ## Try it yourself
 
 The fastest demo is [the quickstart](quickstart.md): `docker compose up
---build`, register `admin` / `password123`, upload an APK or IPA. With
-`MOBARK_FAKE_MODEL=1` the agent dock demos its live steps and token
-streaming with zero Ollama.
+--build`, register a first account (the **first registration becomes
+the admin**: use any username, e.g. `admin`, with a password you choose
+yourself), then upload an APK or IPA. With `MOBARK_FAKE_MODEL=1` the
+agent dock demos its live steps and token streaming with zero Ollama.

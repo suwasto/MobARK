@@ -20,7 +20,7 @@
 
 ## Checklist
 
-- [ ] Local-first constraint respected (no default outbound calls / data exfiltration)
+- [ ] Self-hosted constraint respected (no default outbound calls / data exfiltration)
 - [ ] No new non-permissive dependencies (MIT/Apache-2.0/BSD only); license audit noted if deps changed
 - [ ] Tests added/updated for the change
 - [ ] `CHANGELOG.md` updated under `[Unreleased]`

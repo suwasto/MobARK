@@ -10,9 +10,9 @@ docker compose up --build
 
 Then open http://localhost:8000.
 
-The stack is fully local: `app` (FastAPI) + `worker` (RQ) + `redis` +
-`searxng` (the agent's bundled search engine): a plain `docker compose
-up` starts everything.
+The stack is fully self-hosted: `app` (FastAPI) + `worker` (RQ) +
+`redis` + `searxng` (the agent's bundled search engine): a plain
+`docker compose up` starts everything.
 
 ### First run: authentication
 
@@ -21,26 +21,28 @@ default. The **first account registered becomes the instance admin**
 and adopts any pre-existing (unowned) scans.
 
 Register an account, sign in, and upload an APK or IPA. MobARK analyzes it
-locally: nothing leaves your machine by default.
+on your own infrastructure: nothing leaves your install by default.
 
-#### Demo users (local installs)
+#### First account is the admin
 
-For a quick local evaluation, register these two accounts:
+There are no seeded accounts: the **first account you register becomes
+the instance admin**, and every later account is a regular user who
+sees only their own scans (a foreign scan reads as 404: no existence
+leak). The first account also automatically **claims any unowned
+scans** — data scanned while auth was disabled (pre-auth builds) or via
+the CLI without `--user` — so it appears on the admin's dashboard.
 
-| Username | Password     | Role    |
-|----------|--------------|---------|
-| `admin`  | `password123` | Admin: the first registered user |
-| `alice`  | `password123` | Regular user |
+For example, register a first account with the username of your choice
+(e.g. `admin`) and **a password you pick yourself**: the `password123`
+used throughout these docs is only an example, never a default or
+seeded credential.
 
-Register `admin` **first** (it becomes the admin), then `alice` to see
-per-user isolation in action: each account sees only its own scans, and
-`admin`'s scans read as 404 for `alice` (no existence leak).
-
-!!! danger "Demo credentials only"
-    These are **local demo credentials** for trying the app: not
-    seeded, not secure. Change them (or register your own accounts) on
-    any install that faces a network. Never ship a public deployment
-    with known passwords.
+!!! danger "Example credentials only"
+    Credentials shown in these docs (`password123`, etc.) are
+    **examples only**: nothing is pre-seeded and no account ships with
+    a known password. Use real, unique passwords on any install that
+    faces a network, and never ship a public deployment with example
+    passwords.
 
 #### Skip auth entirely (dev/CI)
 

@@ -26,8 +26,8 @@ latest release** and rebuild your Docker images (`docker compose build
 
 ## Security posture
 
-- **Local-first by design.** Scan data (APK/IPA uploads, decompiled
-  trees, findings) stays on the machine running MobARK; the default
+- **Self-hosted by design.** Scan data (APK/IPA uploads, decompiled
+  trees, findings) stays on the host running MobARK; the default
   configuration makes no outbound network calls except opt-in agent web
   research. Running MobARK on an untrusted network exposes whatever data
   it holds: keep it on a trusted host, or put the web UI behind your
@@ -37,10 +37,11 @@ latest release** and rebuild your Docker images (`docker compose build
   SameSite=Lax (Secure when `MOBARK_COOKIE_SECURE=1`: set it when
   serving over TLS). Per-user isolation is structural: foreign scans
   read as 404 (no existence leak).
-- **Demo credentials.** The documented local test users
-  (`admin` / `password123`, `alice` / `password123`) are **for local
-  evaluation only**. Never expose an install with known credentials to
-  a network: change them or register your own accounts.
+- **No seeded credentials.** No accounts are pre-seeded: the first
+  registration becomes the admin, and the passwords shown in the docs
+  (`password123`, etc.) are **examples only** — nothing ships with a
+  known password. Never expose an install with example credentials to
+  a network: use real, unique passwords.
 - **Keys at rest.** BYOK model/search API keys are encrypted at rest in
   a per-user vault (scrypt KEK + AES-GCM); the password is the key-
   encryption key.

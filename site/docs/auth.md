@@ -7,10 +7,15 @@ health + auth sits behind a session.
 ## First run: the admin account
 
 The **first account registered** (username/password or OAuth) becomes
-the instance **admin** and adopts any pre-existing unowned scans. For a
-local evaluation you can register the demo users
-[from the quickstart](quickstart.md#demo-users-local-installs)
-(`admin` / `password123`, then `alice` / `password123`).
+the instance **admin** and adopts any pre-existing unowned scans (data
+scanned while auth was disabled, or via the CLI without `--user`); every
+later account is a regular user who only sees their own scans. There
+are no seeded accounts: you register them yourself.
+
+For a local evaluation, [the quickstart](quickstart.md#first-account-is-the-admin)
+shows an example: register a first account with any username and **a
+password you choose yourself** (the `password123` in the docs is only
+an example, never a real credential).
 
 ## Sign-in methods
 

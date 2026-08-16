@@ -222,7 +222,15 @@ class ChatHistoryTurn(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=4000)
+    # Empty only for an ADVANCE turn (advance=True) - the backend builds the
+    # continuation prompt from the scan's task-list artifact, so there is no
+    # user question (the dock never fabricates a fake "continue" user
+    # message).
+    question: str = Field(default="", max_length=4000)
+    # M8 follow-up (Aug 16): auto-advance mode - the backend starts the NEXT
+    # task's proposal turn after the human applied a proposal (no user
+    # prompt, no history replay; the task list IS the context).
+    advance: bool = False
     # Optional hard deadline (seconds) for the whole agent loop; falls back to
     # settings.chat_timeout_seconds when omitted. A hung LLM call can never
     # block the API worker beyond this.
@@ -261,6 +269,20 @@ class ChatRequest(BaseModel):
                 break
         return out
 
+    @model_validator(mode="after")
+    def _question_or_advance(self):
+        if not self.question.strip() and not self.advance:
+            raise ValueError("question must not be empty")
+        return self
+
+
+class ChatCompleteRequest(BaseModel):
+    """The task-complete wrap-up call (M8 follow-up, Aug 16): the session
+    the finished summary turn is persisted to (optional - a caller without
+    a session just gets the answer)."""
+
+    session_id: int | None = Field(default=None, ge=1)
+
 
 class Citation(BaseModel):
     file: str
@@ -294,6 +316,10 @@ class ChatResponse(BaseModel):
     # M6 follow-up: the persistent per-tool trace (the live SSE events are
     # the same records, streamed as they happen).
     tool_runs: list[ToolRunRead] = []
+    # M8 follow-up: reasoning/thinking tokens the model emitted before its
+    # answer (OpenAI-style reasoning providers) - the dock renders them in
+    # the specialized thinking box above the answer.
+    thinking: str = ""
 
 
 # ---- M9 follow-up: multi-session agent chat ----
@@ -701,6 +727,24 @@ class EditRead(BaseModel):
     @field_serializer("applied_at")
     def _ser_applied_at(self, value: datetime | None) -> datetime | None:
         return _utc_aware(value) if value is not None else None
+
+
+class EditReviewResult(EditRead):
+    """An apply/reject response - the EditRead row plus the task-list flags
+    that drive the automatic continuation (M8 follow-up, Aug 16): after the
+    human resolves a proposal the route checks the scan's task-list.md
+    artifact and reports what to do next. ``next_task_pending`` -> the dock
+    opens the advance stream (the next task's proposal turn starts itself);
+    ``task_complete`` -> the task list is exhausted, run the wrap-up;
+    ``paused`` -> the proposal was REJECTED and tasks remain, the loop waits
+    for the human (the rejection message rides in ``pause_message``). All
+    false/None for a single-file request (no task list) - nothing to
+    advance, the flow simply ends."""
+
+    next_task_pending: bool = False
+    task_complete: bool = False
+    paused: bool = False
+    pause_message: str | None = None
 
 
 class EditCreate(BaseModel):

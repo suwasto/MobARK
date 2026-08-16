@@ -39,11 +39,13 @@ from app.agent.chat import (
     answer_question,
     check_configured,
     request_cancel,
+    task_completion_answer,
 )
 from app.analysis import (
     apktool,
     dependencies,
     editable,
+    edit_tasks,
     edits,
     rebuild,
     report,
@@ -64,6 +66,7 @@ from app.schemas import (
     BatchSuppressRequest,
     BatchSuppressResponse,
     BuildRead,
+    ChatCompleteRequest,
     ChatMessageRead,
     ChatRequest,
     ChatResponse,
@@ -74,6 +77,7 @@ from app.schemas import (
     EditCreate,
     EditDiffResponse,
     EditRead,
+    EditReviewResult,
     ExplainResponse,
     FileContentResponse,
     FileTreeResponse,
@@ -172,6 +176,9 @@ def _chat_payload(result) -> dict:
         "sources": result.sources,
         "tool_mode": result.tool_mode,
         "tools_used": result.tools_used,
+        # M8 follow-up: reasoning/thinking tokens - the dock renders them in
+        # the specialized thinking box (streamed live + kept on the answer).
+        "thinking": result.thinking or "",
         "tool_runs": [
             {
                 "id": r.id,
@@ -979,24 +986,66 @@ def edit_diff(scan_id: int, edit_id: int, db: DbSession) -> EditDiffResponse:
     return EditDiffResponse(file_path=edit.file_path, diff=edit.unified_diff)
 
 
-@router.post("/{scan_id}/edits/{edit_id}/apply", response_model=EditRead)
-def apply_edit(scan_id: int, edit_id: int, db: DbSession) -> Edit:
-    """proposed -> applied (agent proposals; the human owns application)."""
-    edit = _get_edit_or_404(db, scan_id, edit_id)
-    try:
-        return edits.apply_edit(db, edit)
-    except edits.EditError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+def _edit_review_flags(scan_id: int, edit: Edit) -> dict:
+    """The task-list flags for an apply/reject response (M8 follow-up,
+    Aug 16): after the human resolves a proposal the route marks the
+    matching task in the scan's task-list.md artifact and reports what to
+    do next.
+
+    - ``next_task_pending``: applied (or the list still has pending work) -
+      the dock opens the advance stream, the next task's proposal starts
+      itself.
+    - ``task_complete``: the list is exhausted (all applied/rejected) - the
+      dock runs the wrap-up summary.
+    - ``paused`` + ``pause_message``: a REJECTION with tasks still pending -
+      the loop stops here; the human owns whether the rest of the task is
+      still wanted (the rejection message rides in ``pause_message``).
+
+    No task list (single-file request) -> no flags; resolving it has nothing
+    to advance, so the flow simply ends."""
+    tl = edit_tasks.mark_task_resolved(
+        scan_id, edit.file_path, verdict=edit.status
+    )
+    if tl is None:
+        return {}
+    if tl.next_pending() is None:
+        return {"task_complete": True}
+    if edit.status == "rejected":
+        return {"paused": True, "pause_message": edit_tasks.pause_message(tl, edit.file_path)}
+    return {"next_task_pending": True}
 
 
-@router.post("/{scan_id}/edits/{edit_id}/reject", response_model=EditRead)
-def reject_edit(scan_id: int, edit_id: int, db: DbSession) -> Edit:
-    """proposed -> rejected."""
+def _edit_review_result(scan_id: int, edit: Edit) -> EditReviewResult:
+    """The EditRead row + the task-list flags, as one apply/reject response."""
+    data = EditRead.model_validate(edit).model_dump()
+    data.update(_edit_review_flags(scan_id, edit))
+    return EditReviewResult(**data)
+
+
+@router.post("/{scan_id}/edits/{edit_id}/apply", response_model=EditReviewResult)
+def apply_edit(scan_id: int, edit_id: int, db: DbSession) -> EditReviewResult:
+    """proposed -> applied (agent proposals; the human owns application).
+    Marks the matching task in the scan's task-list.md artifact and reports
+    whether the next task should auto-advance (M8 follow-up, Aug 16)."""
     edit = _get_edit_or_404(db, scan_id, edit_id)
     try:
-        return edits.reject_edit(db, edit)
+        edits.apply_edit(db, edit)
     except edits.EditError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _edit_review_result(scan_id, edit)
+
+
+@router.post("/{scan_id}/edits/{edit_id}/reject", response_model=EditReviewResult)
+def reject_edit(scan_id: int, edit_id: int, db: DbSession) -> EditReviewResult:
+    """proposed -> rejected. Marks the matching task rejected in the task
+    list and - with tasks still pending - PAUSES the loop: the human owns
+    whether the rest of the task is still wanted (M8 follow-up, Aug 16)."""
+    edit = _get_edit_or_404(db, scan_id, edit_id)
+    try:
+        edits.reject_edit(db, edit)
+    except edits.EditError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _edit_review_result(scan_id, edit)
 
 
 @router.post("/{scan_id}/edits/{edit_id}/revert", response_model=EditRead)
@@ -1612,10 +1661,14 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
                         for m in sessions.session_history(work_db, session.id)
                     ]
                     # Persist the user turn before the LLM call so an
-                    # interrupted turn still shows what was asked.
-                    sessions.add_message(
-                        work_db, session, role="user", content=payload.question
-                    )
+                    # interrupted turn still shows what was asked - EXCEPT
+                    # for an ADVANCE turn (M8 follow-up, Aug 16): there is
+                    # no user question, the backend builds the continuation
+                    # from the task-list artifact.
+                    if not payload.advance:
+                        sessions.add_message(
+                            work_db, session, role="user", content=payload.question
+                        )
                 result = answer_question(
                     scan_id,
                     payload.question,
@@ -1625,6 +1678,7 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
                     on_event=on_event,
                     mentioned_files=payload.mentioned_files,
                     history=history,
+                    advance=payload.advance,
                     user_id=uid,
                     master_key=mk,
                 )
@@ -1668,6 +1722,29 @@ def chat_scan_stream(scan_id: int, payload: ChatRequest, db: DbSession) -> Strea
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/{scan_id}/chat/complete-task", response_model=ChatResponse)
+def complete_task(scan_id: int, payload: ChatCompleteRequest, db: DbSession) -> ChatResponse:
+    """M8 follow-up (Aug 16): the task-complete wrap-up - when a task list
+    is exhausted (every proposal applied or rejected), ONE small LLM call
+    summarizes what changed / was rejected. No tools, no findings context -
+    a fraction of a full turn; falls back to a deterministic summary when
+    the model cannot answer (a wrap-up never errors the review). The
+    finished turn is persisted to the session so the dock's final agent
+    message survives a reload."""
+    _get_scan_or_404(db, scan_id)
+    result = task_completion_answer(
+        scan_id,
+        user_id=current_user_id.get(),
+        master_key=current_master_key.get(),
+    )
+    if payload.session_id is not None:
+        session = sessions.get_session(db, payload.session_id, scan_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="chat session not found")
+        _persist_assistant_turn(db, payload.session_id, result)
+    return ChatResponse(**_chat_payload(result))
 
 
 @router.post("/{scan_id}/chat/cancel")

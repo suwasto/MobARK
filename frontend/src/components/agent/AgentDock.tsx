@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
-import type { ChatSession, FileNode, FileTreeRoot, ScanRead } from '../../types'
+import type {
+  ChatSession,
+  EditReviewResult,
+  FileNode,
+  FileTreeRoot,
+  ScanRead,
+} from '../../types'
 import { useChat, type ChatMessage, type ToolStep } from '../../hooks/useChat'
 import { useApp } from '../../state/AppContext'
 import { Markdown } from '../Markdown'
@@ -65,11 +71,14 @@ interface AgentDockProps {
    * research is the M7 web-research surface - the agent searches when the
    * scan's 🌐 Web toggle is on, else it answers from local context. */
   presetDraft?: { text: string; nonce: number } | null
-  /** M9 follow-up: bumped by the dashboard the moment the user resolves
-   * (applies/rejects) every proposal from the last agent turn - the dock
-   * then auto-sends "continue" so the agent proposes the next file's edit
-   * without any extra click/typing (the sequential edit flow). */
-  autoContinueNonce?: number
+  /** M8 follow-up (Aug 16): bumped by the dashboard with the apply/reject
+   * response the moment the user resolves a proposal. The BACKEND owns what
+   * happens next (from the scan's task-list artifact): `paused` -> the
+   * rejection stops the loop (the pause message is appended as an agent
+   * note); `next_task_pending` -> the next task's proposal turn starts
+   * itself (advance stream, no fake "continue" text); `task_complete` ->
+   * the task list is exhausted, one wrap-up summary closes the task. */
+  reviewSignal?: { nonce: number; result: EditReviewResult } | null
 }
 
 /** Compact args summary for a step row (first 2 keys, values truncated). */
@@ -152,6 +161,17 @@ function StepRow({
   // Errors auto-expand so the message is visible without a click.
   const expanded = open || step.status === 'error'
   const statusIcon = step.status === 'running' ? '◌' : step.status === 'ok' ? '✓' : '✗'
+  // M8 follow-up: the expanded result preview is its own height-capped
+  // scroll box (140px) - pin it to the bottom when the result lands/grows
+  // or the row expands, so the newest content is visible without the user
+  // scrolling. Running rows are never expanded (heads ignore clicks until
+  // done), so there is no fight with a live stream here.
+  const resultRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!expanded) return
+    const el = resultRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [expanded, step.resultPreview])
   return (
     <div className={`step-row ${step.status}`}>
       <button
@@ -180,7 +200,7 @@ function StepRow({
           {step.resultPreview && (
             <>
               <ResultFileChips text={step.resultPreview} onOpenFile={onOpenFile} />
-              <div className="step-result">
+              <div className="step-result" ref={resultRef}>
                 <pre>{step.resultPreview}</pre>
               </div>
             </>
@@ -201,6 +221,96 @@ function Steps({ steps, onOpenFile }: { steps: ToolStep[]; onOpenFile: (file: st
           <StepRow key={s.id} step={s} onOpenFile={onOpenFile} />
         ))}
       </div>
+    </details>
+  )
+}
+
+/** M8 follow-up: the specialized thinking box - reasoning/thinking tokens
+ * stream into a muted, inset block ABOVE the answer (the standard AI-agent
+ * thinking display: the model thinks first, then answers). No blinking
+ * caret inside - the caret belongs to the final answer only; the animated
+ * dots run while thinking is in progress but no token has landed yet.
+ *
+ * While streaming the box stays open (live tokens). A FINALIZED message is
+ * collapsed by default to the ChatGPT/Claude "Thinking" summary with a
+ * Show reasoning / Hide reasoning affordance on the right - the full text
+ * is one click away instead of crowding the answer. State (not the DOM
+ * default) drives the toggle so the click sticks across re-renders. */
+function ThinkingBox({
+  text,
+  active,
+  finalized = false,
+  note = false,
+}: {
+  text: string
+  active: boolean
+  finalized?: boolean
+  /** M8 follow-up: a model that appeared to think (dots shown) but exposed
+   * no readable reasoning (Gemini 3.x etc.) - render the quiet fallback
+   * note instead of the show/hide affordance, since there is nothing to
+   * reveal. Ignored when text exists (the real box wins). */
+  note?: boolean
+}) {
+  const [open, setOpen] = useState(!finalized)
+  const hasText = text.length > 0
+  // M8 follow-up: the box is height-capped and scrolls internally - pin the
+  // reasoning text to the bottom whenever NEW tokens land (streaming, even
+  // after the answer text has started - the box may outlive `active`) so
+  // the newest reasoning is always visible without the user scrolling.
+  const textRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = textRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [text])
+  // Collapse/expand: re-pin on (re)open so the latest reasoning is in view
+  // instead of the top of the reasoning text.
+  useEffect(() => {
+    if (!open) return
+    const el = textRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [open])
+  if (!hasText && !active && !note) return null
+  if (note && !hasText && !active) {
+    return (
+      <div className="thinking-box thinking-note-box">
+        <span className="thinking-head thinking-note-head">
+          Thinking
+          <span className="thinking-note-copy">
+            this model didn&rsquo;t expose its reasoning
+          </span>
+        </span>
+      </div>
+    )
+  }
+  return (
+    <details
+      className="thinking-box"
+      open={active || (open && hasText)}
+      onToggle={(e) => {
+        if (!active) setOpen((e.currentTarget as HTMLDetailsElement).open)
+      }}
+    >
+      <summary className="thinking-head">
+        <span className={`thinking-label${active && !hasText ? ' thinking-dots' : ''}`}>
+          Thinking
+        </span>
+        {!active && (
+          <span className="thinking-reveal">
+            <span
+              className={`thinking-chev${open ? ' open' : ''}`}
+              aria-hidden="true"
+            >
+              ▸
+            </span>
+            {open ? 'Hide reasoning' : 'Show reasoning'}
+          </span>
+        )}
+      </summary>
+      {hasText && (
+        <div className="thinking-text" ref={textRef}>
+          {text}
+        </div>
+      )}
     </details>
   )
 }
@@ -265,6 +375,11 @@ function AgentMessage({
       <span className="msg-tag">
         {message.errorKind ? 'Agent · failed' : 'Agent'}
       </span>
+      {message.thinking ? (
+        <ThinkingBox text={message.thinking} active={false} finalized />
+      ) : message.thinkingAttempted ? (
+        <ThinkingBox text="" active={false} finalized note />
+      ) : null}
       <Markdown text={message.content} />
 
       {message.toolMode === 'context-only' && (
@@ -323,7 +438,7 @@ export function AgentDock({
   proposedCount,
   onReviewProposals,
   presetDraft,
-  autoContinueNonce,
+  reviewSignal,
 }: AgentDockProps) {
   const {
     messages,
@@ -338,10 +453,17 @@ export function AgentDock({
     newSession,
     deleteSession,
     renameSession,
+    advance,
+    completeTask,
+    appendNote,
   } = useChat(scan.id)
   const { backends, searchBackends, actions } = useApp()
   const [draft, setDraft] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
+  // M8 follow-up: the live tool trace is its own height-capped scroll
+  // container (240px) - pin it to the bottom as steps land so the newest
+  // step is always visible without the user scrolling.
+  const stepsTraceRef = useRef<HTMLDivElement>(null)
   // M8 follow-up: the @-mention file picker. Typing `@` opens a dropdown
   // over the scan's decompiler tree (flattened once, lazily - the payload is
   // the full multi-MB tree, so it's fetched only on the first mention);
@@ -357,24 +479,37 @@ export function AgentDock({
   // decode is ready (edit_tools_allowed) - on a fresh Android scan the dock
   // shows a small hint pointing at the Decompiler's Smali chip, so the
   // headline "disable password validation in authentication" flow is
-  // discoverable. Best-effort fetch; a failure just hides the hint.
+  // discoverable. Best-effort fetch; a failure just hides the hint. The
+  // status is RE-CHECKED on a timer while the hint is visible: the decode is
+  // triggered from the Decompiler's Smali chip and completes on its own
+  // timeline, so the hint must disappear the moment the tree is ready
+  // WITHOUT a page refresh (the old one-shot fetch kept the stale warning
+  // until the dock remounted - the bug report: "warning not gone when smali
+  // ready, need refresh to dismiss").
   const [decodeReady, setDecodeReady] = useState<boolean | null>(null)
   useEffect(() => {
+    // The dock is keyed per scan (DashboardView), so `null` here always
+    // means "fresh scan, status unknown" - the hint stays hidden until the
+    // first check lands. Stop entirely once ready (or collapsed): nothing
+    // left to dismiss.
+    if (scan.platform !== 'android' || collapsed || decodeReady === true) return
     let cancelled = false
-    setDecodeReady(null)
-    if (scan.platform !== 'android') return
-    api
-      .smaliStatus(scan.id)
-      .then((s) => {
-        if (!cancelled) setDecodeReady(s.status === 'ready')
-      })
-      .catch(() => {
-        // Transient - hide the hint until a status lands.
-      })
+    const check = () =>
+      api
+        .smaliStatus(scan.id)
+        .then((s) => {
+          if (!cancelled) setDecodeReady(s.status === 'ready')
+        })
+        .catch(() => {
+          // Transient - keep polling; the hint hides once a status lands.
+        })
+    check()
+    const t = window.setInterval(check, 2000)
     return () => {
       cancelled = true
+      window.clearInterval(t)
     }
-  }, [scan.id, scan.platform])
+  }, [scan.id, scan.platform, collapsed, decodeReady])
   // M8 follow-up: lazily load the flattened file tree on the first mention
   // (the full tree payload is heavy - never fetched at mount).
   useEffect(() => {
@@ -435,30 +570,43 @@ export function AgentDock({
     onReviewProposals()
   }, [messages, lastProposed, onReviewProposals])
 
-  // M9 follow-up: the user resolved every proposal from the last agent turn
-  // (applied or rejected - the dashboard bumps the nonce when the pending
-  // count drops to 0) - resume the edit task automatically. The backend
-  // gets the thread history + EDIT REVIEW STATE, so the agent proposes the
-  // next file or declares the task complete. Each nonce value is consumed
-  // exactly once (seen ref), so the agent's follow-up turn - which may
-  // itself propose, re-arming lastProposed - can never re-trigger a second
-  // "continue" for the same review resolution.
-  const seenContinueNonce = useRef(0)
+  // M8 follow-up (Aug 16): the human resolved a proposal (Apply/Reject) -
+  // the dashboard bumps `reviewSignal` with the apply/reject response, and
+  // the BACKEND owns what happens next (from the scan's task-list.md
+  // artifact): a rejection with tasks still pending pauses the loop (the
+  // pause message is appended as an agent note - the human owns whether the
+  // rest of the task is still wanted); `next_task_pending` starts the next
+  // task's proposal turn itself via the advance stream (no fake "continue"
+  // user message, no history replay); `task_complete` runs the one-call
+  // wrap-up summary. Each signal is consumed exactly once (seen ref), so
+  // the follow-up turn - which may itself propose, re-arming lastProposed -
+  // can never re-trigger a second advance for the same review resolution.
+  const seenReviewNonce = useRef(0)
   useEffect(() => {
-    const nonce = autoContinueNonce ?? 0
-    if (nonce === seenContinueNonce.current) return
-    seenContinueNonce.current = nonce
-    if (!nonce || sending || !lastProposed) return
-    // Only continue after the user reviewed a LIVE proposal of THIS thread
+    const sig = reviewSignal ?? null
+    if (!sig || sig.nonce === seenReviewNonce.current) return
+    seenReviewNonce.current = sig.nonce
+    if (sending) return
+    const r = sig.result
+    if (!r) return
+    // Only auto-react after the user reviewed a LIVE proposal of THIS thread
     // (live messages have negative ids; a loaded history message with a
     // positive id can re-arm lastProposed when switching sessions, and its
     // review must not trigger an unsolicited continuation).
     const last = messages[messages.length - 1]
-    if (!last || last.id > 0) return
-    send(
-      'continue - review the current edit state and propose the next file\u2019s edit for the task, or say the task is complete',
-    )
-  }, [autoContinueNonce, sending, lastProposed, send, messages])
+    if (!last || last.id > 0 || !lastProposed) return
+    if (r.paused && r.pause_message) {
+      appendNote(r.pause_message)
+      return
+    }
+    if (r.task_complete) {
+      void completeTask()
+      return
+    }
+    if (r.next_task_pending) {
+      advance()
+    }
+  }, [reviewSignal, sending, lastProposed, advance, completeTask, appendNote, messages])
 
   // M9 follow-up: the session switcher dropdown (the model-picker pattern -
   // outside-click + Escape close). Inline rename (an input in the row,
@@ -623,6 +771,15 @@ export function AgentDock({
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, pending, sending])
 
+  // The live tool trace scrolls internally (height-capped); keep it pinned
+  // to the bottom while the turn runs so the newest step stays in view.
+  // `pending` re-arms on every streamed step/token flush, so this follows
+  // the trace as it grows.
+  useEffect(() => {
+    const el = stepsTraceRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [pending])
+
   // Dependencies tab -> pre-fill the draft with a prepared question (the
   // per-dependency "Check known CVEs" button). Nonce-guarded: the same text
   // with a new nonce still lands (repeat clicks), and the picker is closed
@@ -667,23 +824,26 @@ export function AgentDock({
     setMentionOpen(false)
   }
 
-  // The in-flight turn: streamed text + live steps, or the thinking dots
-  // before the first token/step lands.
+  // The in-flight turn: the specialized thinking box (streamed reasoning
+  // tokens, or the animated dots before the first token/step lands), then
+  // the streamed answer text + live steps.
   const streamingMessage = pending && (
     <div className="msg ai streaming">
       <span className="msg-tag">Agent</span>
+      {(pending.thinking || (!pending.text && pending.steps.length === 0)) && (
+        <ThinkingBox
+          text={pending.thinking}
+          active={!pending.text && pending.steps.length === 0}
+        />
+      )}
       {pending.text ? (
         <>
           <div className="stream-text">{pending.text}</div>
           <span className="stream-caret" aria-hidden="true" />
         </>
-      ) : pending.steps.length === 0 ? (
-        <div className="thinking-row">
-          <span className="thinking-dots text-bone-faint">Thinking</span>
-        </div>
       ) : null}
       {pending.steps.length > 0 && (
-        <div className="tools-trace-body" style={{ marginTop: 8 }}>
+        <div className="tools-trace-body" style={{ marginTop: 8 }} ref={stepsTraceRef}>
           {pending.steps.map((s) => (
             <StepRow key={s.id} step={s} onOpenFile={onOpenFile} />
           ))}
@@ -700,6 +860,27 @@ export function AgentDock({
           <span>Agent · this scan</span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* M8 follow-up (Aug 16): the header's pending-edit badge - the
+              count is ALWAYS in view (even collapsed to the 44px rail, where
+              the Review pill below the header is hidden) so a proposal the
+              agent stored can never be invisible: the reported apply/revert
+              case where a second auto-continue proposal lingered unseen and
+              blocked the human's next ask. Compact clickable chip - opens
+              the same review modal as the pill. */}
+          {proposedCount > 0 && (
+            <button
+              type="button"
+              className="dock-review-badge"
+              onClick={onReviewProposals}
+              title={`${proposedCount} agent edit proposal${proposedCount === 1 ? '' : 's'} awaiting your review - apply or reject per file`}
+              aria-label={`Review ${proposedCount} edit proposal${proposedCount === 1 ? '' : 's'}`}
+            >
+              <span className="dock-review-badge-emoji" aria-hidden="true">
+                📝
+              </span>
+              <span className="dock-review-badge-count">{proposedCount}</span>
+            </button>
+          )}
           <div
             role="switch"
             aria-checked={webResearch}

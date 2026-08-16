@@ -1443,6 +1443,44 @@
     background: rgba(35, 207, 146, 0.12);
     color: var(--color-bone);
   }
+  /* M8 follow-up (Aug 16): the header's pending-edit badge - a compact
+     clickable chip (📝 + count) that stays in view in BOTH dock states,
+     unlike the pill below the header (hidden when collapsed to the 44px
+     rail), so a stored proposal can never be invisible. Opens the same
+     review modal. */
+  .dock-review-badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border: 1px solid rgba(35, 207, 146, 0.35);
+    border-radius: 3px;
+    background: rgba(35, 207, 146, 0.08);
+    color: var(--color-steel);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .dock-review-badge:hover {
+    border-color: var(--color-steel-dim);
+    background: rgba(35, 207, 146, 0.14);
+    color: var(--color-bone);
+  }
+  /* The 44px collapsed rail can't fit emoji + count next to the collapse
+     button - drop the emoji (the pill's full text explains it) and keep
+     the numbered chip, whose tooltip names the review surface. */
+  .agent-collapsed .dock-review-badge {
+    padding: 3px 5px;
+  }
+  .agent-collapsed .dock-review-badge-emoji {
+    display: none;
+  }
   /* M9 follow-up: the multi-session switcher - a trigger + custom dropdown
      (the model-picker pattern: outside-click + Escape close) listing the
      scan's sessions with inline rename (input in the row) and a two-step
@@ -2314,14 +2352,23 @@
     color: var(--color-bone);
   }
   .agent-collapsed .agent-header {
-    padding: 14px 8px;
+    padding: 10px 6px;
     justify-content: center;
+    /* The 44px rail is too narrow for the badge + collapse button side by
+       side - stack them: the pending-edit count chip above, the collapse
+       button below. */
+    flex-direction: column;
   }
   .agent-collapsed .agent-header .title {
     display: none;
   }
   .agent-collapsed .agent-header .research-toggle {
     display: none;
+  }
+  .agent-collapsed .agent-header .flex {
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
   }
   .agent-collapsed .agent-body,
   .agent-collapsed .agent-input {
@@ -2723,6 +2770,91 @@
     50% {
       opacity: 0.4;
     }
+  }
+
+  /* M8 follow-up: the specialized thinking box - reasoning/thinking tokens
+     stream into a muted, inset block ABOVE the answer (the standard
+     AI-agent thinking display). No blinking caret inside: the caret belongs
+     to the final answer only. The label pulses while thinking is in
+     progress but no token has landed; a long reasoning scrolls internally
+     (height-capped) instead of growing the message unbounded. */
+  .thinking-box {
+    margin-bottom: 8px;
+    border: 1px solid var(--color-line);
+    border-left: 2px solid var(--color-steel-dim);
+    border-radius: 4px;
+    background: var(--color-graphite);
+    overflow: hidden;
+  }
+  .thinking-head {
+    display: flex;
+    align-items: center;
+    padding: 5px 8px;
+    cursor: pointer;
+    list-style: none;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    color: var(--color-steel);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    user-select: none;
+  }
+  .thinking-head::-webkit-details-marker {
+    display: none;
+  }
+  /* M8 follow-up: the ChatGPT/Claude-style affordance on a FINALIZED
+     thinking box - the collapsed summary shows a chevron + label on the
+     right; clicking expands the reasoning text (and flips it to
+     "Hide reasoning"). Hidden while streaming (the box is live then). */
+  .thinking-reveal {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--color-bone-faint);
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 10px;
+  }
+  .thinking-chev {
+    display: inline-block;
+    font-size: 9px;
+    transition: transform 0.15s ease;
+  }
+  .thinking-chev.open {
+    transform: rotate(90deg);
+  }
+  .thinking-text {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--color-bone-faint);
+    font-size: 11.5px;
+    line-height: 1.55;
+    padding: 0 8px 8px;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  /* M8 follow-up: the fallback note - the model appeared to think (the
+     streaming dots were shown) but exposed no readable reasoning (Gemini
+     3.x returns only encrypted thought signatures). A quiet one-line
+     explanation replaces the box instead of letting it vanish unexplained;
+     nothing to reveal, so no chevron/affordance and no pointer cursor. */
+  .thinking-note-box {
+    display: flex;
+    align-items: center;
+  }
+  .thinking-note-head {
+    cursor: default;
+    gap: 8px;
+  }
+  .thinking-note-copy {
+    color: var(--color-bone-faint);
+    font-family: var(--font-sans);
+    font-size: 10.5px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    line-height: 1.4;
   }
 
   /* Icon-only stop (owner follow-up, Aug 8): most AI chat UIs show the stop

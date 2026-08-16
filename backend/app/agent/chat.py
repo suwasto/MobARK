@@ -110,13 +110,18 @@ _M8_EDIT_PROMPT = (
     "editable, state that explicitly. Never finish such a request with a "
     "read-only summary and no proposal.\n"
     "ONE FILE PER TURN: a request that spans MULTIPLE files is handled one "
-    "file per turn - propose the FIRST file's edit, end your turn telling "
-    "the user it is stored for review (Review edits panel) and to reply "
-    "'continue' for the next file. Do NOT batch several files' proposals "
-    "into one turn: the human reviews each proposal before the next one is "
-    "made. Prior proposals and their verdicts are listed in the EDIT "
-    "REVIEW STATE section (when present) - never re-propose an "
-    "already-applied or rejected change to the same file."
+    "file per turn - first create the scan's TASK LIST with "
+    "write_task_list (one '- [ ] T<n> <what to change> (file: <editable "
+    "path>)' line per file to edit, in order), then propose the FIRST "
+    "pending task's edit. Do NOT batch several files' proposals into one "
+    "turn: the human reviews each proposal before the next one is made. "
+    "After the human applies/rejects a proposal the NEXT pending task "
+    "continues AUTOMATICALLY - do not ask the user to reply 'continue'. "
+    "Prior proposals and their verdicts are listed in the EDIT REVIEW "
+    "STATE section, and the current plan in the TASK LIST section (when "
+    "present) - never re-propose an already-applied or rejected change to "
+    "the same file. A SINGLE-file request needs no task list - just "
+    "propose the edit directly."
 )
 
 
@@ -294,11 +299,13 @@ _TOOL_RESULT_PREVIEW_MAX = 200
 class AgentEvent:
     """One observable event from the agent loop while a turn runs.
 
-    Kinds: ``token`` (``{"delta"}`` - streamed answer text), ``tool_start``
-    (``{"id", "name", "args"}``), ``tool_end`` (``{"id", "name",
-    "status", "duration_ms", "result_preview", "error", "count"}``). The
-    final answer is the return value (AgentResult), not an event - the
-    stream route emits the ``answer`` frame itself.
+    Kinds: ``token`` (``{"delta"}`` - streamed answer text), ``thinking``
+    (``{"delta"}`` - streamed reasoning/thinking tokens, emitted BEFORE the
+    answer on reasoning models), ``tool_start`` (``{"id", "name",
+    "args"}``), ``tool_end`` (``{"id", "name", "status",
+    "duration_ms", "result_preview", "error", "count"}``). The final
+    answer is the return value (AgentResult), not an event - the stream
+    route emits the ``answer`` frame itself.
     """
 
     kind: str
@@ -385,6 +392,11 @@ class AgentResult:
     # M6 follow-up: the persistent per-tool trace (args, status, duration,
     # capped result preview) - powers the dock's collapsible "Tools (n)".
     tool_runs: list[ToolRun] = dataclasses.field(default_factory=list)
+    # M8 follow-up: reasoning/thinking tokens the model emitted before its
+    # answer (OpenAI-style reasoning providers stream them separately from
+    # content) - the dock renders them in the specialized thinking box above
+    # the answer.
+    thinking: str = ""
 
 
 def _deadline_remaining(deadline: float, scan_id: int, timeout: float) -> float:
@@ -443,6 +455,20 @@ def _get(obj, key: str, default=None):
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
+
+def _message_thinking(message) -> str:
+    """The reasoning/thinking text on one model message, however the provider
+    names it: the streaming path normalizes it onto ``thinking``; buffered
+    litellm responses carry it as ``reasoning_content`` (OpenAI-style) or
+    ``reasoning`` (some providers). Defensive - empty string when the model
+    does not reason."""
+    return (
+        getattr(message, "thinking", None)
+        or getattr(message, "reasoning_content", None)
+        or getattr(message, "reasoning", None)
+        or ""
+    )
 
 
 def _accumulate_tool_call_deltas(calls: dict, order: list, deltas) -> None:
@@ -508,14 +534,17 @@ def _stream_round(
     timeout: float,
     tools: list[dict] | None,
     on_token: Callable[[str], None] | None,
+    on_thinking: Callable[[str], None] | None = None,
 ):
     """One streaming model round: consume litellm chunks, accumulate content
     + tool-call deltas into the buffered response shape, and forward content
-    tokens live via ``on_token``.
+    tokens live via ``on_token`` and reasoning/thinking tokens via
+    ``on_thinking`` (OpenAI-style reasoning models stream them in a separate
+    ``reasoning_content`` / ``reasoning`` delta field, BEFORE the content).
 
     Returns an object shaped like the buffered ``client_chat`` response
-    (``.choices[0].message`` with ``content`` + ``tool_calls``) so the agent
-    loop treats both paths identically.
+    (``.choices[0].message`` with ``content`` + ``tool_calls`` + ``thinking``)
+    so the agent loop treats both paths identically.
     """
     from types import SimpleNamespace
 
@@ -526,6 +555,7 @@ def _stream_round(
         stream_kwargs["tools"] = tools
 
     content_parts: list[str] = []
+    thinking_parts: list[str] = []
     calls: dict = {}
     order: list = []
 
@@ -540,6 +570,11 @@ def _stream_round(
             content_parts.append(content)
             if on_token is not None:
                 on_token(content)
+        reasoning = _get(delta, "reasoning_content") or _get(delta, "reasoning")
+        if reasoning:
+            thinking_parts.append(reasoning)
+            if on_thinking is not None:
+                on_thinking(reasoning)
         tcs = getattr(delta, "tool_calls", None)
         if tcs:
             _accumulate_tool_call_deltas(calls, order, tcs)
@@ -549,6 +584,7 @@ def _stream_round(
             SimpleNamespace(
                 message=SimpleNamespace(
                     content="".join(content_parts) or None,
+                    thinking="".join(thinking_parts) or None,
                     tool_calls=_normalized_tool_calls(calls, order),
                 )
             )
@@ -565,6 +601,7 @@ def _model_round(
     tools: list[dict] | None,
     stream: bool,
     on_token: Callable[[str], None] | None,
+    on_thinking: Callable[[str], None] | None = None,
 ):
     """One model round: streaming (deltas accumulated + tokens forwarded)
     or buffered - the loop calls this uniformly so both paths share the
@@ -577,6 +614,7 @@ def _model_round(
             timeout=timeout,
             tools=tools,
             on_token=on_token,
+            on_thinking=on_thinking,
         )
     # Same omission rule as the streaming path: the plain-chat fallback must
     # not carry a tools kwarg at all (existing callers detect its absence).
@@ -727,6 +765,162 @@ def _load_edit_review_state(scan_id: int) -> str:
     )
 
 
+# M8 follow-up (Aug 16): the AUTO-ADVANCE system-prompt section - appended
+# to the system prompt ONLY for an advance turn (the backend starts the next
+# task's proposal turn itself after the human applies a proposal). Instructs
+# the model from the TASK LIST section alone - no user-role text, no history
+# replay.
+_ADVANCE_SECTION = (
+    "\n\nAUTO-ADVANCE TURN: the human just reviewed the previous proposal "
+    "for this task. The TASK LIST above is the current plan. Propose the "
+    "edit for the FIRST pending ([ ]) task now - read the file "
+    "(read_editable_file) then call propose_smali_edit with the FULL edited "
+    "content, one file per turn. If NO task is pending, say the task is "
+    "complete. Never re-propose a resolved task ([x] applied or [~] "
+    "rejected) unless the user explicitly asked to redo it."
+)
+
+
+# Defensive answer when an advance turn finds no pending task (the frontend
+# only opens the advance stream when the apply/reject response said a task
+# is pending, but a race/edge must never spin an LLM turn).
+_ADVANCE_NOTHING_LEFT = (
+    "The edit task is complete - no pending tasks remain in the task list."
+)
+
+
+# M8 follow-up (Aug 16): the TASK LIST section for the system prompt - the
+# scan's task-list.md plan (see app.analysis.edit_tasks), rendered so every
+# turn knows what is done and which task is next. Empty when no artifact
+# exists (single-file / non-edit requests).
+def _load_task_list_state(scan_id: int) -> str:
+    from app.analysis import edit_tasks
+
+    tl = edit_tasks.load_task_list(scan_id)
+    if tl is None or not tl.tasks:
+        return ""
+    return (
+        "\n\nTASK LIST - the scan's multi-file edit plan (task-list.md):\n"
+        + edit_tasks.render_section(tl)
+        + "\nThe human reviews each proposal (Apply/Reject per file) and the "
+        "next pending task continues automatically. When the user redirects "
+        "a task (e.g. redo a rejected edit differently), rewrite the task "
+        "list with write_task_list to reflect the new plan before proposing."
+    )
+
+
+def _deterministic_completion(scan_id: int) -> str:
+    """No-LLM fallback for the task-complete wrap-up (the small LLM summary
+    could not be produced): a factual one-liner from the task list + edit
+    verdicts. Same shape as the LLM version - never empty."""
+    from sqlalchemy import select
+
+    from app.analysis import edit_tasks
+    from app.db import SessionLocal
+    from app.models import Edit
+
+    db = SessionLocal()
+    try:
+        edits = list(
+            db.scalars(
+                select(Edit)
+                .where(Edit.scan_id == scan_id)
+                .order_by(Edit.id.desc())
+                .limit(20)
+            )
+        )
+    finally:
+        db.close()
+    tl = edit_tasks.load_task_list(scan_id)
+    applied = sum(1 for e in edits if e.status == "applied")
+    rejected = sum(1 for e in edits if e.status == "rejected")
+    total = len(edits)
+    parts = [f"The edit task is complete after {total} reviewed proposal(s)."]
+    if applied:
+        parts.append(f"{applied} applied.")
+    if rejected:
+        parts.append(f"{rejected} rejected.")
+    if tl and tl.request:
+        parts.append(f"Original request: {tl.request[:120]}")
+    return " ".join(parts)
+
+
+def task_completion_answer(
+    scan_id: int,
+    *,
+    user_id: int | None = None,
+    master_key: bytes | None = None,
+) -> AgentResult:
+    """The small LLM wrap-up when a task list is exhausted - every task
+    applied or rejected. ONE buffered plain-chat call (no tools, no findings
+    context) over the task list + the edit verdicts from the DB, so the
+    final message summarizes what changed / was rejected without a full
+    agent turn. Falls back to :func:`_deterministic_completion` when the
+    model cannot answer (no backend / upstream failure) - the route never
+    surfaces an error for a wrap-up."""
+    if user_id is not None:
+        current_user_id.set(user_id)
+        current_master_key.set(master_key)
+    from app.analysis import edit_tasks
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Edit
+
+    db = SessionLocal()
+    try:
+        edits = list(
+            db.scalars(
+                select(Edit)
+                .where(Edit.scan_id == scan_id)
+                .order_by(Edit.id.desc())
+                .limit(20)
+            )
+        )
+    finally:
+        db.close()
+    tl = edit_tasks.load_task_list(scan_id)
+    task_lines = (
+        edit_tasks.render_section(tl)
+        if tl and tl.tasks
+        else "(no task list on record)"
+    )
+    verdict_lines = "\n".join(
+        f"- {e.file_path} [{e.status}]"
+        + (f" \"{(e.instruction or '').strip()[:100]}\"" if e.instruction else "")
+        for e in edits
+    )
+    system = (
+        "You are MobARK summarizing the outcome of an edit task. Write a "
+        "short wrap-up (2-4 sentences) of the task below: what was applied, "
+        "what was rejected, and what remains unedited. Plain, factual text "
+        "- no headings."
+    )
+    user = (
+        "TASK:\n"
+        f"{task_lines}\n\n"
+        "EDIT VERDICTS (from the review panel):\n"
+        f"{verdict_lines or '(none)'}\n\n"
+        "Summarize the outcome of this edit task."
+    )
+    thinking = ""
+    try:
+        backend = _pick_chat_backend()
+        response = client_chat(
+            backend,
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.3,
+            timeout=60.0,
+        )
+        answer = (response.choices[0].message.content or "").strip()
+        thinking = _message_thinking(response.choices[0].message)
+    except Exception:  # noqa: BLE001 - a wrap-up must never 500 the review
+        answer = ""
+    if not answer:
+        answer = _deterministic_completion(scan_id)
+    return _build_result(scan_id, answer, [], [], thinking=thinking)
+
+
 def _load_pending_edits(scan_id: int) -> list[dict]:
     """The scan's PENDING edit proposals (``status == "proposed"``) as
     ``{id, file_path}`` - the targets a "continue" / reference question is
@@ -767,6 +961,81 @@ def _is_edit_continuation(question: str, pending_edits: list[dict]) -> bool:
     return False
 
 
+def _edit_reads_include_unresolved(scan_id: int, file_paths: set[str]) -> bool:
+    """True when any editable file the model read this turn has NO settled
+    (applied/rejected/reverted) edit - the reads touched code that still has
+    real work (an untouched file, or one with only a pending proposal).
+    False for an empty set.
+
+    "reverted" is a settled verdict too (the human undid the change): a
+    continuation must not be nudged into re-proposing a file the human just
+    resolved one way or another - they will ask again if they want it
+    re-proposed (M8 follow-up, Aug 16: the apply -> continue -> same-edit
+    loop, one step removed).
+
+    The file-aware half of the edit-nudge gate for continuations: a
+    "continue" whose reads are ALL on already-settled files is the agent
+    confirming done work and must not be pushed to re-propose (the endless
+    same-edit loop); a "continue" that read an unresolved file stalled on
+    the NEXT file of a multi-file task and should be nudged toward it.
+    """
+    if not file_paths:
+        return False
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Edit
+
+    db = SessionLocal()
+    try:
+        rows = db.scalars(
+            select(Edit.file_path).where(
+                Edit.scan_id == scan_id,
+                Edit.file_path.in_(file_paths),
+                Edit.status.in_(("applied", "rejected", "reverted")),
+            )
+        ).all()
+    finally:
+        db.close()
+    resolved = set(rows)
+    return any(p not in resolved for p in file_paths)
+
+
+def _editable_siblings(scan_id: int, jadx_paths: list[str]) -> set[str]:
+    """Map jadx class paths (``com/foo/AuthManager.java`` / ``.kt``) to their
+    editable apktool smali siblings via the canonical mapper
+    (``smali_map.java_to_smali`` - the same rule find_smali_sibling exposes).
+    Search-only turns then count as touching those files for the file-aware
+    nudge gate: a multi-file "continue" that searched the NEXT file's class
+    but stalled before reading the smali sibling can still be nudged.
+
+    Search hits are tree-relative (the jadx ``sources/`` dir is the search
+    root), so the ``sources/`` prefix is re-added for the mapper, which
+    refuses anything that is not a ``sources/`` class path. Paths with no
+    decoded smali counterpart (jadx-fallback smali, non-class files) are
+    skipped."""
+    from app.analysis import smali_map
+    from app.db import SessionLocal
+    from app.models import Scan
+
+    db = SessionLocal()
+    try:
+        scan = db.get(Scan, scan_id)
+    finally:
+        db.close()
+    if scan is None:
+        return set()
+    out: set[str] = set()
+    for path in jadx_paths:
+        if not isinstance(path, str) or not path.endswith((".java", ".kt")):
+            continue
+        jadx_path = path if path.startswith("sources/") else f"sources/{path}"
+        sibling = smali_map.java_to_smali(scan, jadx_path)
+        if sibling:
+            out.add(sibling)
+    return out
+
+
 def answer_question(
     scan_id: int,
     question: str,
@@ -778,6 +1047,11 @@ def answer_question(
     on_event: Callable[[AgentEvent], None] | None = None,
     mentioned_files: list[str] | None = None,
     history: list[dict] | None = None,
+    # M8 follow-up (Aug 16): AUTO-ADVANCE mode - the backend starts the
+    # NEXT task's proposal turn itself after the human applies a proposal
+    # (no fake user prompt, no history replay). The prompt is assembled from
+    # the task-list artifact only; ``question``/``history`` are ignored.
+    advance: bool = False,
     # M9.1 Phase C: the owning user's id - the chat loop resolves the USER's
     # model/search stores (``get_store`` / ``get_search_store`` read
     # ``request_ctx.current_user_id``). Set here (not by the caller's
@@ -841,7 +1115,32 @@ def answer_question(
             tool_mode=TOOL_MODE_CONTEXT,
         )
 
+    # M8 follow-up (Aug 16): an AUTO-ADVANCE turn with no pending task is
+    # already complete - answer without any LLM call (defensive; the
+    # frontend only opens the advance stream when the apply/reject response
+    # said a task is pending, but a race must never spin a turn).
+    if advance:
+        from app.analysis import edit_tasks
+
+        tl = edit_tasks.load_task_list(scan_id)
+        if tl is None or tl.next_pending() is None:
+            return AgentResult(
+                answer=_ADVANCE_NOTHING_LEFT,
+                citations=[],
+                sources=[],
+                tools_used=[],
+                tool_mode=TOOL_MODE_CONTEXT,
+            )
+
     on_token = (lambda delta: _emit(on_event, "token", {"delta": delta})) if on_event else None
+    # M8 follow-up: reasoning/thinking tokens stream as their OWN event so
+    # the dock can render them in the specialized thinking box - they arrive
+    # BEFORE the answer text on reasoning models (shown on top, no cursor).
+    on_thinking = (
+        (lambda delta: _emit(on_event, "thinking", {"delta": delta}))
+        if on_event
+        else None
+    )
 
     from app.agent.tools import edit_tools_allowed, execute_tool, web_tools_allowed
     from app.config import settings
@@ -870,6 +1169,52 @@ def answer_question(
     system_prompt = SYSTEM_PROMPT + (_WEB_PROMPT if web_allowed else "")
     if edit_allowed:
         system_prompt += _M8_EDIT_PROMPT
+    # M8 follow-up (Aug 16): edit-task loop state computed HERE, before the
+    # prompt is assembled - a fresh change request supersedes a stale task
+    # list, and the TASK LIST section (when one exists) rides in the system
+    # prompt for every turn. ``edit_nudge_armed`` - the "ends on read" nudge
+    # may DEMAND a proposal when the model read the code but stalled before
+    # proposing. Armed for: an advance turn (the backend started it to get a
+    # proposal), a fresh change verb in the current question (an explicit
+    # new request), or an actual continuation (continue/next cue or a
+    # reference to the edit surface) of a session that has in-flight edit
+    # work - pending proposals, or a prior turn that used a change verb.
+    # M9 follow-up (Aug 14): intent is never inherited from history for an
+    # unrelated question - an actual continuation cue is required.
+    pending_edits = _load_pending_edits(scan_id) if edit_allowed else []
+    is_edit_continuation = _is_edit_continuation(question, pending_edits)
+    edit_verb_this_turn = edit_allowed and (
+        not advance
+        and not is_edit_continuation
+        and bool(_EDIT_INTENT_RE.search(question))
+    )
+    # A genuinely NEW change request (never a continuation cue, never an
+    # advance turn) supersedes any stale task list - the old plan is
+    # archived and the agent starts fresh.
+    if edit_verb_this_turn:
+        from app.analysis import edit_tasks as _edit_tasks
+
+        _edit_tasks.supersede_task_list(scan_id)
+    edit_nudge_armed = edit_allowed and (
+        advance
+        or edit_verb_this_turn
+        or (
+            is_edit_continuation
+            and (
+                bool(pending_edits)
+                or any(
+                    _EDIT_INTENT_RE.search(str(t.get("content") or ""))
+                    for t in (history or [])
+                    if isinstance(t, dict)
+                )
+            )
+        )
+    )
+    # M8 follow-up (Aug 16): the TASK LIST section - the scan's multi-file
+    # edit plan (rendered from task-list.md) so every turn - including the
+    # backend-started advances - knows what is done and what is next.
+    task_section = _load_task_list_state(scan_id) if edit_allowed else ""
+
     # M8 follow-up: user @-mentions - the mentioned files' content is attached
     # so the model answers/proposes about them directly (no search round).
     mentioned_section = _load_mentioned_files(scan_id, mentioned_files or [])
@@ -888,26 +1233,31 @@ def answer_question(
                 + context.rendered
                 + mentioned_section
                 + review_state
+                + task_section
+                + (_ADVANCE_SECTION if advance else "")
             ),
         },
     ]
-    # M8 follow-up: the client-side thread re-sent with a follow-up - recent
-    # user/assistant turns before the current question, capped so a long dock
-    # thread can't balloon the prompt. Lets "continue the edit task" keep the
-    # original request ("bypass the root check") without server persistence.
-    total = 0
-    for turn in (history or [])[-_MAX_HISTORY_TURNS:]:
-        role = turn.get("role") if isinstance(turn, dict) else None
-        content = (turn.get("content") if isinstance(turn, dict) else "") or ""
-        content = content.strip()
-        if role not in ("user", "assistant") or not content:
-            continue
-        if total >= _MAX_HISTORY_CHARS:
-            break
-        content = content[:4000]
-        total += len(content)
-        messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": question})
+    if not advance:
+        # M8 follow-up: the client-side thread re-sent with a follow-up -
+        # recent user/assistant turns before the current question, capped so
+        # a long dock thread can't balloon the prompt. Lets "continue the
+        # edit task" keep the original request without server persistence.
+        # An advance turn never replays history - the task list IS the
+        # context (no re-planning, no token replay).
+        total = 0
+        for turn in (history or [])[-_MAX_HISTORY_TURNS:]:
+            role = turn.get("role") if isinstance(turn, dict) else None
+            content = (turn.get("content") if isinstance(turn, dict) else "") or ""
+            content = content.strip()
+            if role not in ("user", "assistant") or not content:
+                continue
+            if total >= _MAX_HISTORY_CHARS:
+                break
+            content = content[:4000]
+            total += len(content)
+            messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": question})
     # The original grounded prompt - used by the exhaustion fallback so the
     # final plain-chat call never carries tool-role messages a server may
     # reject without a `tools` parameter.
@@ -924,36 +1274,22 @@ def answer_question(
     tools_used: list[str] = []
     tool_runs: list[ToolRun] = []
     final_text = ""
+    thinking_total = ""
     narration_nudges = 0
-    # M8 follow-up (Aug 12): edit-task loop state. ``edit_intent`` - the
-    # question asks to change code AND the edit tools exist - gates the
-    # "ends on read" nudge so normal Q&A is never pushed to propose.
-    # ``proposals_this_turn`` / ``edit_reads_this_turn`` track the executed
-    # tools; ``edit_nudges`` bounds the nudge like narration. A bare
-    # "continue" follow-up has no change verb of its own - inherit the
-    # intent from the client-side history (the original edit request) so the
-    # nudge keeps guarding the sequential flow across turns.
-    # M9 follow-up (Aug 14): the inheritance is now GATED on an actual
-    # continuation - the current question is a continue/next cue or references
-    # a pending proposal (``_is_edit_continuation``) AND some prior turn used
-    # a change verb. An unrelated later question in the same session (e.g.
-    # "why is the app debuggable?" after an earlier "bypass the root check")
-    # never inherits the edit frame, so the nudge cannot push it into
-    # proposing an edit it was never asked for.
-    pending_edits = _load_pending_edits(scan_id) if edit_allowed else []
-    edit_intent = edit_allowed and bool(
-        _EDIT_INTENT_RE.search(question)
-        or (
-            _is_edit_continuation(question, pending_edits)
-            and any(
-                _EDIT_INTENT_RE.search(str(t.get("content") or ""))
-                for t in (history or [])
-                if isinstance(t, dict)
-            )
-        )
-    )
+    # M8 follow-up (Aug 12): the "ends on read" nudge gate is computed above
+    # (``edit_nudge_armed``, before the prompt). The remaining per-turn
+    # counters: ``proposals_this_turn`` / ``edit_reads_this_turn`` /
+    # ``edit_read_files`` track the executed tools; ``edit_nudges`` bounds
+    # the nudge like narration. The gate itself is FILE-AWARE (see the loop
+    # below): a continuation nudge only fires when the model's reads touched
+    # unresolved work, or a proposal is still pending.
     proposals_this_turn = 0
     edit_reads_this_turn = 0
+    # M8 follow-up (Aug 16): the editable files the model read THIS turn
+    # (read_editable_file paths + find_smali_sibling results) - the
+    # file-aware nudge gate classifies them (resolved vs still-to-do)
+    # instead of guessing from the question alone.
+    edit_read_files: set[str] = set()
     edit_nudges = 0
 
     cancel = _register_cancel(scan_id)
@@ -972,6 +1308,7 @@ def answer_question(
                     tools=tools,
                     stream=stream,
                     on_token=on_token,
+                    on_thinking=on_thinking,
                 )
             except Exception:
                 # Some backends reject the tools kwarg - degrade to plain chat,
@@ -988,6 +1325,7 @@ def answer_question(
                         tools=None,
                         stream=stream,
                         on_token=on_token,
+                        on_thinking=on_thinking,
                     )
                 except Exception as exc:
                     # If the fallback itself burns the budget (hung upstream),
@@ -1002,6 +1340,10 @@ def answer_question(
             message = response.choices[0].message
             content = (message.content or "").strip()
             tool_calls = list(getattr(message, "tool_calls", None) or [])
+            # M8 follow-up: accumulate the round's reasoning/thinking tokens
+            # (buffered path - the streaming path already forwarded them live
+            # and normalized them onto ``message.thinking``).
+            thinking_total += _message_thinking(message)
 
             if not tool_calls:
                 # M8 follow-up (Aug 11): plan narration must not be the final
@@ -1036,11 +1378,26 @@ def answer_question(
                 # propose_smali_edit; the nudge explicitly allows a read-only
                 # explanation so an unchangeable target isn't forced.
                 if (
-                    edit_intent
+                    edit_nudge_armed
                     and proposals_this_turn == 0
                     and edit_reads_this_turn > 0
                     and edit_nudges < _MAX_EDIT_NUDGES
                     and content
+                    # File-aware gate: a fresh change verb (a genuine NEW
+                    # request, never a continuation cue) always keeps the
+                    # nudge (an explicit new request). A continuation keeps it
+                    # only when there is in-flight work - a pending proposal,
+                    # or the reads touched an editable file with no applied/
+                    # rejected/reverted verdict yet (the NEXT file of a
+                    # multi-file task). All-settled reads, or no editable reads
+                    # with nothing pending, mean the agent confirmed done work
+                    # - no nudge, so 'continue' after applying/reverting never
+                    # re-proposes.
+                    and (
+                        edit_verb_this_turn
+                        or bool(pending_edits)
+                        or _edit_reads_include_unresolved(scan_id, edit_read_files)
+                    )
                 ):
                     edit_nudges += 1
                     messages.append({"role": "assistant", "content": content or None})
@@ -1088,11 +1445,33 @@ def answer_question(
                     {"id": call_id, "name": name, "args": args},
                 )
                 started = time.monotonic()
-                result = (
-                    execute_tool(scan_id, name, args)
-                    if name
-                    else json.dumps({"error": "malformed tool call"})
-                )
+                # M8 follow-up (Aug 16): ONE FILE PER TURN, enforced. The
+                # prompt tells the model to propose one file and end the turn,
+                # but a model that ignored it kept calling propose_smali_edit
+                # round after round - every successful call stored another
+                # duplicate proposal row and the loop ran on until the round
+                # budget was exhausted (the "endless loop proposing the same
+                # smali edit" report). After the first successful proposal of
+                # a turn, later propose_smali_edit calls fail fast with a
+                # clear instruction instead of executing.
+                if name == "propose_smali_edit" and proposals_this_turn >= 1:
+                    result = json.dumps(
+                        {
+                            "error": (
+                                "A proposal was already stored this turn - "
+                                "ONE FILE PER TURN: the human reviews each "
+                                "proposal before the next one is made. End "
+                                "your turn with a summary; tell the user to "
+                                "reply 'continue' for the next file."
+                            )
+                        }
+                    )
+                else:
+                    result = (
+                        execute_tool(scan_id, name, args)
+                        if name
+                        else json.dumps({"error": "malformed tool call"})
+                    )
                 # M8 follow-up: a SUCCESSFUL propose_smali_edit counts for the
                 # edit-task nudges (the sequential flow: one proposal per turn,
                 # then the human reviews and says "continue").
@@ -1103,6 +1482,36 @@ def answer_question(
                         parsed = None
                     if isinstance(parsed, dict) and "error" not in parsed:
                         proposals_this_turn += 1
+                # M8 follow-up (Aug 16): remember WHICH editable files the
+                # model touched this turn - the file-aware nudge gate decides
+                # from them whether the reads hit resolved work or the next
+                # file of the task. read_editable_file's path is the editable
+                # path directly; find_smali_sibling returns it in its result.
+                if name == "read_editable_file":
+                    p = args.get("path")
+                    if isinstance(p, str) and p:
+                        edit_read_files.add(p)
+                elif name == "find_smali_sibling":
+                    try:
+                        parsed = json.loads(result)
+                    except json.JSONDecodeError:
+                        parsed = None
+                    sibling = (parsed or {}).get("sibling")
+                    if isinstance(sibling, str) and sibling:
+                        edit_read_files.add(sibling)
+                elif name == "search_code":
+                    # M8 follow-up (Aug 16): a search-only stall counts too -
+                    # map the hits to their editable smali siblings so the
+                    # file-aware gate sees them as touched files.
+                    try:
+                        parsed = json.loads(result)
+                    except json.JSONDecodeError:
+                        parsed = None
+                    if isinstance(parsed, list):
+                        edit_read_files |= _editable_siblings(
+                            scan_id,
+                            [h.get("file") for h in parsed if isinstance(h, dict)],
+                        )
                 duration_ms = int((time.monotonic() - started) * 1000)
                 status, preview, error, count = _classify_tool_result(result)
                 tool_runs.append(
@@ -1157,11 +1566,13 @@ def answer_question(
                 tools=None,
                 stream=stream,
                 on_token=on_token,
+                on_thinking=on_thinking,
             )
         except Exception as exc:
             _deadline_remaining(deadline, scan_id, timeout)
             raise ChatUpstreamError(model_arch_hint(f"LLM call failed: {exc}")) from exc
         final_text = (response.choices[0].message.content or "").strip()
+        thinking_total += _message_thinking(response.choices[0].message)
         if not final_text:
             final_text = (
                 "I could not complete a grounded answer within the tool-call "
@@ -1169,7 +1580,7 @@ def answer_question(
                 "file or finding."
             )
 
-    return _build_result(scan_id, final_text, tools_used, tool_runs)
+    return _build_result(scan_id, final_text, tools_used, tool_runs, thinking=thinking_total)
 
 
 # ---- citation resolution ------------------------------------------------------
@@ -1190,6 +1601,7 @@ def _build_result(
     answer: str,
     tools_used: list[str],
     tool_runs: list[ToolRun] | None = None,
+    thinking: str = "",
 ) -> AgentResult:
     citations: list[Citation] = []
     seen: set[tuple[str, int]] = set()
@@ -1217,4 +1629,5 @@ def _build_result(
         # at least one tool call that dispatched.
         tool_mode=TOOL_MODE_TOOLS if tools_used else TOOL_MODE_CONTEXT,
         tool_runs=tool_runs or [],
+        thinking=thinking,
     )

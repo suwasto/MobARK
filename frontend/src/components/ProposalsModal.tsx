@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { formatRelative } from '../lib/format'
-import type { EditRead } from '../types'
+import type { EditRead, EditReviewResult } from '../types'
 
 interface ProposalsModalProps {
   scanId: number
   /** The agent edit proposals (status === 'proposed') awaiting review. */
   proposals: EditRead[]
   onClose: () => void
-  /** Called after an Apply/Reject lands so the parent refetches + re-counts. */
-  onChanged: () => void
+  /** Called after an Apply/Reject lands with the apply/reject response -
+   * the parent refetches + re-counts, and the response's task-list flags
+   * drive the automatic continuation (advance / wrap-up / reject-pause). */
+  onChanged: (result: EditReviewResult) => void
 }
 
 /** One unified-diff line -> a colored class (git-style diff coloring). */
@@ -29,7 +31,7 @@ function ProposalCard({
 }: {
   scanId: number
   proposal: EditRead
-  onChanged: () => void
+  onChanged: (result: EditReviewResult) => void
   onError: (msg: string) => void
 }) {
   const [diff, setDiff] = useState<string | null>(null)
@@ -56,12 +58,11 @@ function ProposalCard({
   const act = async (kind: 'apply' | 'reject') => {
     setBusy(kind)
     try {
-      if (kind === 'apply') {
-        await api.applyEdit(scanId, proposal.id)
-      } else {
-        await api.rejectEdit(scanId, proposal.id)
-      }
-      onChanged()
+      const result =
+        kind === 'apply'
+          ? await api.applyEdit(scanId, proposal.id)
+          : await api.rejectEdit(scanId, proposal.id)
+      onChanged(result)
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -204,9 +205,9 @@ export function ProposalsModal({
                 key={p.id}
                 scanId={scanId}
                 proposal={p}
-                onChanged={() => {
+                onChanged={(result) => {
                   setError(null)
-                  onChanged()
+                  onChanged(result)
                 }}
                 onError={setError}
               />

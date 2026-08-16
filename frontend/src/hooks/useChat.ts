@@ -41,12 +41,22 @@ export interface ChatMessage {
   /** M8 follow-up: tree paths the user @mentioned in this message - kept
    * so a Retry re-sends them and the bubble can render clickable chips. */
   mentionedFiles?: string[]
+  /** M8 follow-up: reasoning/thinking tokens the model emitted before its
+   * answer - rendered in the specialized thinking box above the answer. */
+  thinking?: string
+  /** M8 follow-up: the streaming thinking box was shown (dots while the
+   * model computed) but NO readable reasoning ever landed - e.g. Gemini
+   * 3.x exposes only encrypted thought signatures. Renders the box's
+   * fallback note instead of letting the box vanish unexplained. */
+  thinkingAttempted?: boolean
 }
 
 /** The in-flight streamed turn (not yet a finalized ChatMessage). */
 interface PendingTurn {
   text: string
   steps: ToolStep[]
+  /** M8 follow-up: streamed reasoning/thinking tokens (own SSE event). */
+  thinking: string
 }
 
 // M9 follow-up: locally-created messages use NEGATIVE ids so they can never
@@ -152,6 +162,12 @@ function parseData<T>(raw: string): T | null {
 // Throttle token-event state updates: a long answer streams one delta per
 // token, which would be a render per token without a flush window.
 const TOKEN_FLUSH_MS = 50
+
+// M8 follow-up: a compute window this long (no content at all) means the
+// model was visibly "thinking" - the streaming box's dots were actually
+// shown. Below it, the box never perceptibly rendered, so the finalized
+// message gets no fallback note.
+const DOTS_VISIBLE_MS = 300
 
 /**
  * Agent dock conversation (Phase G + M6 follow-up) - messages + send over
@@ -333,22 +349,37 @@ export function useChat(scanId: number) {
   }, [scanId, refreshSessions])
 
   const send = useCallback(
-    (question: string, mentionedFiles?: string[]) => {
+    (
+      question: string,
+      mentionedFiles?: string[],
+      opts?: { advance?: boolean },
+    ) => {
       const trimmed = question.trim()
-      if (!trimmed || sending) return
+      if (sending) return
+      if (!opts?.advance && !trimmed) return
+      const advance = opts?.advance ?? false
       const id = ++requestIdRef.current
       controllerRef.current?.abort() // never two in flight
       const controller = new AbortController()
       controllerRef.current = controller
-      const userMsg: ChatMessage = {
-        id: localId(),
-        role: 'user',
-        content: trimmed,
-        mentionedFiles,
+      // M8 follow-up (Aug 16): an ADVANCE turn has no user message - the
+      // backend builds the continuation from the task-list artifact (no
+      // fake "continue" text is ever sent).
+      if (!advance) {
+        const userMsg: ChatMessage = {
+          id: localId(),
+          role: 'user',
+          content: trimmed,
+          mentionedFiles,
+        }
+        setMessages((prev) => [...prev, userMsg])
       }
-      setMessages((prev) => [...prev, userMsg])
-      pendingRef.current = { text: '', steps: [] }
-      setPending({ text: '', steps: [] })
+      // M8 follow-up: turn start time - the thinking dots are shown from
+      // here until the first content (token/step) lands; that window is
+      // what decides the fallback note on finalized turns.
+      const pendingStartedAt = Date.now()
+      pendingRef.current = { text: '', steps: [], thinking: '' }
+      setPending({ text: '', steps: [], thinking: '' })
       setSending(true)
 
       const finalizeMessage = (msg: ChatMessage) => {
@@ -362,7 +393,8 @@ export function useChat(scanId: number) {
           role: 'agent',
           content: chatErrorMessage(kind, detail),
           errorKind: kind,
-          retryQuestion: trimmed,
+          // An advance turn has no user question to retry.
+          ...(advance ? {} : { retryQuestion: trimmed }),
         })
       }
 
@@ -370,7 +402,15 @@ export function useChat(scanId: number) {
       // history (full thread) and stores the user/assistant turns back.
       const runTurn = (sessionId: number) => {
         api
-          .chatStream(scanId, trimmed, controller.signal, mentionedFiles, undefined, sessionId)
+          .chatStream(
+            scanId,
+            advance ? '' : trimmed,
+            controller.signal,
+            mentionedFiles,
+            undefined,
+            sessionId,
+            advance || undefined,
+          )
           .then(async (res) => {
             const reader = res.body?.getReader()
             if (!reader) throw new Error('No response body in chat stream')
@@ -378,15 +418,30 @@ export function useChat(scanId: number) {
             const sse = new StreamDecoder()
             let answer: ChatResponse | null = null
             let streamError: { kind: ChatErrorKind; detail: string } | null = null
-            // Token text is buffered and flushed on a timer so a long answer
-            // doesn't render once per token.
+            // Token text + thinking text are buffered and flushed on a timer
+            // so a long answer doesn't render once per token.
             let tokenBuf = ''
+            let thinkBuf = ''
             let lastFlush = 0
+            // M8 follow-up: the fallback thinking note is only meaningful when
+            // the dots were ACTUALLY shown - i.e. the model computed with no
+            // content for a perceptible window before the first token/step.
+            // An instant answer never lets the box render, so it gets no note.
+            let firstContentAt: number | null = null
+            const noteFirstContent = () => {
+              if (firstContentAt == null) firstContentAt = Date.now()
+            }
             const flushTokens = () => {
-              if (!tokenBuf) return
+              if (!tokenBuf && !thinkBuf) return
               const delta = tokenBuf
+              const thinkDelta = thinkBuf
               tokenBuf = ''
-              mutatePending((p) => ({ ...p, text: p.text + delta }))
+              thinkBuf = ''
+              mutatePending((p) => ({
+                ...p,
+                text: p.text + delta,
+                thinking: p.thinking + thinkDelta,
+              }))
             }
 
             for (;;) {
@@ -397,6 +452,7 @@ export function useChat(scanId: number) {
                 if (ev.event === 'token') {
                   const d = parseData<{ delta?: string }>(ev.data)
                   if (d?.delta) {
+                    noteFirstContent()
                     tokenBuf += d.delta
                     const now = Date.now()
                     if (now - lastFlush >= TOKEN_FLUSH_MS) {
@@ -404,7 +460,19 @@ export function useChat(scanId: number) {
                       flushTokens()
                     }
                   }
+                } else if (ev.event === 'thinking') {
+                  const d = parseData<{ delta?: string }>(ev.data)
+                  if (d?.delta) {
+                    noteFirstContent()
+                    thinkBuf += d.delta
+                    const now = Date.now()
+                    if (now - lastFlush >= TOKEN_FLUSH_MS) {
+                      lastFlush = now
+                      flushTokens()
+                    }
+                  }
                 } else if (ev.event === 'tool_start') {
+                  noteFirstContent()
                   flushTokens()
                   const d = parseData<{ id: string; name: string; args: Record<string, unknown> }>(ev.data)
                   if (d) {
@@ -453,6 +521,12 @@ export function useChat(scanId: number) {
             if (streamError) {
               pushErrorMessage(streamError.kind, streamError.detail)
             } else if (answer) {
+              const thinking = answer.thinking ?? ''
+              // The dots were shown only if the model computed for a
+              // perceptible window before ANY content (token/step) landed.
+              const dotsShown =
+                firstContentAt != null &&
+                firstContentAt - pendingStartedAt >= DOTS_VISIBLE_MS
               finalizeMessage({
                 id: localId(),
                 role: 'agent',
@@ -461,6 +535,8 @@ export function useChat(scanId: number) {
                 sources: answer.sources,
                 toolMode: answer.tool_mode,
                 toolsUsed: answer.tools_used,
+                thinking,
+                thinkingAttempted: !thinking && dotsShown,
                 steps: answer.tool_runs.map((r) => ({
                   id: r.id,
                   name: r.name,
@@ -546,6 +622,60 @@ export function useChat(scanId: number) {
     [scanId, sending, activeSessionId, clearPending, mutatePending, refreshSessions],
   )
 
+  /** M8 follow-up (Aug 16): AUTO-ADVANCE - the backend starts the next
+   * task's proposal turn itself after the human applied a proposal. No user
+   * message (there is no user question - the continuation prompt is built
+   * server-side from the task-list artifact), no fake "continue" text.
+   * The turn streams live and persists like any other. */
+  const advance = useCallback(() => {
+    send('', undefined, { advance: true })
+  }, [send])
+
+  /** Append a plain agent note locally (e.g. the rejection-pause message
+   * from the apply/reject response) - informational, not a streamed turn.
+   * Local id (negative): never collides with persisted turns. */
+  const appendNote = useCallback((content: string) => {
+    setMessages((prev) => [...prev, { id: localId(), role: 'agent', content }])
+  }, [])
+
+  /** M8 follow-up (Aug 16): the task-complete wrap-up - the task list is
+   * exhausted (every proposal applied/rejected), so ONE small LLM summary
+   * closes the task (buffered; the deterministic fallback is server-side,
+   * so this never errors the thread). */
+  const completeTask = useCallback(async () => {
+    if (sending || activeSessionId == null) return
+    try {
+      const res = await api.completeTask(scanId, activeSessionId)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: localId(),
+          role: 'agent',
+          content: res.answer,
+          citations: res.citations,
+          sources: res.sources,
+          toolMode: res.tool_mode,
+          toolsUsed: res.tools_used,
+          thinking: res.thinking ?? '',
+          steps: res.tool_runs.map((r) => ({
+            id: r.id,
+            name: r.name,
+            args: r.args,
+            status: r.status,
+            durationMs: r.duration_ms,
+            resultPreview: r.result_preview,
+            error: r.error ?? undefined,
+            count: r.count ?? undefined,
+          })),
+        },
+      ])
+    } catch {
+      // Transient - a wrap-up must never break the thread.
+    } finally {
+      void refreshSessions() // the wrap-up was persisted server-side
+    }
+  }, [scanId, sending, activeSessionId, refreshSessions])
+
   return {
     messages,
     pending,
@@ -559,5 +689,8 @@ export function useChat(scanId: number) {
     newSession,
     deleteSession,
     renameSession,
+    advance,
+    completeTask,
+    appendNote,
   }
 }

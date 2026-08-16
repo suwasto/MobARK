@@ -16,6 +16,7 @@ import type {
   EditCreate,
   EditDiff,
   EditRead,
+  EditReviewResult,
   ExplainResponse,
   FileContentResponse,
   FileTreeResponse,
@@ -339,12 +340,14 @@ export const api = {
   /** The stored unified diff for one edit (the review surface). */
   editDiff: (scanId: number, editId: number) =>
     request<EditDiff>(`/scans/${scanId}/edits/${editId}/diff`),
-  /** proposed -> applied (agent proposals; human-owned). */
+  /** proposed -> applied (agent proposals; human-owned). The response
+   * carries the task-list flags that drive the automatic continuation. */
   applyEdit: (scanId: number, editId: number) =>
-    request<EditRead>(`/scans/${scanId}/edits/${editId}/apply`, { method: 'POST' }),
-  /** proposed -> rejected. */
+    request<EditReviewResult>(`/scans/${scanId}/edits/${editId}/apply`, { method: 'POST' }),
+  /** proposed -> rejected (pauses a multi-file task: the human owns whether
+   * the rest is still wanted - the response carries the pause message). */
   rejectEdit: (scanId: number, editId: number) =>
-    request<EditRead>(`/scans/${scanId}/edits/${editId}/reject`, { method: 'POST' }),
+    request<EditReviewResult>(`/scans/${scanId}/edits/${editId}/reject`, { method: 'POST' }),
   /** applied -> reverted (restore-original: pops to the prior state). */
   revertEdit: (scanId: number, editId: number) =>
     request<EditRead>(`/scans/${scanId}/edits/${editId}/revert`, { method: 'POST' }),
@@ -436,6 +439,9 @@ export const api = {
     history?: ChatHistoryTurn[],
     /** M9 follow-up: run the turn in this chat session (persisted thread). */
     sessionId?: number | null,
+    /** M8 follow-up (Aug 16): auto-advance mode - no user question, the
+     * backend builds the continuation from the task-list artifact. */
+    advance?: boolean,
   ) =>
     fetch(`${API_BASE}/scans/${scanId}/chat/stream`, {
       method: 'POST',
@@ -447,11 +453,22 @@ export const api = {
           : {}),
         ...(history && history.length > 0 ? { history } : {}),
         ...(sessionId != null ? { session_id: sessionId } : {}),
+        ...(advance ? { advance: true } : {}),
       }),
       signal,
     }).then(async (res) => {
       if (!res.ok) throw await toApiError(res)
       return res
+    }),
+  /** M8 follow-up (Aug 16): the task-complete wrap-up - the task list is
+   * exhausted (every proposal applied/rejected) and ONE small LLM summary
+   * closes the task (falls back to a deterministic summary server-side). */
+  completeTask: (scanId: number, sessionId?: number | null) =>
+    request<ChatResponse>(`/scans/${scanId}/chat/complete-task`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(sessionId != null ? { session_id: sessionId } : {}),
+      }),
     }),
   /** Stop an in-flight agent chat (the Stop button) - fire-and-forget; the
    * server polls this flag between agent rounds and halts the LLM loop so it

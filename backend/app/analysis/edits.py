@@ -114,6 +114,25 @@ def create_agent_proposal(
         )
     if len(content) > editable.MAX_EDIT_CHARS:
         raise EditError(f"edit exceeds the {editable.MAX_EDIT_CHARS} character cap")
+    # M8 follow-up (Aug 16): one PENDING proposal per file, ever. A re-proposal
+    # while the previous one still awaits review is what let the agent loop spin
+    # on a single edit ("propose -> still proposed -> propose again"), each
+    # call stacking another duplicate row. The human owns each proposal
+    # (decision 7) - Apply/Reject the pending one first. Applied/rejected/
+    # reverted proposals are resolved and never block a new one.
+    pending = db.scalars(
+        select(Edit).where(
+            Edit.scan_id == scan.id,
+            Edit.file_path == file_path,
+            Edit.status == "proposed",
+        )
+    ).first()
+    if pending is not None:
+        raise EditError(
+            f"edit {pending.id} for {file_path} is still proposed (awaiting "
+            "review) - Apply or Reject it in the Review edits panel before "
+            "proposing this file again"
+        )
     tree_path = editable.tree_path_from_edit_path(file_path)
     baseline = tree.read_tree_file(scan, tree_path, effective=False).content
     current = effective_content(db, scan.id, file_path)

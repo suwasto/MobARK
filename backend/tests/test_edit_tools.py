@@ -317,6 +317,66 @@ def test_proposals_never_leak_into_effective_content(env):
         assert edits.effective_content(session, scan_id, "AndroidManifest.xml") is None
 
 
+def test_propose_smali_edit_blocked_while_pending(env):
+    """A file with a PROPOSED edit cannot get a second proposal - even with
+    different content - until the human resolves the pending one (Apply/Reject).
+    This is the service-level guard behind the 'endless re-proposal' fix:
+    without it, a 'continue' turn (or a looping model) stacks duplicate
+    proposals for the same file instead of waiting for the review verdict."""
+    scan_id, tmp_path, db = env
+    _apktool_tree(tmp_path, scan_id)
+    first = tools.propose_smali_edit(
+        scan_id, "AndroidManifest.xml", "disable debuggable",
+        ANDROID_MANIFEST.replace('android:debuggable="true"',
+                                 'android:debuggable="false"'),
+    )
+    with pytest.raises(tools.ToolError, match="still proposed"):
+        tools.propose_smali_edit(
+            scan_id, "AndroidManifest.xml", "remove allowBackup too",
+            ANDROID_MANIFEST.replace('android:allowBackup="true"',
+                                     'android:allowBackup="false"'),
+        )
+    # After the human REJECTS the pending proposal, a new one is allowed.
+    with db() as session:
+        edits.reject_edit(session, session.get(Edit, first["edit_id"]))
+    second = tools.propose_smali_edit(
+        scan_id, "AndroidManifest.xml", "remove allowBackup too",
+        ANDROID_MANIFEST.replace('android:allowBackup="true"',
+                                 'android:allowBackup="false"'),
+    )
+    assert second["status"] == "proposed"
+    assert second["edit_id"] != first["edit_id"]
+
+
+def test_propose_again_after_apply_then_revert(env):
+    """The reported flow: the human APPLIES a proposal, then REVERTS it (the
+    file is back to baseline), then asks the agent to edit the file again. A
+    reverted edit is resolved - it must never block a new proposal (only a
+    still-``proposed`` row does). Regression: after apply -> revert the
+    service-level guard must pass so the agent can re-propose."""
+    scan_id, tmp_path, db = env
+    _apktool_tree(tmp_path, scan_id)
+    first = tools.propose_smali_edit(
+        scan_id, "AndroidManifest.xml", "disable debuggable",
+        ANDROID_MANIFEST.replace('android:debuggable="true"',
+                                 'android:debuggable="false"'),
+    )
+    # Human: apply, then revert (Restore original in Edit & recompile).
+    with db() as session:
+        edit = session.get(Edit, first["edit_id"])
+        edits.apply_edit(session, edit)
+        edits.revert_edit(session, session.get(Edit, first["edit_id"]))
+        assert session.get(Edit, first["edit_id"]).status == "reverted"
+    # The file is back at baseline - a new proposal for it must succeed.
+    second = tools.propose_smali_edit(
+        scan_id, "AndroidManifest.xml", "disable debuggable",
+        ANDROID_MANIFEST.replace('android:debuggable="true"',
+                                 'android:debuggable="false"'),
+    )
+    assert second["status"] == "proposed"
+    assert second["edit_id"] != first["edit_id"]
+
+
 # ---- execute_tool dispatch ----------------------------------------------------
 
 

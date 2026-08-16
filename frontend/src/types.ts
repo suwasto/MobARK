@@ -122,6 +122,20 @@ export interface EditDiff {
   diff: string
 }
 
+/** M8 follow-up (Aug 16): an apply/reject response - the edit row plus the
+ * task-list flags that drive the automatic continuation. `next_task_pending`
+ * -> open the advance stream (the next task's proposal starts itself);
+ * `task_complete` -> the task list is exhausted, run the wrap-up summary;
+ * `paused` -> the proposal was REJECTED with tasks still pending, the loop
+ * waits for the human (the rejection message rides in `pause_message`). All
+ * false for a single-file request (no task list) - nothing to advance. */
+export interface EditReviewResult extends EditRead {
+  next_task_pending: boolean
+  task_complete: boolean
+  paused: boolean
+  pause_message: string | null
+}
+
 /** Java⇄Smali sibling mapping for the Decompiler view toggle. */
 export interface SmaliSibling {
   path: string
@@ -318,6 +332,9 @@ export interface ChatRequest {
   /** M9 follow-up: the chat session this turn runs in - the route loads the
    * session's persisted thread and stores the turn back. */
   session_id?: number | null
+  /** M8 follow-up (Aug 16): auto-advance mode - no user question; the
+   * backend builds the continuation from the scan's task-list artifact. */
+  advance?: boolean
 }
 
 /** M9 follow-up: one chat session in the per-scan switcher. */
@@ -370,6 +387,9 @@ export interface ChatResponse {
   tools_used: string[]
   /** M6 follow-up: the per-tool trace (the live SSE events, finalized). */
   tool_runs: ToolRunRead[]
+  /** M8 follow-up: reasoning/thinking tokens the model emitted before its
+   * answer - the dock renders them in the specialized thinking box. */
+  thinking?: string
 }
 
 export interface ScanGraphState {

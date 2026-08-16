@@ -4,7 +4,7 @@ import { api } from '../../api/client'
 import { useFindings } from '../../hooks/useFindings'
 import { formatRelative, platformLabel } from '../../lib/format'
 import { useApp } from '../../state/AppContext'
-import type { EditRead, FindingRead, ScanRead } from '../../types'
+import type { EditRead, EditReviewResult, FindingRead, ScanRead } from '../../types'
 import { ProposalsModal } from '../ProposalsModal'
 import { Splitter } from '../Splitter'
 import { TargetBar } from '../TargetBar'
@@ -206,19 +206,22 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
   )
   // Auto-close the review modal once the last proposal is resolved - the
   // apply/reject refresh lands with zero proposed and the empty state would
-  // otherwise linger. M9 follow-up: that resolution ALSO resumes the edit
-  // task automatically ("continue") - the agent proposes the next file's
-  // edit without the user typing or clicking anything. The nonce is bumped
-  // here because the count dropping to 0 while the modal is open can only
-  // come from an Apply/Reject in the modal (proposals are agent-created;
-  // the pill/badge only open it with count > 0).
-  const [autoContinueNonce, setAutoContinueNonce] = useState(0)
+  // otherwise linger. The ADVANCE itself is driven by the apply/reject
+  // response (onProposalsChanged below) - the backend owns what happens
+  // next, no count-derived "continue" here.
   useEffect(() => {
     if (proposalsOpen && proposedCount === 0) {
       setProposalsOpen(false)
-      setAutoContinueNonce((n) => n + 1)
     }
   }, [proposalsOpen, proposedCount])
+  // M8 follow-up (Aug 16): the latest apply/reject response, passed to the
+  // dock (bumped per resolution) - its task-list flags start the next
+  // task's turn (advance), run the wrap-up (complete), or pause on a
+  // rejection. Each bump is consumed exactly once by the dock.
+  const [reviewSignal, setReviewSignal] = useState<{
+    nonce: number
+    result: EditReviewResult
+  } | null>(null)
   // Open the review modal AFTER a fresh edits fetch so the just-landed
   // proposal is already listed (the dock calls this the moment a
   // propose_smali_edit step succeeds - the plan's "the returned proposal
@@ -227,10 +230,16 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
     void refreshEdits().then(() => setProposalsOpen(true))
   }, [refreshEdits])
   // Remount an open editor after an Apply/Reject (passed down to
-  // DecompilerPanel as the CodeEditor key).
-  const onProposalsChanged = useCallback(() => {
+  // DecompilerPanel as the CodeEditor key), refresh the edits list, and
+  // hand the apply/reject response to the dock so it advances the task
+  // (M8 follow-up, Aug 16: the backend decides - advance / wrap-up /
+  // reject-pause - from the scan's task-list artifact).
+  const onProposalsChanged = useCallback((result?: EditReviewResult) => {
     void refreshEdits()
     setEditVersion((v) => v + 1)
+    if (result) {
+      setReviewSignal((prev) => ({ nonce: (prev?.nonce ?? 0) + 1, result }))
+    }
   }, [refreshEdits])
 
   // Tabs keep their panels mounted (hidden, not unmounted) so switching
@@ -475,7 +484,7 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
           proposedCount={proposedCount}
           onReviewProposals={onReviewProposals}
           presetDraft={dockPreset}
-          autoContinueNonce={autoContinueNonce}
+          reviewSignal={reviewSignal}
         />
       </div>
 

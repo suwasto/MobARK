@@ -418,3 +418,106 @@ def test_smali_sibling_requires_analyzed(client, db_session_factory, monkeypatch
         params={"path": "sources/com/foo/A.java"},
     )
     assert r.status_code == 409
+
+
+# ---- M8 follow-up (Aug 16): task-list flags on apply/reject -----------------
+
+_MANIFEST_EDIT = '<manifest android:debuggable="false"/>'
+
+
+def _write_task_list(scan_id: int, content: str) -> None:
+    from app.analysis import edit_tasks
+
+    edit_tasks.write_task_list(scan_id, content)
+
+
+def _agent_proposal(db_session_factory, scan_id, file_path, content, instruction):
+    from app.analysis import edits
+    from app.models import Scan
+
+    with db_session_factory() as session:
+        scan = session.get(Scan, scan_id)
+        edit = edits.create_agent_proposal(session, scan, file_path, content, instruction)
+        return edit.id  # read before the session closes (expire_on_commit)
+
+
+def test_apply_with_task_list_advances(client, db_session_factory, monkeypatch, tmp_path):
+    """Applying the FIRST task's proposal with more tasks pending reports
+    next_task_pending (the dock opens the advance stream - the next task's
+    proposal starts itself) and marks the task done in the artifact."""
+    scan_id = _make_decoded_scan(db_session_factory, tmp_path, monkeypatch)
+    _write_task_list(
+        scan_id,
+        "# Task: bypass the root check\n"
+        "- [ ] T1 disable debuggable (file: AndroidManifest.xml)\n"
+        "- [ ] T2 neutralize RootCheck (file: smali/com/foo/AuthManager.smali)\n",
+    )
+    edit_id = _agent_proposal(
+        db_session_factory, scan_id, "AndroidManifest.xml", _MANIFEST_EDIT, "disable debuggable"
+    )
+    r = client.post(f"/api/v1/scans/{scan_id}/edits/{edit_id}/apply")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "applied"
+    assert body["next_task_pending"] is True
+    assert body["task_complete"] is False
+    assert body["paused"] is False
+    from app.analysis import edit_tasks
+
+    tl = edit_tasks.load_task_list(scan_id)
+    assert [t.status for t in tl.tasks] == ["done", "pending"]
+
+
+def test_apply_last_task_completes(client, db_session_factory, monkeypatch, tmp_path):
+    """Applying the LAST task's proposal exhausts the list - task_complete
+    (the dock runs the one-call wrap-up summary), never an advance."""
+    scan_id = _make_decoded_scan(db_session_factory, tmp_path, monkeypatch)
+    _write_task_list(scan_id, "# Task: one\n- [ ] T1 disable (file: AndroidManifest.xml)\n")
+    edit_id = _agent_proposal(
+        db_session_factory, scan_id, "AndroidManifest.xml", _MANIFEST_EDIT, "disable"
+    )
+    r = client.post(f"/api/v1/scans/{scan_id}/edits/{edit_id}/apply")
+    body = r.json()
+    assert body["task_complete"] is True
+    assert body["next_task_pending"] is False
+
+
+def test_reject_with_tasks_pending_pauses(client, db_session_factory, monkeypatch, tmp_path):
+    """A REJECTION with tasks still pending PAUSES the loop - no auto-advance;
+    the pause message names what remains, because the human owns whether the
+    rest of the task is still wanted (subsequent tasks may be irrelevant)."""
+    scan_id = _make_decoded_scan(db_session_factory, tmp_path, monkeypatch)
+    _write_task_list(
+        scan_id,
+        "# Task: bypass the root check\n"
+        "- [ ] T1 disable debuggable (file: AndroidManifest.xml)\n"
+        "- [ ] T2 neutralize RootCheck (file: smali/com/foo/AuthManager.smali)\n",
+    )
+    edit_id = _agent_proposal(
+        db_session_factory, scan_id, "AndroidManifest.xml", _MANIFEST_EDIT, "disable debuggable"
+    )
+    r = client.post(f"/api/v1/scans/{scan_id}/edits/{edit_id}/reject")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["paused"] is True
+    assert body["next_task_pending"] is False
+    assert body["pause_message"] and "T2" in body["pause_message"]
+    from app.analysis import edit_tasks
+
+    tl = edit_tasks.load_task_list(scan_id)
+    assert [t.status for t in tl.tasks] == ["rejected", "pending"]
+
+
+def test_apply_without_task_list_has_no_flags(client, db_session_factory, monkeypatch, tmp_path):
+    """A single-file request (no task list) resolves with no flags - nothing
+    to advance, so the flow simply ends (the no-loop guarantee)."""
+    scan_id = _make_decoded_scan(db_session_factory, tmp_path, monkeypatch)
+    edit_id = _agent_proposal(
+        db_session_factory, scan_id, "AndroidManifest.xml", _MANIFEST_EDIT, "disable"
+    )
+    r = client.post(f"/api/v1/scans/{scan_id}/edits/{edit_id}/apply")
+    body = r.json()
+    assert body["next_task_pending"] is False
+    assert body["task_complete"] is False
+    assert body["paused"] is False
+    assert body["pause_message"] is None

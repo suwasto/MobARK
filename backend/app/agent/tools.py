@@ -74,7 +74,16 @@ _ANDROID_ONLY_TOOLS = frozenset({"get_decompiled_class"})
 # (apktool ``smali*/`` - what the edit tools accept): the model searches,
 # maps the hit here, then reads/proposes.
 _M8_EDIT_TOOLS = frozenset(
-    {"find_smali_sibling", "read_editable_file", "propose_smali_edit"}
+    {
+        "find_smali_sibling",
+        "read_editable_file",
+        "propose_smali_edit",
+        # M8 follow-up (Aug 16): the task-list artifact tools - the agent
+        # writes/reads the scan's task-list.md plan for multi-file change
+        # requests (see app.analysis.edit_tasks).
+        "write_task_list",
+        "read_task_list",
+    }
 )
 _MAX_EDITABLE_READ_CHARS = 50_000
 
@@ -501,6 +510,65 @@ def propose_smali_edit(
         }
     finally:
         db.close()
+
+
+def write_task_list(scan_id: int, content: str) -> dict:
+    """Store the scan's task-list.md artifact (M8 follow-up, Aug 16): the
+    plan for a MULTI-FILE change request, written FREEFORM by the agent and
+    re-read on every later turn - the human review loop advances through it
+    automatically. Instructed format (tolerantly parsed): a ``# Task:
+    <original request>`` header, then one ``- [ ] T<n> <description>
+    (file: <path>)`` line per file edit. Returns the parsed tasks + pending
+    tokens so the model sees its plan took. Android + decode-ready gated.
+
+    Single-file requests need no artifact - proposing directly is enough
+    (resolving it has nothing to advance, so there is no loop)."""
+    if not edit_tools_allowed(scan_id):
+        raise _deny_edit_tools()
+    from app.analysis import edit_tasks
+
+    tl = edit_tasks.write_task_list(scan_id, content)
+    return {
+        "ok": True,
+        "request": tl.request,
+        "tasks": [
+            {
+                "token": t.token,
+                "description": t.description,
+                "status": t.status,
+                "file": t.file_path,
+            }
+            for t in tl.tasks
+        ],
+        "pending": [t.token for t in tl.pending()],
+    }
+
+
+def read_task_list(scan_id: int) -> dict:
+    """The current task-list.md artifact as parsed tasks (M8 follow-up,
+    Aug 16) - what the agent reads to know what is done and which task is
+    next. ``exists: false`` when no artifact has been written yet."""
+    if not edit_tools_allowed(scan_id):
+        raise _deny_edit_tools()
+    from app.analysis import edit_tasks
+
+    tl = edit_tasks.load_task_list(scan_id)
+    if tl is None or not tl.tasks:
+        return {"exists": False, "request": "", "tasks": [], "pending": []}
+    return {
+        "exists": True,
+        "request": tl.request,
+        "tasks": [
+            {
+                "token": t.token,
+                "description": t.description,
+                "status": t.status,
+                "file": t.file_path,
+            }
+            for t in tl.tasks
+        ],
+        "pending": [t.token for t in tl.pending()],
+    }
 
 
 # ---- M6 app-oriented tools (platform-aware by design) ------------------------
@@ -1241,6 +1309,56 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "write_task_list",
+            "description": (
+                "Android only, smali decode ready. Create or replace the "
+                "scan's TASK LIST - the plan for a change request that spans "
+                "MULTIPLE files. Write it in this exact-ish freeform format:\n"
+                "# Task: <the original request>\n"
+                "- [ ] T1 <what to change> (file: <editable path>)\n"
+                "- [ ] T2 <what to change> (file: <editable path>)\n"
+                "One task per file to edit, in the order to do them. Call "
+                "this BEFORE proposing the first file's edit; then propose "
+                "the TOP pending task. The human reviews each proposal and "
+                "the next task continues automatically - you do not ask the "
+                "user to say 'continue'. For a SINGLE-file request do NOT "
+                "create a task list - just propose the edit. Use "
+                "read_task_list at any time to see the current state."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": (
+                            "The full task-list markdown (header + checkbox "
+                            "lines)"
+                        ),
+                    },
+                },
+                "required": ["content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_task_list",
+            "description": (
+                "Android only, smali decode ready. Read the scan's current "
+                "task list (the multi-file edit plan) as parsed tasks with "
+                "statuses - which are done, which are pending, what is next. "
+                "Returns exists:false when no task list has been written."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_fetch",
             "description": (
                 "Fetch one web page (static content only - no browser in "
@@ -1286,6 +1404,10 @@ _HANDLERS = {
     "propose_smali_edit": lambda scan_id, a: propose_smali_edit(
         scan_id, a["path"], a.get("instruction", ""), a["new_content"]
     ),
+    # M8 follow-up (Aug 16): the task-list artifact tools - the agent's
+    # multi-file edit plan (see app.analysis.edit_tasks).
+    "write_task_list": lambda scan_id, a: write_task_list(scan_id, a["content"]),
+    "read_task_list": lambda scan_id, a: read_task_list(scan_id),
 }
 
 

@@ -90,6 +90,61 @@ def test_answer_without_tool_calls_uses_findings_context(env, monkeypatch):
     assert captured["tools"]  # tool schemas offered
 
 
+def test_reasoning_tokens_captured_from_buffered_message(env, monkeypatch):
+    """M8 follow-up: reasoning/thinking tokens (OpenAI-style reasoning
+    models surface them as ``reasoning_content`` on the message, separate
+    from content) are captured and accumulated on the AgentResult - the
+    dock's specialized thinking box renders them above the answer."""
+    scan_id = env
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def fake_chat(backend, messages, **kwargs):
+        return _resp(
+            SimpleNamespace(
+                content="The manifest sets debuggable at AndroidManifest.xml.",
+                tool_calls=None,
+                reasoning_content="Let me recall the manifest structure first.",
+            )
+        )
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(scan_id, "is the app debuggable?", timeout=60.0)
+    assert "Let me recall the manifest structure" in result.thinking
+    # The answer itself is untouched - thinking is a separate surface.
+    assert "AndroidManifest.xml" in result.answer
+
+
+def test_stream_round_forwards_reasoning_tokens(monkeypatch):
+    """The streaming round forwards reasoning/thinking deltas as live
+    'thinking' tokens AND accumulates them on the returned message (alongside
+    the answer content) - the dock streams the thinking box above the answer
+    without a cursor."""
+    deltas = [
+        SimpleNamespace(content=None, reasoning_content="Let me ", tool_calls=None),
+        SimpleNamespace(content=None, reasoning_content="recall first.", tool_calls=None),
+        SimpleNamespace(content="The answer.", tool_calls=None),
+    ]
+
+    def fake_stream(backend, messages, **kwargs):
+        for d in deltas:
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=d)])
+
+    monkeypatch.setattr(chat_mod, "chat_stream", fake_stream)
+    seen: list[str] = []
+    out = chat_mod._stream_round(
+        object(),
+        [{"role": "user", "content": "q"}],
+        temperature=0.2,
+        timeout=30.0,
+        tools=None,
+        on_token=lambda t: None,
+        on_thinking=seen.append,
+    )
+    assert "".join(seen) == "Let me recall first."
+    assert out.choices[0].message.thinking == "Let me recall first."
+    assert out.choices[0].message.content == "The answer."
+
+
 def test_mentioned_files_content_attached_to_context(env, monkeypatch):
     """M8 follow-up: the dock's @-mentions. ChatRequest.mentioned_files
     paths get their current content attached to the system prompt (the
@@ -1415,13 +1470,32 @@ def test_edit_nudge_not_inherited_from_history_for_unrelated_question(
     assert "propose_smali_edit" not in result.tools_used
 
 
-def test_edit_nudge_inherited_for_continue_cue(env, tmp_path, monkeypatch):
+def test_edit_nudge_inherited_for_continue_cue(env, tmp_path, monkeypatch, db_session_factory):
     """A bare 'continue' follow-up after an edit request KEEPS the edit frame
     (the sequential edit flow: one proposal per turn, then 'continue') - edit
     intent IS inherited when the current question is an actual continuation
-    cue, so the 'ends on read' nudge still guards the flow."""
+    cue with a pending proposal in flight, so the 'ends on read' nudge still
+    guards the flow."""
     scan_id = env
     _apktool_tree(tmp_path, scan_id)
+    # The in-flight work the continuation continues: edit #1 is still
+    # proposed (the human has not reviewed it yet) - the realistic flow.
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content=_NUDGE_MANIFEST,
+                new_content=_NUDGE_MANIFEST.replace(
+                    'android:debuggable="true"', 'android:debuggable="false"'
+                ),
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="proposed",
+            )
+        )
+        session.commit()
     monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
     calls: list[dict] = []
 
@@ -1501,7 +1575,890 @@ def test_edit_nudge_not_inherited_for_sentence_opener_next(
     assert "propose_smali_edit" not in result.tools_used
 
 
+def test_continue_after_applied_edit_never_reproposes(
+    env, tmp_path, monkeypatch, db_session_factory
+):
+    """The reported endless-loop regression: 'continue' after the human
+    APPLIED the edit must never be nudged into re-proposing the same file.
+    The applied edit means there is no pending work (EDIT REVIEW STATE shows
+    [applied]) - so a read-then-summary answer stands as-is: no edit nudge,
+    no propose_smali_edit round, no second proposal row."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content=_NUDGE_MANIFEST,
+                new_content=_NUDGE_MANIFEST.replace(
+                    'android:debuggable="true"', 'android:debuggable="false"'
+                ),
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="applied",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: the model reads the file to confirm the current state.
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "read_editable_file",
+                            json_args({"path": "AndroidManifest.xml"}),
+                        )
+                    ],
+                )
+            )
+        # Round 2: it answers that the change is already applied - NO
+        # proposal. Without the fix, the edit nudge forced a re-proposal
+        # (which then failed as 'unchanged' or stacked a duplicate).
+        return _resp(
+            _msg(
+                "The debuggable change is already applied - nothing left to do."
+            )
+        )
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "continue",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert (
+        result.answer
+        == "The debuggable change is already applied - nothing left to do."
+    )
+    assert len(calls) == 2  # read round + answer round - NO nudge round
+    assert "propose_smali_edit" not in result.tools_used
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 1  # only the applied edit - nothing re-proposed
+        assert rows[0].status == "applied"
+
+
+def test_auto_continue_wording_after_applied_edit_never_reproposes(
+    env, tmp_path, monkeypatch, db_session_factory
+):
+    """The reported regression, half one: the dock's AUTO-continue after the
+    human applies the last proposal sends "...propose the next file's edit
+    for the task..." - the word "edit" matches the change-intent regex, so
+    before the Aug 16 gate fix that wording counted as a FRESH change verb
+    and short-circuited the file-aware gate: a read-then-summary auto-continue
+    turn got nudged into re-proposing the file the human JUST applied. A
+    continuation cue must never be treated as a new request, however its
+    wording reads."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content=_NUDGE_MANIFEST,
+                new_content=_NUDGE_MANIFEST.replace(
+                    'android:debuggable="true"', 'android:debuggable="false"'
+                ),
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="applied",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: the auto-continue reads the file it just edited.
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "read_editable_file",
+                            json_args({"path": "AndroidManifest.xml"}),
+                        )
+                    ],
+                )
+            )
+        if len(calls) == 2:
+            # Round 2: it confirms the change is applied - NO nudge may fire.
+            return _resp(
+                _msg("The debuggable change is applied - nothing left to do.")
+            )
+        # Round 3 (only reachable if a nudge was injected): would re-propose.
+        return _resp(
+            _msg(
+                "Re-proposing.",
+                tool_calls=[
+                    _tool_call(
+                        "c3",
+                        "propose_smali_edit",
+                        json_args(
+                            {
+                                "path": "AndroidManifest.xml",
+                                "instruction": "disable debuggable",
+                                "new_content": _NUDGE_MANIFEST.replace(
+                                    'android:debuggable="true"',
+                                    'android:debuggable="false"',
+                                ),
+                            }
+                        ),
+                    )
+                ],
+            )
+        )
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "continue - review the current edit state and propose the next file's "
+        "edit for the task, or say the task is complete",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert result.answer == "The debuggable change is applied - nothing left to do."
+    assert len(calls) == 2  # read round + answer round - NO nudge round
+    assert "propose_smali_edit" not in result.tools_used
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 1
+        assert rows[0].status == "applied"
+
+
+def test_auto_continue_after_reverted_edit_never_reproposes(
+    env, tmp_path, monkeypatch, db_session_factory
+):
+    """The reported regression, fully: proposal accepted (applied), then the
+    human REVERTS it, and the dock's auto-continue turn reads the file back
+    at baseline. Before the Aug 16 fix the auto-continue (its wording counts
+    as a change verb) read a 'reverted' file - not 'applied'/'rejected', so
+    the file-aware gate treated it as unresolved - was nudged, and stored a
+    SECOND pending proposal for the same file. The human's own follow-up ask
+    then hit 'edit #6 is still proposed' even though they had resolved the
+    edit. A reverted edit is a settled verdict; a continuation must not
+    re-propose it."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content=_NUDGE_MANIFEST,
+                new_content=_NUDGE_MANIFEST.replace(
+                    'android:debuggable="true"', 'android:debuggable="false"'
+                ),
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="reverted",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: the auto-continue reads the file (back at baseline).
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "read_editable_file",
+                            json_args({"path": "AndroidManifest.xml"}),
+                        )
+                    ],
+                )
+            )
+        if len(calls) == 2:
+            # Round 2: it summarizes the current state - NO nudge may fire.
+            return _resp(
+                _msg("The manifest is back at its original debuggable state.")
+            )
+        # Round 3 (only reachable if a nudge was injected): would store a
+        # duplicate pending proposal - the reported 'edit #6 still proposed'
+        # blocker for the human's own follow-up ask.
+        return _resp(
+            _msg(
+                "Re-proposing.",
+                tool_calls=[
+                    _tool_call(
+                        "c3",
+                        "propose_smali_edit",
+                        json_args(
+                            {
+                                "path": "AndroidManifest.xml",
+                                "instruction": "disable debuggable",
+                                "new_content": _NUDGE_MANIFEST.replace(
+                                    'android:debuggable="true"',
+                                    'android:debuggable="false"',
+                                ),
+                            }
+                        ),
+                    )
+                ],
+            )
+        )
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "continue - review the current edit state and propose the next file's "
+        "edit for the task, or say the task is complete",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert result.answer == "The manifest is back at its original debuggable state."
+    assert len(calls) == 2  # read round + answer round - NO nudge round
+    assert "propose_smali_edit" not in result.tools_used
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 1  # only the reverted edit - nothing re-proposed
+        assert rows[0].status == "reverted"
+
+
+def test_auto_continue_after_rejected_edit_never_reproposes(
+    env, tmp_path, monkeypatch, db_session_factory
+):
+    """The same regression for the REJECT path: the human rejects the
+    proposal, the dock's auto-continue fires, and before the Aug 16 gate fix
+    its "...propose the next file's edit..." wording counted as a fresh
+    change verb - so a read-then-summary auto-continue turn got nudged into
+    re-proposing the file the human JUST rejected. Unlike the applied case,
+    the rejected file's content is still the baseline, so the forced
+    re-proposal is not 'unchanged' and stores ANOTHER pending row, silently
+    undoing the human's rejection. A rejected edit is a settled verdict - a
+    continuation must not re-propose it."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content=_NUDGE_MANIFEST,
+                new_content=_NUDGE_MANIFEST.replace(
+                    'android:debuggable="true"', 'android:debuggable="false"'
+                ),
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="rejected",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: the auto-continue reads the file (still baseline).
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "read_editable_file",
+                            json_args({"path": "AndroidManifest.xml"}),
+                        )
+                    ],
+                )
+            )
+        if len(calls) == 2:
+            # Round 2: it summarizes the current state - NO nudge may fire.
+            return _resp(
+                _msg("The proposal was rejected - the manifest is unchanged.")
+            )
+        # Round 3 (only reachable if a nudge was injected): would store a
+        # duplicate pending proposal, undoing the human's rejection.
+        return _resp(
+            _msg(
+                "Re-proposing.",
+                tool_calls=[
+                    _tool_call(
+                        "c3",
+                        "propose_smali_edit",
+                        json_args(
+                            {
+                                "path": "AndroidManifest.xml",
+                                "instruction": "disable debuggable",
+                                "new_content": _NUDGE_MANIFEST.replace(
+                                    'android:debuggable="true"',
+                                    'android:debuggable="false"',
+                                ),
+                            }
+                        ),
+                    )
+                ],
+            )
+        )
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "continue - review the current edit state and propose the next file's "
+        "edit for the task, or say the task is complete",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert result.answer == "The proposal was rejected - the manifest is unchanged."
+    assert len(calls) == 2  # read round + answer round - NO nudge round
+    assert "propose_smali_edit" not in result.tools_used
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 1  # only the rejected edit - nothing re-proposed
+        assert rows[0].status == "rejected"
+
+
+def test_continue_nudges_next_file_when_reads_untouched(
+    env, tmp_path, monkeypatch, db_session_factory
+):
+    """The file-aware nudge: a multi-file task where file 1 is APPLIED and the
+    human says 'continue'. When the model reads an UNRESOLVED editable file
+    (the next file of the task) and stalls with a read-only summary, the
+    nudge fires and the turn ends with a real proposal for that file - the
+    sequential flow keeps working even with no pending proposals left."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content=_NUDGE_MANIFEST,
+                new_content=_NUDGE_MANIFEST.replace(
+                    'android:debuggable="true"', 'android:debuggable="false"'
+                ),
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="applied",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+    new_smali = (
+        ".class public Lcom/foo/AuthManager;\n.super Ljava/lang/Object;\n\n"
+        "# root-check bypass marker\n"
+    )
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: the model reads the NEXT file of the task - the smali
+            # sibling, which has NO edit yet (unresolved).
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "read_editable_file",
+                            json_args({"path": "smali/com/foo/AuthManager.smali"}),
+                        )
+                    ],
+                )
+            )
+        if len(calls) == 2:
+            # Round 2: it stalls with a summary instead of proposing - the
+            # file-aware nudge must fire (the read was on an UNRESOLVED file).
+            return _resp(
+                _msg("The root-check bypass lives in smali/com/foo/AuthManager.smali.")
+            )
+        if len(calls) == 3:
+            # Round 3 (after the nudge): propose the smali edit for real.
+            return _resp(
+                _msg(
+                    "Proposing the smali change.",
+                    tool_calls=[
+                        _tool_call(
+                            "c3",
+                            "propose_smali_edit",
+                            json_args(
+                                {
+                                    "path": "smali/com/foo/AuthManager.smali",
+                                    "instruction": "bypass the root check",
+                                    "new_content": new_smali,
+                                }
+                            ),
+                        )
+                    ],
+                )
+            )
+        return _resp(_msg("Done - proposed edit #2 for the smali file."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "continue",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert result.answer == "Done - proposed edit #2 for the smali file."
+    # The nudge was injected between rounds 2 and 3.
+    nudge_msgs = [m for m in calls[2]["messages"] if m["role"] == "user"]
+    assert any("propose_smali_edit NOW" in m["content"] for m in nudge_msgs)
+    # The next-file proposal was stored; the applied manifest edit is intact.
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 2
+        by_path = {e.file_path: e for e in rows}
+        assert by_path["AndroidManifest.xml"].status == "applied"
+        assert by_path["smali/com/foo/AuthManager.smali"].status == "proposed"
+
+
+def test_continue_nudges_next_file_from_search_hits(
+    env, tmp_path, monkeypatch, db_session_factory
+):
+    """Search-only stalls on multi-file tasks are nudged too: a 'continue'
+    whose model SEARCHED the jadx tree for the next file's class (but never
+    read an editable file) still counts as touching that file - the hits are
+    mapped to their editable smali siblings for the file-aware gate, so a
+    summary-without-proposal after the search fires the nudge."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    # A jadx source whose smali sibling exists in the apktool tree, so the
+    # search hit maps to an editable file (env's own com/app/W.java has no
+    # decoded smali counterpart).
+    src_root = tmp_path / "work" / str(scan_id) / "decompiled" / "sources"
+    (src_root / "com/foo").mkdir(parents=True, exist_ok=True)
+    (src_root / "com/foo/AuthManager.java").write_text(
+        "public class AuthManager {\n    boolean check() { return true; }\n}\n"
+    )
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content=_NUDGE_MANIFEST,
+                new_content=_NUDGE_MANIFEST.replace(
+                    'android:debuggable="true"', 'android:debuggable="false"'
+                ),
+                unified_diff="-a\n+b\n",
+                source="agent",
+                instruction="disable debuggable",
+                status="applied",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+    new_smali = (
+        ".class public Lcom/foo/AuthManager;\n.super Ljava/lang/Object;\n\n"
+        "# root-check bypass marker\n"
+    )
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: the model SEARCHES the jadx tree for the next file's
+            # class - a real hit that maps to an editable smali sibling.
+            return _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "search_code",
+                            json_args({"pattern": "AuthManager"}),
+                        )
+                    ],
+                )
+            )
+        if len(calls) == 2:
+            # Round 2: it stalls with a summary instead of proposing - the
+            # mapped search hit counts as touching an UNRESOLVED file, so
+            # the file-aware nudge must fire.
+            return _resp(
+                _msg(
+                    "The root-check logic lives in "
+                    "sources/com/foo/AuthManager.java."
+                )
+            )
+        if len(calls) == 3:
+            # Round 3 (after the nudge): propose the smali edit for real.
+            return _resp(
+                _msg(
+                    "Proposing the smali change.",
+                    tool_calls=[
+                        _tool_call(
+                            "c3",
+                            "propose_smali_edit",
+                            json_args(
+                                {
+                                    "path": "smali/com/foo/AuthManager.smali",
+                                    "instruction": "bypass the root check",
+                                    "new_content": new_smali,
+                                }
+                            ),
+                        )
+                    ],
+                )
+            )
+        return _resp(_msg("Done - proposed edit #2 for the smali file."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(
+        scan_id,
+        "continue",
+        history=[
+            {"role": "user", "content": "bypass the root check"},
+            {"role": "assistant", "content": "Proposed edit #1 - review it."},
+        ],
+        timeout=60.0,
+    )
+    assert result.answer == "Done - proposed edit #2 for the smali file."
+    # The nudge was injected between rounds 2 and 3.
+    nudge_msgs = [m for m in calls[2]["messages"] if m["role"] == "user"]
+    assert any("propose_smali_edit NOW" in m["content"] for m in nudge_msgs)
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 2
+        by_path = {e.file_path: e for e in rows}
+        assert by_path["AndroidManifest.xml"].status == "applied"
+        assert by_path["smali/com/foo/AuthManager.smali"].status == "proposed"
+
+
+def test_one_proposal_per_turn_cap(env, tmp_path, monkeypatch, db_session_factory):
+    """ONE FILE PER TURN is enforced mechanically: a model that calls
+    propose_smali_edit again AFTER a successful proposal gets a clear error
+    instead of executing - the loop cannot stack duplicate proposals (the
+    endless same-edit loop) or batch several files into one turn. The second
+    target (smali) has no pending edit, so only the loop cap can stop it."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            return _resp(
+                _msg(
+                    "Proposing the manifest change.",
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "propose_smali_edit",
+                            json_args(
+                                {
+                                    "path": "AndroidManifest.xml",
+                                    "instruction": "disable debuggable",
+                                    "new_content": _NUDGE_MANIFEST.replace(
+                                        'android:debuggable="true"',
+                                        'android:debuggable="false"',
+                                    ),
+                                }
+                            ),
+                        )
+                    ],
+                )
+            )
+        if len(calls) == 2:
+            # Round 2: the model (wrongly) tries to propose ANOTHER file in
+            # the same turn - the cap must refuse it before execution.
+            return _resp(
+                _msg(
+                    "And now the smali file.",
+                    tool_calls=[
+                        _tool_call(
+                            "c2",
+                            "propose_smali_edit",
+                            json_args(
+                                {
+                                    "path": "smali/com/foo/AuthManager.smali",
+                                    "instruction": "add marker",
+                                    "new_content": (
+                                        ".class public Lcom/foo/AuthManager;\n"
+                                        ".super Ljava/lang/Object;\n\n"
+                                        "# marker\n"
+                                    ),
+                                }
+                            ),
+                        )
+                    ],
+                )
+            )
+        return _resp(_msg("Done - proposed edit #1 for review."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(scan_id, "bypass the root check", timeout=60.0)
+    assert result.answer == "Done - proposed edit #1 for review."
+    # The second propose call was refused - the model saw the error result.
+    tool_msgs = [
+        m for m in calls[2]["messages"] if m.get("role") == "tool"
+    ]
+    assert any("ONE FILE PER TURN" in (m.get("content") or "") for m in tool_msgs)
+    # Exactly ONE proposal row: the smali proposal never executed.
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 1
+        assert rows[0].file_path == "AndroidManifest.xml"
+        assert rows[0].status == "proposed"
+
+
 def json_args(args: dict) -> str:
     import json
 
     return json.dumps(args)
+
+
+# ---- M8 follow-up (Aug 16): the task-list artifact + auto-advance ------------
+
+
+def _write_task_list(scan_id: int, content: str) -> None:
+    from app.analysis import edit_tasks
+
+    edit_tasks.write_task_list(scan_id, content)
+
+
+def test_advance_turn_uses_lean_prompt_and_proposes(env, tmp_path, monkeypatch):
+    """The backend-started advance turn (the human applied a proposal) builds
+    its prompt from the task-list artifact ONLY - no history replay, no user
+    question - and pushes the model toward the next pending task's proposal
+    (one file per turn). This is the token win: the continuation no longer
+    re-renders the findings context + thread history."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    _write_task_list(
+        scan_id,
+        "# Task: bypass the root check\n"
+        "- [x] T1 disable debuggable (file: AndroidManifest.xml)\n"
+        "- [ ] T2 neutralize RootCheck (file: smali/com/foo/AuthManager.smali)\n",
+    )
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    batches: list[list[dict]] = []
+    responses = iter(
+        [
+            _resp(
+                _msg(
+                    None,
+                    tool_calls=[
+                        _tool_call(
+                            "c1",
+                            "propose_smali_edit",
+                            json_args(
+                                {
+                                    "path": "smali/com/foo/AuthManager.smali",
+                                    "instruction": "neutralize RootCheck",
+                                    "new_content": ".class public Lcom/foo/AuthManager;",
+                                }
+                            ),
+                        )
+                    ],
+                )
+            ),
+            _resp(_msg("Proposed the next task's edit (AuthManager.smali) - review it.")),
+        ]
+    )
+
+    def fake_chat(backend, messages, **kwargs):
+        batches.append(list(messages))
+        return next(responses)
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = answer_question(
+        scan_id,
+        "ignored user question",
+        advance=True,
+        history=[{"role": "user", "content": "HISTORY_MARKER_NEVER_SENT"}],
+    )
+
+    assert "Proposed the next task" in result.answer
+    assert result.tools_used == ["propose_smali_edit"]
+    # LEAN prompt: round 1 is system-only - the history and the (empty)
+    # question were NOT replayed; the task list IS the context.
+    assert len(batches[0]) == 1
+    system = batches[0][0]["content"]
+    assert "TASK LIST" in system
+    assert "AUTO-ADVANCE" in system
+    assert "HISTORY_MARKER_NEVER_SENT" not in system
+    assert "bypass the root check" in system  # the request rides in the artifact
+
+
+def test_advance_with_no_pending_task_is_canned_no_llm(env, tmp_path, monkeypatch):
+    """An advance turn with every task already resolved answers WITHOUT any
+    LLM call (defensive - the frontend only advances when the apply/reject
+    response said a task is pending, but a race must never spin a turn)."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    _write_task_list(scan_id, "# Task: done\n- [x] T1 all done (file: AndroidManifest.xml)\n")
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def no_llm(*a, **k):
+        raise AssertionError("no LLM call for an empty advance")
+
+    monkeypatch.setattr(chat_mod, "client_chat", no_llm)
+    result = answer_question(scan_id, "", advance=True)
+    assert "complete" in result.answer.lower()
+    assert result.tools_used == []
+    assert result.tool_mode == "context-only"
+
+
+def test_advance_without_artifact_is_canned(env, tmp_path, monkeypatch):
+    """Advance mode with no task list at all (single-file request) is also
+    canned - nothing to advance, so the flow simply ends."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def no_llm(*a, **k):
+        raise AssertionError("no LLM call")
+
+    monkeypatch.setattr(chat_mod, "client_chat", no_llm)
+    result = answer_question(scan_id, "", advance=True)
+    assert "complete" in result.answer.lower()
+
+
+def test_fresh_change_request_supersedes_stale_task_list(env, tmp_path, monkeypatch):
+    """A genuinely NEW change request archives the stale task list BEFORE the
+    turn runs - the agent starts fresh instead of continuing an old plan (the
+    archived list is kept on disk as task-list.superseded-*)."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    _write_task_list(scan_id, "# Task: old plan\n- [ ] T1 stale (file: AndroidManifest.xml)\n")
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured: dict = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["messages"] = list(messages)
+        return _resp(_msg("ok"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    answer_question(scan_id, "disable certificate pinning now")
+
+    from app.analysis import edit_tasks
+
+    assert not edit_tasks.task_file_path(scan_id).exists()
+    assert list(edit_tasks.task_file_path(scan_id).parent.glob("task-list.superseded-*.md"))
+    # the stale plan itself is gone from the prompt (the TASK LIST section
+    # is not rendered - the agent starts fresh)
+    assert "stale (file: AndroidManifest.xml)" not in captured["messages"][0]["content"]
+
+
+def test_unrelated_question_keeps_existing_task_list(env, tmp_path, monkeypatch):
+    """A follow-up that is NOT a change request must not supersede the plan -
+    the task list survives so 'continue' / an advance can still use it."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    _write_task_list(scan_id, "# Task: old plan\n- [ ] T1 stale (file: AndroidManifest.xml)\n")
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def fake_chat(backend, messages, **kwargs):
+        return _resp(_msg("ok"))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    answer_question(scan_id, "why is the app debuggable?")
+
+    from app.analysis import edit_tasks
+
+    assert edit_tasks.task_file_path(scan_id).is_file()
+
+
+def test_task_completion_answer_is_one_small_llm_call(env, tmp_path, monkeypatch, db_session_factory):
+    """The task-complete wrap-up is ONE small buffered LLM call over the task
+    list + the edit verdicts - no tools, no findings context - so closing a
+    multi-file task costs a fraction of a full turn."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    _write_task_list(
+        scan_id,
+        "# Task: bypass the root check\n"
+        "- [x] T1 disable debuggable (file: AndroidManifest.xml)\n"
+        "- [~] T2 reject RootCheck rework (file: smali/com/foo/AuthManager.smali)\n",
+    )
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="AndroidManifest.xml",
+                original_content="<manifest/>",
+                new_content='<manifest android:debuggable="false"/>',
+                unified_diff="-a\n+b\n",
+                source="agent",
+                status="applied",
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    captured: dict = {}
+
+    def fake_chat(backend, messages, **kwargs):
+        captured["messages"] = list(messages)
+        return _resp(_msg("Applied the debuggable flag change; the RootCheck "
+                          "rework was rejected - root checks remain active."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", fake_chat)
+    result = chat_mod.task_completion_answer(scan_id)
+    assert "rejected" in result.answer
+    assert len(captured["messages"]) == 2  # system + user, no history
+    assert "FINDINGS CONTEXT" not in captured["messages"][0]["content"]
+    assert "AndroidManifest.xml" in captured["messages"][1]["content"]  # verdicts
+
+
+def test_task_completion_answer_falls_back_deterministic(env, tmp_path, monkeypatch):
+    """If the model cannot answer (no backend / upstream failure), the wrap-up
+    falls back to a deterministic summary - a review flow must never error on
+    the closing message."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    _write_task_list(scan_id, "# Task: bypass the root check\n- [x] T1 done (file: AndroidManifest.xml)\n")
+
+    def no_backend():
+        raise ChatNotConfigured("no chat model configured")
+
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", no_backend)
+    result = chat_mod.task_completion_answer(scan_id)
+    assert result.answer  # deterministic, never empty

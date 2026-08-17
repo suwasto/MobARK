@@ -50,6 +50,8 @@ summarized for context.
 
 - apktool decode → smali tree, agent-proposed + manual smali edits,
   diff review, resigned test APK builds (apksigner/zipalign)
+- Decoded-source zip download (`{stem}-source.zip`, applied edits
+  overlaid) alongside the resigned APK in the Edit & recompile modal
 
 ### Agent web research (Aug 9, 2026)
 

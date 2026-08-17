@@ -271,3 +271,78 @@ def test_download_404_path_escapes_artifact_dir(
     r = client.get(f"/api/v1/scans/{scan_id}/builds/{build_id}/download")
     assert r.status_code == 404
     assert "escapes" in r.json()["detail"]
+
+
+# ---- GET /scans/{id}/source-zip ----------------------------------------------
+
+
+def test_source_zip_serves_tree_with_applied_edits(
+    client, db_session_factory, tmp_path, monkeypatch
+):
+    """The decoded source tree streams as a zip with the newest applied edit
+    overlaid - the effective source a rebuild starts from, under a top-level
+    ``<stem>-source/`` folder. The on-disk decode is never mutated."""
+    import io
+    import zipfile
+
+    from app.models import Edit
+
+    scan_id = _add_scan(db_session_factory)
+    root = _make_decoded_tree(scan_id, tmp_path, monkeypatch)
+    (root / "smali" / "com").mkdir(parents=True)
+    (root / "smali" / "com" / "Auth.smali").write_text("original smali")
+    (root / "res").mkdir()  # empty dir - must survive as an entry
+    with db_session_factory() as session:
+        session.add(
+            Edit(
+                scan_id=scan_id,
+                file_path="smali/com/Auth.smali",
+                original_content="original smali",
+                new_content="edited smali",
+                unified_diff="-original smali\n+edited smali\n",
+                source="manual",
+                status="applied",
+            )
+        )
+        session.commit()
+    r = client.get(f"/api/v1/scans/{scan_id}/source-zip")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert r.headers["content-disposition"].startswith("attachment")
+    assert "app-source.zip" in r.headers["content-disposition"]
+    zf = zipfile.ZipFile(io.BytesIO(r.content))
+    assert "app-source/AndroidManifest.xml" in zf.namelist()
+    assert "app-source/res/" in zf.namelist()
+    assert zf.read("app-source/smali/com/Auth.smali").decode() == "edited smali"
+    assert zf.read("app-source/AndroidManifest.xml").decode() == "<manifest/>"
+    # the pristine decode is untouched
+    assert (root / "smali" / "com" / "Auth.smali").read_text() == "original smali"
+
+
+def test_source_zip_409_not_analyzed(client, db_session_factory, tmp_path, monkeypatch):
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    scan_id = _add_scan(db_session_factory, status="queued")
+    r = client.get(f"/api/v1/scans/{scan_id}/source-zip")
+    assert r.status_code == 409
+    assert "not analyzed" in r.json()["detail"]
+
+
+def test_source_zip_409_ios(client, db_session_factory, tmp_path, monkeypatch):
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    scan_id = _add_scan(db_session_factory, platform="ios")
+    r = client.get(f"/api/v1/scans/{scan_id}/source-zip")
+    assert r.status_code == 409
+    assert "Android-only" in r.json()["detail"]
+
+
+def test_source_zip_409_decode_not_ready(client, db_session_factory, tmp_path, monkeypatch):
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    scan_id = _add_scan(db_session_factory)  # analyzed but no decode tree
+    r = client.get(f"/api/v1/scans/{scan_id}/source-zip")
+    assert r.status_code == 409
+    assert "decode not ready" in r.json()["detail"]
+
+
+def test_source_zip_404_unknown_scan(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    assert client.get("/api/v1/scans/999999/source-zip").status_code == 404

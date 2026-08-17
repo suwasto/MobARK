@@ -141,6 +141,56 @@ def test_apply_edits_missing_file_fails_loudly(monkeypatch, tmp_path):
     assert "not found" in str(exc.value)
 
 
+# ---- source-zip export -------------------------------------------------------
+
+
+def test_export_source_zip_overlays_applied_edits(monkeypatch, tmp_path):
+    """The source zip mirrors the effective source a rebuild starts from: the
+    pristine decode with the NEWEST applied edit overlaid per path (the
+    tree._applied_edit_content precedence), under a top-level
+    ``<original-stem>-source/`` folder - extraction never spews the manifest
+    into the current directory."""
+    import io
+    import zipfile
+
+    root = _decoded_tree(tmp_path, monkeypatch)
+    (root / "res").mkdir()  # empty dir - must survive as an entry
+    out = tmp_path / "out.zip"
+    rebuild.export_source_zip(
+        _Scan(filename="com.example.App.apk"),
+        [
+            _edit(7, "smali/com/foo/AuthManager.smali", new_content="patched\n"),
+            _edit(7, "smali/com/foo/AuthManager.smali", new_content="patched-again\n"),
+        ],
+        out,
+    )
+    zf = zipfile.ZipFile(io.BytesIO(out.read_bytes()))
+    names = set(zf.namelist())
+    assert "com.example.App-source/AndroidManifest.xml" in names
+    assert "com.example.App-source/res/" in names
+    assert "com.example.App-source/smali/com/foo/AuthManager.smali" in names
+    assert (
+        zf.read("com.example.App-source/smali/com/foo/AuthManager.smali").decode()
+        == "patched-again\n"
+    )
+    # an unedited file keeps its pristine bytes
+    assert zf.read("com.example.App-source/AndroidManifest.xml").decode() == "<manifest/>"
+
+
+def test_export_source_zip_requires_ready_decode(monkeypatch, tmp_path):
+    monkeypatch.setattr(apktool.settings, "data_dir", tmp_path)
+    with pytest.raises(RebuildError) as exc:
+        rebuild.export_source_zip(_Scan(), [], tmp_path / "out.zip")
+    assert exc.value.stage == "applying"
+    assert "decode not ready" in str(exc.value)
+
+
+def test_source_stem_sanitizes_hostile_filenames():
+    assert rebuild.source_stem(_Scan(filename='evil".apk')) == "evil-source"
+    assert rebuild.source_stem(_Scan(filename="app.apk")) == "app-source"
+    assert rebuild.source_stem(_Scan(filename="app beta!.apk")) == "app-beta-source"
+
+
 # ---- build_apk pipeline ------------------------------------------------------
 
 

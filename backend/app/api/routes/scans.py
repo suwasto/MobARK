@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import queue
 import re
+import tempfile
 import threading
 import zipfile
 from pathlib import Path
@@ -28,6 +29,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.agent import insights, sessions
 from app.agent.chat import (
@@ -1285,6 +1287,58 @@ def download_build(scan_id: int, build_id: int, db: DbSession) -> FileResponse:
         media_type="application/vnd.android.package-archive",
         filename=build.artifact_name or path.name,
         headers={"X-Resigned-Test-Build": "true"},
+    )
+
+
+@router.get("/{scan_id}/source-zip")
+def download_source_zip(scan_id: int, db: DbSession) -> FileResponse:
+    """Download the scan's decoded source tree as a zip - smali / res /
+    AndroidManifest.xml - with applied edits overlaid (the effective source
+    a rebuild starts from).
+
+    Generated on demand from the pristine apktool decode: edits are DB diffs
+    overlaid into the zip, never written onto the tree (the baseline never
+    changes). The zip's top-level folder and attachment name carry the
+    ``<original-stem>-source`` label. The temp zip is unlinked after the
+    response streams. 404 unknown scan · 409 not analyzed / iOS
+    (Android-only) / decode not ready.
+    """
+    scan = _get_scan_or_404(db, scan_id)
+    _require_analyzed(scan)
+    if scan.platform != "android":
+        raise HTTPException(
+            status_code=409,
+            detail="source zip is Android-only - iOS keeps the read-only bundle "
+            "view (M8 decision 5)",
+        )
+    _require_decode_ready(scan)
+    applied = list(
+        db.scalars(
+            select(Edit)
+            .where(Edit.scan_id == scan_id, Edit.status == "applied")
+            .order_by(Edit.id)
+        ).all()
+    )
+    # The zip is derived on demand into a temp file beside the scan's work
+    # dir (the decode lives there), then streamed - never held in memory
+    # (decoded trees can be large) and never cached (edits change over time).
+    with tempfile.NamedTemporaryFile(
+        prefix=f"scan{scan_id}-source-",
+        suffix=".zip",
+        dir=str(apktool.decoded_root(scan_id).parent),
+        delete=False,
+    ) as tf:
+        tmp = Path(tf.name)
+    try:
+        rebuild.export_source_zip(scan, applied, tmp)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    return FileResponse(
+        tmp,
+        media_type="application/zip",
+        filename=f"{rebuild.source_stem(scan)}.zip",
+        background=BackgroundTask(tmp.unlink, missing_ok=True),
     )
 
 

@@ -377,6 +377,10 @@ export const api = {
    * the `-resigned-test-` label) + the X-Resigned-Test-Build header. */
   buildDownloadUrl: (scanId: number, buildId: number) =>
     `${API_BASE}/scans/${scanId}/builds/${buildId}/download`,
+  /** Download URL of the scan's decoded source tree as a zip (smali / res /
+   * AndroidManifest.xml, applied edits overlaid). Same-origin anchor - the
+   * backend sets the `{stem}-source.zip` attachment name. */
+  sourceZipUrl: (scanId: number) => `${API_BASE}/scans/${scanId}/source-zip`,
 
   // ---- M4 agent layer ----
   chat: (

@@ -199,19 +199,29 @@ export function RecompileModal({ scanId, onClose }: RecompileModalProps) {
                 The baseline never changes.
               </div>
             </div>
-            <button
-              type="button"
-              className="btn btn-primary recompile-go"
-              disabled={!!activeBuild || starting}
-              onClick={startRebuild}
-              title={
-                activeBuild
-                  ? `Build #${activeBuild.id} is running - one build at a time`
-                  : 'Recompile with the current applied edits'
-              }
-            >
-              {starting ? 'Starting…' : activeBuild ? 'Building…' : 'Recompile'}
-            </button>
+            <div className="recompile-action-cta">
+              <a
+                className="recompile-source"
+                href={api.sourceZipUrl(scanId)}
+                download
+                title="Download the decoded smali/res source (applied edits overlaid) as a zip"
+              >
+                ⬇ Download source zip
+              </a>
+              <button
+                type="button"
+                className="btn btn-primary recompile-go"
+                disabled={!!activeBuild || starting}
+                onClick={startRebuild}
+                title={
+                  activeBuild
+                    ? `Build #${activeBuild.id} is running - one build at a time`
+                    : 'Recompile with the current applied edits'
+                }
+              >
+                {starting ? 'Starting…' : activeBuild ? 'Building…' : 'Recompile'}
+              </button>
+            </div>
           </div>
 
           {/* Live build */}

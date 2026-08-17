@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import secrets
 import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -181,6 +183,16 @@ def artifact_stem(scan: object, build_id: int) -> str:
     return f"{stem}-resigned-test-{build_id}"
 
 
+def source_stem(scan: object) -> str:
+    """``<original-stem>-source`` - the sanitized attachment name / top-level
+    zip folder for the decoded-source export. ASCII-safe so a hostile
+    filename can never smuggle quotes/CRLF into a Content-Disposition header
+    (the ``_report_stem`` rule)."""
+    filename = getattr(scan, "filename", "app.apk")
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(filename).stem).strip(".-")
+    return f"{stem or 'app'}-source"
+
+
 # ---- edit overlay -----------------------------------------------------------
 
 
@@ -206,6 +218,47 @@ def apply_edits(tree_root: Path, edits: list) -> None:
                 f"edit {edit.id}: {edit.file_path!r} not found in the decoded tree",
             )
         target.write_text(edit.new_content, encoding="utf-8")
+
+
+def export_source_zip(scan, edits: list, out_zip: Path) -> Path:
+    """Zip the scan's decoded source tree - smali / res / AndroidManifest.xml
+    - with applied edits overlaid: the **effective source** a rebuild starts
+    from (the pristine decode stays untouched; edits are DB diffs).
+
+    Overlay-on-write, no temp tree copy: each file is written from the newest
+    applied edit's ``new_content`` when one exists for its apktool-root-
+    relative path (the ``tree._applied_edit_content`` precedence), else the
+    pristine bytes. Directory entries preserve empty dirs; the tree lands
+    under a top-level ``<original-stem>-source/`` folder so extraction never
+    spews the manifest into the current directory. Symlinked directories are
+    skipped (the decode's tree is walked without descending through them).
+    Raises :class:`RebuildError` when the decode is not ready. Returns
+    ``out_zip`` (already written)."""
+    if not apktool.is_ready(scan.id):
+        raise RebuildError(
+            "applying", "apktool decode not ready - run the decode first"
+        )
+    root = apktool.decoded_root(scan.id).resolve()
+    newest: dict[str, str] = {}
+    for edit in edits:
+        newest[edit.file_path] = edit.new_content
+    out_zip.parent.mkdir(parents=True, exist_ok=True)
+    top = source_stem(scan)
+    with zipfile.ZipFile(out_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(root.rglob("*"), key=lambda p: p.as_posix()):
+            if path.is_symlink() and path.is_dir():
+                continue  # dir symlink - rglob will not descend through it
+            rel = path.relative_to(root).as_posix()
+            entry = f"{top}/{rel}"
+            if path.is_dir():
+                zf.writestr(f"{entry}/", "")
+            else:
+                data = newest.get(rel)
+                zf.writestr(
+                    entry,
+                    data.encode("utf-8") if data is not None else path.read_bytes(),
+                )
+    return out_zip
 
 
 # ---- pipeline ---------------------------------------------------------------

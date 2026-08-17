@@ -17,6 +17,10 @@
 
 ---
 
+<p align="center">
+  <video controls src="site/assets/demo/screen_record.mov" width="720"></video>
+</p>
+
 **MobARK** is a self-hosted dashboard for mobile application security
 testing: Android (APK) and iOS (IPA). Upload a binary and MobARK
 decompiles it, runs static analysis (jadx / apktool / semgrep / gitleaks
@@ -112,18 +116,16 @@ full component diagram.
 
 ## Screenshots
 
-> **OWNER: add.** Placeholders, replace with captures of a real scan.
-
 <p align="center">
-  <img src="site/assets/demo/dashboard.png" alt="Dashboard (placeholder)" width="720" />
+  <img src="site/assets/demo/dashboard.png" alt="Dashboard overview" width="720" />
 </p>
 
 <p align="center">
-  <img src="site/assets/demo/agent-dock.png" alt="Agent dock (placeholder)" width="720" />
+  <img src="site/assets/demo/agent-dock.png" alt="Agent dock with live tool steps and reasoning" width="720" />
 </p>
 
 <p align="center">
-  <img src="site/assets/demo/report.png" alt="Report (placeholder)" width="720" />
+  <img src="site/assets/demo/report.png" alt="Generated report" width="720" />
 </p>
 
 ## Project status

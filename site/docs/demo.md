@@ -1,38 +1,19 @@
 # Demo
 
-> **OWNER: add real media.** The screenshots and video below are
-> placeholders. Replace them with a capture of a real scan (the sample
-> artifacts used in verification: e.g. InsecureBankv2.apk /
-> iBugBazaar.ipa).
-
 ## Screenshots
 
-!!! placeholder "Dashboard overview"
+![Dashboard overview](assets/demo/dashboard.png)
 
-    **OWNER: add**: screenshot of the loaded dashboard (security gauge,
-    severity stats, top findings, decompiler tree) at
-    `site/assets/demo/dashboard.png`.
+![Agent dock with live tool steps and reasoning](assets/demo/agent-dock.png)
 
-!!! placeholder "Agent dock"
-
-    **OWNER: add**: screenshot of a chat with live tool steps /
-    citations at `site/assets/demo/agent-dock.png`.
-
-!!! placeholder "Report"
-
-    **OWNER: add**: screenshot of a generated report (Markdown or PDF)
-    at `site/assets/demo/report.png`.
+![Generated report](assets/demo/report.png)
 
 ## Video
 
-!!! placeholder "Walkthrough video"
+A walkthrough of a real scan - upload, analysis, agent chat, and the
+generated report:
 
-    **OWNER: add**: a short screen recording (upload → analysis →
-    agent chat → report) at `site/assets/demo/demo.mp4` and link it here:
-
-    ```html
-    <video controls src="../assets/demo/demo.mp4"></video>
-    ```
+<video controls src="assets/demo/screen_record.mov"></video>
 
 ## Try it yourself
 

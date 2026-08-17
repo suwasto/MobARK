@@ -18,7 +18,7 @@
 ---
 
 <p align="center">
-  <video controls src="site/assets/demo/screen_record.mov" width="720"></video>
+  <video controls src="site/assets/demo/screen_record.mp4" width="720"></video>
 </p>
 
 **MobARK** is a self-hosted dashboard for mobile application security

@@ -13,7 +13,7 @@
 A walkthrough of a real scan - upload, analysis, agent chat, and the
 generated report:
 
-<video controls src="assets/demo/screen_record.mov"></video>
+<video controls src="assets/demo/screen_record.mp4"></video>
 
 ## Try it yourself
 

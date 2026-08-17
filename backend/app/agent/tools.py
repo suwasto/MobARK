@@ -1353,6 +1353,7 @@ TOOL_SCHEMAS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {},
+                "required": [],
             },
         },
     },

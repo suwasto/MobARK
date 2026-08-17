@@ -231,11 +231,15 @@ function Steps({ steps, onOpenFile }: { steps: ToolStep[]; onOpenFile: (file: st
  * caret inside - the caret belongs to the final answer only; the animated
  * dots run while thinking is in progress but no token has landed yet.
  *
- * While streaming the box stays open (live tokens). A FINALIZED message is
- * collapsed by default to the ChatGPT/Claude "Thinking" summary with a
- * Show reasoning / Hide reasoning affordance on the right - the full text
- * is one click away instead of crowding the answer. State (not the DOM
- * default) drives the toggle so the click sticks across re-renders. */
+ * While streaming the box stays open (live tokens) - ENFORCED, not just
+ * defaulted: the summary stops the browser's native details toggle
+ * (preventDefault) while the turn is live, because the box must keep
+ * scrolling to the newest reasoning as tool calls start and the answer
+ * streams. A FINALIZED message is collapsed by default to the
+ * ChatGPT/Claude "Thinking" summary with a Show reasoning / Hide reasoning
+ * affordance on the right - the full text is one click away instead of
+ * crowding the answer. State (not the DOM default) drives the toggle so the
+ * click sticks across re-renders. */
 function ThinkingBox({
   text,
   active,
@@ -285,16 +289,32 @@ function ThinkingBox({
   return (
     <details
       className="thinking-box"
-      open={active || (open && hasText)}
+      // While the turn is live the box is ALWAYS open - `active` (the dots
+      // flag) goes false the moment tool calls or the answer start, and the
+      // reasoning may still be streaming into the box. Only a FINALIZED box
+      // is collapsed by default (state-driven expand/collapse).
+      open={!finalized || (open && hasText)}
       onToggle={(e) => {
-        if (!active) setOpen((e.currentTarget as HTMLDetailsElement).open)
+        if (finalized) setOpen((e.currentTarget as HTMLDetailsElement).open)
       }}
     >
-      <summary className="thinking-head">
+      <summary
+        className="thinking-head"
+        onClick={(e) => {
+          // Stop the browser's native details toggle while the turn is
+          // live - the box must stay open so the reasoning stream stays
+          // visible and pinned. (A click collapsing it here used to leave
+          // the details closed with the `open` prop still true - React
+          // never re-writes an unchanged prop - so the rest of the turn's
+          // reasoning streamed into an invisible box and the box appeared
+          // to stop scrolling.)
+          if (!finalized) e.preventDefault()
+        }}
+      >
         <span className={`thinking-label${active && !hasText ? ' thinking-dots' : ''}`}>
           Thinking
         </span>
-        {!active && (
+        {finalized && (
           <span className="thinking-reveal">
             <span
               className={`thinking-chev${open ? ' open' : ''}`}
@@ -765,10 +785,28 @@ export function AgentDock({
     }`,
   }
 
-  // Keep the newest message in view.
+  // Keep the newest message in view. While a turn is live with a streaming
+  // thinking box, pin the BOX to the bottom of the chat instead of the
+  // absolute bottom: tool steps land BELOW the reasoning, so scrolling to the
+  // very bottom pushes the newest thinking out of view (the reported "thinking
+  // box not pinned on tool calls"). The box keeps its own internal bottom-pin
+  // (M8), so the newest reasoning stays visible. Once the answer text starts
+  // (or the turn ends), the normal absolute-bottom pin takes over.
   useEffect(() => {
     const el = bodyRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    const box = el.querySelector('.msg.streaming .thinking-box')
+    if (sending && box && !pending?.text) {
+      const bodyRect = el.getBoundingClientRect()
+      const boxRect = box.getBoundingClientRect()
+      // Scroll down only when the box bottom has fallen below the visible
+      // bottom edge - keeps the box pinned at the bottom while reasoning
+      // streams and tool steps pile up below it.
+      const below = boxRect.bottom - (bodyRect.bottom - 8)
+      if (below > 0) el.scrollTop += below
+    } else {
+      el.scrollTop = el.scrollHeight
+    }
   }, [messages, pending, sending])
 
   // The live tool trace scrolls internally (height-capped); keep it pinned

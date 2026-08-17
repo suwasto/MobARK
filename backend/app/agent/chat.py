@@ -505,6 +505,58 @@ def _accumulate_tool_call_deltas(calls: dict, order: list, deltas) -> None:
             entry["arguments"] += args
 
 
+# M8 follow-up (Aug 16): models - local reasoning ones especially - sometimes
+# write their intended tool call as Anthropic-style XML TEXT (``<invoke
+# name="X"><parameter name="Y">value</parameter></invoke>``) in the content or
+# the thinking stream instead of emitting a structured ``tool_calls`` array.
+# The loop parses well-formed invoke blocks out of a round's text when no
+# structured calls arrived, so the intended call actually EXECUTES instead of
+# the raw XML becoming the "answer" (the propose-smali regression report: the
+# model returned ``<invoke name="read_editable_file">...`` and no tool ran).
+_XML_INVOKE_RE = re.compile(
+    r"<invoke\s+name=[\"']?([A-Za-z0-9_]+)[\"']?>(.*?)</invoke>",
+    re.DOTALL,
+)
+_XML_PARAM_RE = re.compile(
+    r"<parameter\s+name=[\"']([A-Za-z0-9_]+)[\"']>(.*?)</parameter>",
+    re.DOTALL,
+)
+
+
+def _parse_xml_tool_calls(text: str) -> list:
+    """Parse Anthropic-style XML tool calls out of model text (content or
+    thinking stream): ``<invoke name="X">`` blocks with ``<parameter
+    name="Y">value</parameter>`` children -> litellm-shaped tool_call objects
+    (``.id``, ``.function.name``, ``.function.arguments`` as JSON). Empty
+    list when the text has no well-formed invoke blocks.
+
+    Values are JSON-coerced when possible (numbers, booleans, nested
+    objects/arrays) and kept as raw strings otherwise - so a path parameter
+    stays a string while ``line_start 42`` becomes an int. Malformed blocks
+    are skipped, never raised."""
+    from types import SimpleNamespace
+
+    if not text:
+        return []
+    out: list = []
+    for m in _XML_INVOKE_RE.finditer(text):
+        name = m.group(1)
+        args: dict = {}
+        for p in _XML_PARAM_RE.finditer(m.group(2)):
+            raw = p.group(2).strip()
+            try:
+                args[p.group(1)] = json.loads(raw)
+            except json.JSONDecodeError:
+                args[p.group(1)] = raw
+        out.append(
+            SimpleNamespace(
+                id=f"xml_call_{len(out)}",
+                function=SimpleNamespace(name=name, arguments=json.dumps(args)),
+            )
+        )
+    return out
+
+
 def _normalized_tool_calls(calls: dict, order: list) -> list:
     """Build buffered-shape tool_call objects (``.id``, ``.function.name``,
     ``.function.arguments``) from the accumulated deltas."""
@@ -1340,10 +1392,28 @@ def answer_question(
             message = response.choices[0].message
             content = (message.content or "").strip()
             tool_calls = list(getattr(message, "tool_calls", None) or [])
+            round_thinking = _message_thinking(message)
             # M8 follow-up: accumulate the round's reasoning/thinking tokens
             # (buffered path - the streaming path already forwarded them live
             # and normalized them onto ``message.thinking``).
-            thinking_total += _message_thinking(message)
+            thinking_total += round_thinking
+
+            if not tool_calls:
+                # M8 follow-up (Aug 16): when the model wrote its intended
+                # tool call as XML TEXT (Anthropic-style ``<invoke>`` blocks
+                # in the content or the thinking stream - local reasoning
+                # models do this instead of structured ``tool_calls``),
+                # execute the parsed calls rather than letting the raw XML
+                # become the final answer (no tool would ever run). Only
+                # names the model was actually offered are executed.
+                xml_calls = _parse_xml_tool_calls(content) or _parse_xml_tool_calls(
+                    round_thinking
+                )
+                offered = {s["function"]["name"] for s in (tools or [])}
+                if xml_calls:
+                    tool_calls = [
+                        c for c in xml_calls if c.function.name in offered
+                    ]
 
             if not tool_calls:
                 # M8 follow-up (Aug 11): plan narration must not be the final

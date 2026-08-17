@@ -2255,6 +2255,164 @@ def json_args(args: dict) -> str:
     return json.dumps(args)
 
 
+# ---- M8 follow-up (Aug 16): XML-text tool calls ------------------------------
+# Local reasoning models sometimes write their intended tool call as
+# Anthropic-style XML text (``<invoke name="X"><parameter name="Y">v</parameter>
+# </invoke>``) instead of emitting a structured ``tool_calls`` array. The loop
+# parses well-formed invoke blocks out of the content (or the thinking stream)
+# and executes them like real calls - otherwise the raw XML becomes the answer
+# and no tool ever runs (the propose-smali regression report).
+
+
+def test_xml_text_tool_call_in_content_is_executed(env, tmp_path, monkeypatch, db_session_factory):
+    """A model that returns its intended call as XML TEXT in the content (no
+    structured tool_calls) still gets the call EXECUTED - the proposal lands
+    and the answer comes from the real tool result, not the raw XML."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: the model WRITES the call as XML text - no structured
+            # tool_calls field at all (the regression the user hit).
+            return _resp(
+                _msg(
+                    '<invoke name="read_editable_file">\n'
+                    '<parameter name="path">AndroidManifest.xml</parameter>\n'
+                    "</invoke>"
+                )
+            )
+        return _resp(_msg("I read the manifest - here is the current content."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(scan_id, "read the manifest", timeout=60.0)
+    assert result.answer == "I read the manifest - here is the current content."
+    assert "read_editable_file" in result.tools_used
+    # The tool actually ran - its result rode into round 2's messages.
+    tool_msgs = [
+        m for m in calls[1]["messages"] if m.get("role") == "tool"
+    ]
+    assert any("android:debuggable" in (m.get("content") or "") for m in tool_msgs)
+
+
+def test_xml_text_tool_call_in_thinking_is_executed(env, tmp_path, monkeypatch, db_session_factory):
+    """The XML invoke can live in the THINKING stream (a reasoning model plans
+    the call there) instead of the content - parsed and executed the same way.
+    Covers the exact report: the model returned the invoke wrapped in a
+    ``<think>`` block and no tool ever ran."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    calls: list[dict] = []
+
+    def scripted(backend, messages, **kwargs):
+        calls.append({"messages": list(messages), "tools": "tools" in kwargs})
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        if len(calls) == 1:
+            # Round 1: empty content, the invoke lives in the thinking stream
+            # (``message.thinking`` - normalized from reasoning_content).
+            return _resp(
+                SimpleNamespace(
+                    content=None,
+                    tool_calls=None,
+                    thinking=(
+                        '<invoke name="read_editable_file">\n'
+                        '<parameter name="path">smali/com/foo/AuthManager.smali</parameter>\n'
+                        "</invoke>"
+                    ),
+                )
+            )
+        return _resp(_msg("Proposal stored - review it."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(scan_id, "edit the auth manager", timeout=60.0)
+    assert result.answer == "Proposal stored - review it."
+    assert "read_editable_file" in result.tools_used
+
+
+def test_xml_text_propose_smali_edit_lands_a_proposal(
+    env, tmp_path, monkeypatch, db_session_factory
+):
+    """End-to-end: the full propose flow via XML-text calls - search_code
+    (XML), read_editable_file (XML), propose_smali_edit (XML, multi-line
+    new_content) - lands a real proposal row, exactly like structured calls.
+    This is the propose-smali regression the user reported, fixed."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+    new_manifest = _NUDGE_MANIFEST.replace(
+        'android:debuggable="true"', 'android:debuggable="false"'
+    )
+
+    def scripted(backend, messages, **kwargs):
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        tool_results = [m for m in messages if m.get("role") == "tool"]
+        if not tool_results:
+            # Round 1: search via XML text.
+            return _resp(
+                _msg(
+                    '<invoke name="search_code">\n'
+                    '<parameter name="pattern">debuggable</parameter>\n'
+                    "</invoke>"
+                )
+            )
+        if len(tool_results) == 1:
+            # Round 2: propose the manifest change via XML text (the
+            # multi-line new_content rides inside the parameter element).
+            return _resp(
+                _msg(
+                    '<invoke name="propose_smali_edit">\n'
+                    '<parameter name="path">AndroidManifest.xml</parameter>\n'
+                    '<parameter name="instruction">disable debuggable</parameter>\n'
+                    f"<parameter name=\"new_content\">{new_manifest}</parameter>\n"
+                    "</invoke>"
+                )
+            )
+        # Round 3: the proposal landed - compose the final answer.
+        return _resp(_msg("Proposed the manifest change - review it."))
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(scan_id, "disable debuggable", timeout=60.0)
+    assert "propose_smali_edit" in result.tools_used
+    with db_session_factory() as session:
+        rows = session.query(Edit).filter(Edit.scan_id == scan_id).all()
+        assert len(rows) == 1
+        assert rows[0].file_path == "AndroidManifest.xml"
+        assert rows[0].status == "proposed"
+
+
+def test_xml_text_unoffered_tool_name_is_ignored(env, tmp_path, monkeypatch):
+    """Only tool names the model was actually OFFERED are executed from XML
+    text - a hallucinated/unknown invoke is filtered out and the round falls
+    through to the normal answer path instead of running a bogus call."""
+    scan_id = env
+    _apktool_tree(tmp_path, scan_id)
+    monkeypatch.setattr(chat_mod, "_pick_chat_backend", lambda: object())
+
+    def scripted(backend, messages, **kwargs):
+        if not kwargs.get("tools"):
+            return _resp(_msg("context-only"))
+        return _resp(
+            _msg(
+                '<invoke name="definitely_not_a_real_tool">\n'
+                '<parameter name="x">1</parameter>\n'
+                "</invoke> I can't do that."
+            )
+        )
+
+    monkeypatch.setattr(chat_mod, "client_chat", scripted)
+    result = answer_question(scan_id, "what does this app do?", timeout=60.0)
+    assert result.tools_used == []
+    assert "can't do that" in result.answer
+
+
 # ---- M8 follow-up (Aug 16): the task-list artifact + auto-advance ------------
 
 

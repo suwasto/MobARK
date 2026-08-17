@@ -46,8 +46,8 @@ from app.agent.chat import (
 from app.analysis import (
     apktool,
     dependencies,
-    editable,
     edit_tasks,
+    editable,
     edits,
     rebuild,
     report,

@@ -137,7 +137,12 @@ def main() -> int:
         "PATHS = [",
     ]
     for d, fill in paths:
-        lines.append(f"    ({d!r}, {fill!r}),")
+        line = f"    ({d!r}, {fill!r}),"
+        if len(line) > 100:
+            # The SVG d paths are long single tokens that cannot be split - the
+            # same noqa treatment as the raster line below (ruff E501, line-length 100).
+            line = f"    ({d!r}, {fill!r}),  # noqa: E501 (generated path data)"
+        lines.append(line)
     lines += [
         "    ]",
         "",

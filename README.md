@@ -58,41 +58,54 @@ default**.
 
 ### Install a release from Docker Hub
 
+MobARK runs as **four containers** that `docker-compose.yml`
+orchestrates: `app` (the web UI + API), `worker` (runs the analysis),
+`redis` (the job queue between them), and `searxng` (the search engine
+the agent's web research uses). Everything is downloaded from **Docker
+Hub** — a release install never builds or clones the source code.
+
+**Step 1 — Download the config files.** `docker-compose.yml` is the
+recipe that tells Docker which images to run and how to connect them;
+`.env` holds your settings. In a folder of your choice:
+
 ```bash
-docker compose pull   # suwasto/mobark:0.1.0 + redis + searxng
+curl -O https://raw.githubusercontent.com/suwasto/MobARK/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/suwasto/MobARK/main/.env.example
+mv .env.example .env
+mkdir -p docker/searxng
+curl -o docker/searxng/settings.yml https://raw.githubusercontent.com/suwasto/MobARK/main/docker/searxng/settings.yml
+```
+
+That last file is the SearXNG config the stack mounts into the search
+container (it enables the JSON API the agent's web research searches
+through) — the stack will not start without it.
+
+**Step 2 — Download the images.** `docker compose pull` reads the
+recipe and downloads the three images it references from Docker Hub:
+`suwasto/mobark:0.1.0` (the app + worker), `redis:7-alpine`, and
+`searxng/searxng:latest`. Nothing runs yet — this step is just the
+download:
+
+```bash
+docker compose pull
+```
+
+**Step 3 — Start the stack.** `docker compose up` launches the four
+containers — `app` and `worker` both run the `suwasto/mobark` image
+with different commands — and starts them wired together:
+
+```bash
 docker compose up
 ```
 
-Or pull the image directly: `docker pull suwasto/mobark:0.1.0`. To pin
-another release, set `MOBARK_IMAGE_TAG=<version>` in `.env`.
-
-### Try the image alone (`docker run`)
-
-Just the app container — a quick look at the UI, auth, and settings
-without the full stack. **Analysis does not run here**: scan uploads
-are RQ jobs that need Redis + the worker, so use the compose stack
-above for anything real.
-
-```bash
-docker run -d --name mobark \
-  -p 8000:8000 \
-  -v mobark-data:/data \
-  -e MOBARK_DATABASE_URL=sqlite:////data/mobark.db \
-  -e MOBARK_DATA_DIR=/data \
-  suwasto/mobark:0.1.0
-```
-
-Open **http://localhost:8000** and register the first account (it
-becomes the instance admin). The `mobark-data` volume keeps the SQLite
-database and uploads across container recreates; drop `-v` for a
-throwaway run. To reach an LLM running on the host, add
-`-e MOBARK_OLLAMA_BASE_URL=http://host.docker.internal:11434` (plus
-`--add-host host.docker.internal:host-gateway` on Linux). Clean up with
-`docker rm -f mobark`.
+To pin another release instead of `0.1.0`, set `MOBARK_IMAGE_TAG=<version>`
+in `.env`, then re-run `docker compose pull` and `docker compose up`.
 
 ### Build from source (dev)
 
 ```bash
+git clone https://github.com/suwasto/MobARK.git
+cd MobARK
 docker compose up --build
 ```
 

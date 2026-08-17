@@ -913,9 +913,9 @@ def task_completion_answer(
     if user_id is not None:
         current_user_id.set(user_id)
         current_master_key.set(master_key)
-    from app.analysis import edit_tasks
     from sqlalchemy import select
 
+    from app.analysis import edit_tasks
     from app.db import SessionLocal
     from app.models import Edit
 

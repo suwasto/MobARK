@@ -2565,7 +2565,9 @@ def test_unrelated_question_keeps_existing_task_list(env, tmp_path, monkeypatch)
     assert edit_tasks.task_file_path(scan_id).is_file()
 
 
-def test_task_completion_answer_is_one_small_llm_call(env, tmp_path, monkeypatch, db_session_factory):
+def test_task_completion_answer_is_one_small_llm_call(
+    env, tmp_path, monkeypatch, db_session_factory
+):
     """The task-complete wrap-up is ONE small buffered LLM call over the task
     list + the edit verdicts - no tools, no findings context - so closing a
     multi-file task costs a fraction of a full turn."""
@@ -2612,7 +2614,10 @@ def test_task_completion_answer_falls_back_deterministic(env, tmp_path, monkeypa
     the closing message."""
     scan_id = env
     _apktool_tree(tmp_path, scan_id)
-    _write_task_list(scan_id, "# Task: bypass the root check\n- [x] T1 done (file: AndroidManifest.xml)\n")
+    _write_task_list(
+        scan_id,
+        "# Task: bypass the root check\n- [x] T1 done (file: AndroidManifest.xml)\n",
+    )
 
     def no_backend():
         raise ChatNotConfigured("no chat model configured")

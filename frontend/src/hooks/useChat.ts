@@ -233,11 +233,14 @@ export function useChat(scanId: number) {
         if (seq !== loadSeqRef.current) return // superseded by a newer switch
         setMessages(msgs.map(toChatMessage))
         setActiveSessionId(sessionId)
+        // The thread changed sessions - a dangling in-flight render (e.g.
+        // from a stop) must never leak into the newly shown session.
+        clearPending()
       } catch {
         // Transient - keep the current thread.
       }
     },
-    [scanId],
+    [scanId, clearPending],
   )
 
   // M9 follow-up: on mount (per scan) load the session list and the most
@@ -283,10 +286,13 @@ export function useChat(scanId: number) {
       setSessions((prev) => [s, ...prev.filter((x) => x.id !== s.id)])
       setActiveSessionId(s.id)
       setMessages([])
+      // A fresh session must never inherit an in-flight render (e.g. a
+      // dangling pending turn from a stop) - clear it with the thread.
+      clearPending()
     } catch {
       // Transient - the switcher keeps the current session.
     }
-  }, [scanId, sending])
+  }, [scanId, sending, clearPending])
 
   const deleteSession = useCallback(
     async (sessionId: number) => {
@@ -305,12 +311,16 @@ export function useChat(scanId: number) {
             setMessages([])
             setActiveSessionId(null)
           }
+          // Deleting the active session swapped the thread to another
+          // session (or nothing) - a dangling pending render must not leak
+          // into whatever is shown now (the switchSession rule).
+          clearPending()
         }
       } catch {
         // Transient - keep the current state.
       }
     },
-    [scanId, sending, activeSessionId],
+    [scanId, sending, activeSessionId, clearPending],
   )
 
   const renameSession = useCallback(
@@ -332,21 +342,44 @@ export function useChat(scanId: number) {
     // then/catch/finally all bail - no error bubble, no stale state.
     requestIdRef.current += 1
     setSending(false)
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: localId(),
-        role: 'agent',
-        content: '⏹ Stopped - the agent\u2019s turn was interrupted.',
-      },
-    ])
+    // Keep whatever streamed so far as a finalized partial message (the
+    // "Stopped" note below it says why the turn ended), then clear the
+    // dangling pending turn. The old abort path that did this was DEAD
+    // CODE: stop() bumps the request id BEFORE the fetch rejection lands,
+    // so the catch bailed at `requestIdRef.current !== id` and
+    // `clearPending()` never ran. The leftover `pending` kept rendering the
+    // interrupted turn (live caret + steps) AND survived a "New session" -
+    // `newSession` only resets `messages`, not the in-flight pending turn -
+    // so the history appeared stuck in the fresh chat until a page refresh
+    // remounted the hook (the reported bug).
+    const partial = pendingRef.current
+    clearPending()
+    const stoppedNote: ChatMessage = {
+      id: localId(),
+      role: 'agent',
+      content: '⏹ Stopped - the agent\u2019s turn was interrupted.',
+    }
+    if (partial && (partial.text || partial.steps.length > 0)) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: localId(),
+          role: 'agent',
+          content: partial.text || '…',
+          steps: partial.steps,
+        },
+        stoppedNote,
+      ])
+    } else {
+      setMessages((prev) => [...prev, stoppedNote])
+    }
     // Fire-and-forget: tell the server to stop. If it fails, the abort above
     // already stopped the UI; the server just finishes its current round.
     void api.cancelChat(scanId).catch(() => {
       // No UI - the stop already happened client-side.
     })
     void refreshSessions() // the user turn was persisted server-side
-  }, [scanId, refreshSessions])
+  }, [scanId, refreshSessions, clearPending])
 
   const send = useCallback(
     (

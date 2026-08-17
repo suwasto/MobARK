@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import { formatRelative } from '../../lib/format'
 import { Markdown } from '../Markdown'
+
+// The PDF preview renders with react-pdf (pdf.js) - see ReportPdfView.tsx.
+// LAZY so the ~1 MB pdf.js library stays out of the initial bundle and
+// loads only when the PDF preview is actually opened.
+const ReportPdfView = lazy(() =>
+  import('./ReportPdfView').then((m) => ({ default: m.ReportPdfView })),
+)
 
 interface ReportPanelProps {
   scanId: number
@@ -16,6 +23,20 @@ type BodyState =
   | { kind: 'loading' }
   | { kind: 'ok'; markdown: string; generatedAt: string }
   | { kind: 'error'; message: string }
+
+/** The "Rendering PDF…" spinner - shown both while the lazy react-pdf chunk
+ * loads (Suspense fallback) and while pdf.js parses the document (until
+ * onLoadSuccess). One markup, both phases, so the overlay never blinks. */
+function PdfLoading() {
+  return (
+    <div className="report-pdf-loading">
+      <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.06em] text-bone-faint">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-steel" />
+        Rendering PDF…
+      </span>
+    </div>
+  )
+}
 
 /**
  * M9 Report tab: the assembled report body - DETERMINISTIC (no model
@@ -39,12 +60,13 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
   // Markdown source (default) vs the branded PDF preview.
   const [view, setView] = useState<'md' | 'pdf'>('md')
   const [copied, setCopied] = useState(false)
-  // The PDF iframe (src = inline export) is remounted/refetched whenever
-  // the body is re-fetched - tab re-activation (or a suppress/restore on
-  // another tab) changes the server cache identity and must not leave a
-  // stale document up.
+  // The PDF preview (react-pdf page stack over the inline export URL) is
+  // remounted/refetched whenever the body is re-fetched - tab re-activation
+  // (or a suppress/restore on another tab) changes the server cache identity
+  // and must not leave a stale document up.
   const [pdfNonce, setPdfNonce] = useState(0)
   const [pdfLoaded, setPdfLoaded] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
   const copyMarkdown = useCallback(() => {
     if (body.kind !== 'ok') return
@@ -59,6 +81,7 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
     const id = ++requestIdRef.current
     setBody({ kind: 'loading' })
     setPdfLoaded(false)
+    setPdfError(null)
     setPdfNonce((n) => n + 1)
     api
       .getReport(scanId)
@@ -184,20 +207,27 @@ export function ReportPanel({ scanId, active }: ReportPanelProps) {
       )}
       {body.kind === 'ok' && view === 'pdf' && (
         <div className="report-preview">
-          <iframe
-            key={pdfNonce}
-            className="report-pdf-frame"
-            src={api.reportPdfUrl(scanId, pdfNonce)}
-            title="Report PDF preview"
-            onLoad={() => setPdfLoaded(true)}
-          />
-          {!pdfLoaded && (
-            <div className="report-pdf-loading">
-              <span className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.06em] text-bone-faint">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-steel" />
-                Rendering PDF…
-              </span>
+          {pdfError ? (
+            <div className="report-pdf-error">
+              <p>Could not render the PDF preview: {pdfError}</p>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => void fetchReport()}
+              >
+                Retry
+              </button>
             </div>
+          ) : (
+            <Suspense fallback={<PdfLoading />}>
+              <ReportPdfView
+                key={pdfNonce}
+                url={api.reportPdfUrl(scanId, pdfNonce)}
+                onLoaded={() => setPdfLoaded(true)}
+                onError={(message) => setPdfError(message)}
+              />
+              {!pdfLoaded && <PdfLoading />}
+            </Suspense>
           )}
           <div className="mt-3 border-t border-line-soft pt-2.5 font-mono text-[10px] text-bone-faint">
             Assembled {formatRelative(body.generatedAt)} · MobARK security report

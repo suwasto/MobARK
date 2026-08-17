@@ -3974,15 +3974,31 @@
   .report-preview {
     position: relative;
   }
-  .report-pdf-frame {
-    display: block;
-    width: 100%;
-    height: 72vh;
+  /* Aug 17: the preview is now a react-pdf page stack (no browser PDF
+     viewer toolbar - the document only) - a light neutral reader
+     background with the white branded pages centered and stacked,
+     scrolling internally like the old iframe. */
+  .report-pdf-doc {
+    padding: 16px;
+    max-height: 72vh;
     min-height: 420px;
+    overflow: auto;
+    background: #e9eae6;
     border: 1px solid var(--color-line);
     border-radius: 8px;
-    background: #ffffff;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  }
+  .report-pdf-doc .react-pdf__Document {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .report-pdf-doc .react-pdf__Page {
+    flex-shrink: 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+  }
+  .report-pdf-doc canvas {
+    display: block;
   }
   .report-pdf-loading {
     position: absolute;
@@ -3994,4 +4010,29 @@
     background: #f6f6f2;
     border: 1px solid var(--color-line);
     border-radius: 8px;
+  }
+  /* The preview failed to render (unparseable PDF / load error) - replaces
+     the doc area, centered like the loading state, crimson-accented. */
+  .report-pdf-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 420px;
+    padding: 16px;
+    border: 1px solid rgba(193, 85, 74, 0.4);
+    border-left: 3px solid var(--color-crimson);
+    background: #f6f6f2;
+    border-radius: 8px;
+  }
+  .report-pdf-error p {
+    max-width: 520px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--color-bone-dim);
+    text-align: center;
+    word-break: break-word;
+    margin: 0;
   }

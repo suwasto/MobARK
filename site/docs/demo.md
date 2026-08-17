@@ -22,3 +22,9 @@ The fastest demo is [the quickstart](quickstart.md): `docker compose up
 the admin**: use any username, e.g. `admin`, with a password you choose
 yourself), then upload an APK or IPA. With `MOBARK_FAKE_MODEL=1` the
 agent dock demos its live steps and token streaming with zero Ollama.
+
+Platform limits: both platforms get full static analysis and the AI
+Agent, but **edit & recompile is Android-only** - iOS stays read-only
+in v1 (IPA rebuilds need an Apple Developer account + signing
+certificates, and edit support is very limited). See
+[Features](features.md) for the parity table.

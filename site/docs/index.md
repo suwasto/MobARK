@@ -1,4 +1,4 @@
-# MobARK: Mobile Application Reverse Kit
+# Mobile Application Reverse Kit
 
 MobARK is a **self-hosted dashboard** for mobile application
 security testing (Android + iOS) with a built-in AI Agent. Static
@@ -23,7 +23,8 @@ leaving your infrastructure.
 -   :material-file-document-edit: **Edit & recompile**
 
     On-demand smali decode, agent-proposed edits, and resigned test
-    builds (Android) for validation workflows.
+    builds (Android only - iOS stays read-only) for validation
+    workflows.
 
 -   :material-file-chart-outline: **Reports**
 

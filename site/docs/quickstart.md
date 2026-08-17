@@ -23,6 +23,14 @@ and adopts any pre-existing (unowned) scans.
 Register an account, sign in, and upload an APK or IPA. MobARK analyzes it
 on your own infrastructure: nothing leaves your install by default.
 
+!!! note "Platform coverage"
+    Android (APK) and iOS (IPA) both get full static analysis and the
+    AI Agent. Past that, Android is ahead: **edit & recompile**
+    (apktool decode, smali edits, resigned test APK) is Android-only -
+    iOS stays read-only in v1, and rebuilding an IPA would need an
+    Apple Developer account and signing certificates. See
+    [Features](features.md) for the full parity table.
+
 #### First account is the admin
 
 There are no seeded accounts: the **first account you register becomes

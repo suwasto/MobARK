@@ -40,7 +40,9 @@ default**.
   code search/read + per-scan code graph tools), live step/token
   streaming, **opt-in web research** through a bundled SearXNG
 - **Edit & recompile** (Android): apktool decode, smali edits,
-  resigned test APK builds
+  resigned test APK builds. iOS stays **read-only**: rebuilding an
+  IPA requires an Apple Developer account and signing certificates,
+  and edit support is very limited there.
 - **Reports**: deterministic Markdown/PDF with banded risk-index
   scoring (`high | warning | info` severities), per-finding
   suppression, AI (or no-model) explanations
@@ -138,7 +140,9 @@ full component diagram.
 - **AI Agent**: chat with the decompiled code via a local LLM, with
   live tool/token streaming and opt-in web research
 - **Edit & recompile** (Android): apktool decode, smali edits,
-  resigned test APK builds
+  resigned test APK builds. iOS stays **read-only**: rebuilding an
+  IPA requires an Apple Developer account and signing certificates,
+  and edit support is very limited there.
 - **Reports**: deterministic Markdown/PDF with banded risk-index
   scoring, per-finding suppression, AI (or no-model) explanations
 - **Multi-user auth**: username/password + GitHub/Google OAuth,

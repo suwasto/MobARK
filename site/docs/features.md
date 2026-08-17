@@ -35,6 +35,21 @@
 - On-demand apktool decode → smali tree.
 - Agent can **propose edits** (and you can hand-edit smali) with diff
   review, then rebuild a **resigned test APK** (apksigner/zipalign).
+- **iOS stays read-only** in v1: there's no apktool/ldid equivalent,
+  edit support is very limited, and rebuilding an IPA would require an
+  Apple Developer account and signing certificates.
+
+## Platform parity
+
+Android and iOS get different capabilities today: analysis covers both
+platforms, but everything past that is Android-first and iOS stays
+read-only.
+
+| Capability | Android (APK) | iOS (IPA) |
+| --- | --- | --- |
+| Static analysis | Full: manifest, jadx decompile, MASTG semgrep rules, secrets, dependency inventory | Read-only: Info.plist, Mach-O via LIEF, entitlements, import scan |
+| AI Agent (chat + tools) | Full, including the per-scan code graph | Full, minus the code graph (iOS has no source files in v1) |
+| Edit & recompile | apktool decode, smali edits, resigned test APK | Not in v1: rebuilding an IPA needs an Apple Developer account + signing certificates, and edit support is very limited |
 
 ## Reports
 

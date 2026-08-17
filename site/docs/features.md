@@ -39,8 +39,7 @@
 ## Reports
 
 - Deterministic assembly (no model needed) with a **banded risk-index
-  score** (`high | warning | info` severities: deliberately not CVSS,
-  which needs a human analyst for disclosed CVEs) and per-finding
+  score** (`high | warning | info` severities) and per-finding
   explanations.
 - Per-finding **suppression** with live re-scoring.
 - Markdown + branded **PDF** export.

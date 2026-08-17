@@ -15,8 +15,8 @@
 - **Edit & recompile** (Android): apktool decode, smali edits (agent
   proposals + manual), diff review, resigned test APK builds.
 - **Reports**: deterministic Markdown/PDF with banded risk-index
-  scoring (`high | warning | info`, no CVSS claim), per-finding
-  suppression, AI (or no-model) explanations.
+  scoring (`high | warning | info`), per-finding suppression, AI (or
+  no-model) explanations.
 - **Dashboard**: security gauge, findings tab, decompiler, dependency
   inventory, code maps, report tab, agent dock.
 - **Multi-user auth**: username/password + GitHub/Google OAuth,

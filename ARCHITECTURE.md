@@ -157,7 +157,7 @@ flowchart LR
   dependency inventory, apktool decode on demand) and iOS stages
   (unzip, Info.plist, Mach-O via LIEF, entitlement carving, symbol
   import scanning) into persisted `Finding` rows, then computes the
-  banded risk index (high | warning | info, deliberately not CVSS).
+  banded risk index (high | warning | info).
 
 ## Key modules
 

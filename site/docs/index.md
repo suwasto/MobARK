@@ -28,8 +28,8 @@ leaving your infrastructure.
 -   :material-file-chart-outline: **Reports**
 
     Deterministic Markdown / PDF reports with a banded risk-index
-    score (`high | warning | info`, no CVSS claim), finding
-    explanations, and per-finding suppression.
+    score (`high | warning | info`), finding explanations, and
+    per-finding suppression.
 
 -   :material-account-lock: **Multi-user & isolated**
 

@@ -106,9 +106,8 @@ engine, always-on since Aug 14). Shared SQLite DB + `data/` dir
 ## Scoring model (current, supersedes all older log entries)
 
 Findings vocabulary: `high | warning | info` (no critical, no
-medium/low — migrations 0016 + 0017 re-scored). Risk = banded index,
-deliberately NOT CVSS (a static scanner can't honestly claim CVSS
-context): worst finding picks the band (high 80–89 / warning 55–69 /
+medium/low — migrations 0016 + 0017 re-scored). Risk = banded index:
+worst finding picks the band (high 80–89 / warning 55–69 /
 info never scores), +1 per extra finding at that band
 (`int(0.9*(n-1)+0.5)`) capped at the band ceiling; `security = 100 −
 risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).

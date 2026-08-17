@@ -25,8 +25,7 @@
 testing: Android (APK) and iOS (IPA). Upload a binary and MobARK
 decompiles it, runs static analysis (jadx / apktool / semgrep / gitleaks
 / LIEF), scores findings with a plain severity-based risk index
-(`high | warning | info`: deliberately not CVSS, which needs a human
-analyst for disclosed CVEs), and gives you an **AI Agent
+(`high | warning | info`), and gives you an **AI Agent
 that can chat with the decompiled code**: all through your own local
 LLM (Ollama / LM Studio) with **nothing leaving your infrastructure by
 default**.
@@ -43,8 +42,8 @@ default**.
 - **Edit & recompile** (Android): apktool decode, smali edits,
   resigned test APK builds
 - **Reports**: deterministic Markdown/PDF with banded risk-index
-  scoring (`high | warning | info` severities, no CVSS claim),
-  per-finding suppression, AI (or no-model) explanations
+  scoring (`high | warning | info` severities), per-finding
+  suppression, AI (or no-model) explanations
 - **Multi-user auth**: username/password + GitHub/Google OAuth,
   per-user data isolation, encrypted per-user key vault
 - **Self-hosted**: app, worker, Redis, and the search engine all run

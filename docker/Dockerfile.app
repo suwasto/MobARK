@@ -22,6 +22,12 @@ ENV PYTHONUNBUFFERED=1 \
     JAVA_HOME=/opt/java/openjdk \
     PATH="/opt/java/openjdk/bin:${PATH}"
 
+# Release version baked into the image (surfaces via /api/v1/health and the
+# FastAPI /docs title). The publish workflow sets it from the git tag;
+# local builds default to the source version.
+ARG MOBARK_VERSION=0.1.0
+ENV MOBARK_VERSION=${MOBARK_VERSION}
+
 # --- JVM for jadx (build-time sanity check) ---
 COPY --from=jre /opt/java/openjdk /opt/java/openjdk
 RUN java -version 2>&1 | head -1

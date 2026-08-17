@@ -47,9 +47,14 @@ leaving your infrastructure.
 
 ## Quick tour
 
+Install a release from Docker Hub:
+
 ```bash
-docker compose up --build
+docker compose pull   # suwasto/mobark:0.1.0 + redis + searxng
+docker compose up
 ```
+
+Or build from source (dev): `docker compose up --build`.
 
 Open http://localhost:8000, register the first account (it becomes the
 instance **admin**), upload an APK or IPA, and MobARK analyzes it on your

@@ -140,7 +140,11 @@ def test_delete_bundled_and_custom(api, store):
 
 
 def test_unknown_backend_404(api):
-    assert api.get("/api/v1/search/backends/nope").status_code == 404
+    # Only paths with REAL routes are asserted: there is no GET
+    # /backends/{id} route (the frontend never reads one backend), so a GET
+    # on an unknown id is 405 there - or 404 when the SPA fallback exists
+    # (frontend/dist built). The honest unknown-backend surface is the
+    # PUT/DELETE/test routes below, which 404 in every environment.
     assert api.put("/api/v1/search/backends/nope", json={"enabled": True}).status_code == 404
     assert api.post("/api/v1/search/backends/nope/test").status_code == 404
     assert api.delete("/api/v1/search/backends/nope").status_code == 404

@@ -23,9 +23,16 @@ services:
       - redis-data:/data
 
   app:
+    # Prebuilt releases on Docker Hub (suwasto/mobark). image + build both
+    # present: `docker compose pull` gets the release image; `docker compose
+    # up --build` still rebuilds from source for dev. Override the tag with
+    # MOBARK_IMAGE_TAG in .env to pin a specific release.
+    image: suwasto/mobark:${MOBARK_IMAGE_TAG:-0.1.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.app
+      args:
+        MOBARK_VERSION: ${MOBARK_VERSION:-0.1.0}
     restart: unless-stopped
     depends_on:
       redis:
@@ -110,9 +117,14 @@ services:
       - "8888:8080"
 
   worker:
+    # Same release image as `app` (the worker is the same image with a
+    # different command); see the app service for the pull-vs-build notes.
+    image: suwasto/mobark:${MOBARK_IMAGE_TAG:-0.1.0}
     build:
       context: .
       dockerfile: docker/Dockerfile.app
+      args:
+        MOBARK_VERSION: ${MOBARK_VERSION:-0.1.0}
     restart: unless-stopped
     depends_on:
       redis:

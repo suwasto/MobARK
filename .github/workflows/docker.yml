@@ -1,0 +1,61 @@
+# Publish the MobARK image to Docker Hub.
+#
+# Triggers on version tags (v0.1.0, v1.2.3, ...): the tag name is the
+# source of truth for the version. Each tag publishes two tags on
+# Docker Hub:
+#   suwasto/mobark:<version>   (e.g. 0.1.0)
+#   suwasto/mobark:latest
+#
+# linux/amd64 only for v0.1.0: the analysis toolchain is x86_64-only
+# (gitleaks ships linux_x64 tarballs, Google publishes Android
+# build-tools only for Linux x86_64). See RELEASING.md before changing
+# platforms.
+#
+# Repo secrets required (see RELEASING.md):
+#   DOCKERHUB_USERNAME  - Docker Hub account or org
+#   DOCKERHUB_TOKEN     - access token with Read & Write on suwasto/mobark
+name: docker
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.app
+          platforms: linux/amd64
+          push: true
+          tags: |
+            suwasto/mobark:${{ steps.version.outputs.version }}
+            suwasto/mobark:latest
+          build-args: |
+            MOBARK_VERSION=${{ steps.version.outputs.version }}
+          # GHA cache: restore the previous tag's layers for fast rebuilds,
+          # write back so the next release reuses them.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -12,6 +12,7 @@
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node-18+-blue.svg" alt="Node 18+" /></a>
   <a href="https://github.com/suwasto/MobARK/actions/workflows/backend.yml"><img src="https://github.com/suwasto/MobARK/actions/workflows/backend.yml/badge.svg" alt="Backend CI" /></a>
   <a href="https://github.com/suwasto/MobARK/actions/workflows/frontend.yml"><img src="https://github.com/suwasto/MobARK/actions/workflows/frontend.yml/badge.svg" alt="Frontend CI" /></a>
+  <a href="https://hub.docker.com/r/suwasto/mobark"><img src="https://img.shields.io/docker/v/suwasto/mobark?label=Docker%20Hub&sort=semver" alt="Docker Hub" /></a>
   <a href="https://suwasto.github.io/MobARK/"><img src="https://img.shields.io/badge/docs-github.io-4a7dff.svg" alt="Documentation" /></a>
 </p>
 
@@ -51,19 +52,57 @@ default**.
 
 ## Quick start (Docker)
 
-> Requires Docker with the Compose v2 plugin.
+> Requires Docker with the Compose v2 plugin. Prebuilt images are
+> `linux/amd64` in v0.1.0 (the analysis toolchain is x86_64-only — see
+> [RELEASING.md](RELEASING.md) before running on arm64 hosts).
+
+### Install a release from Docker Hub
+
+```bash
+docker compose pull   # suwasto/mobark:0.1.0 + redis + searxng
+docker compose up
+```
+
+Or pull the image directly: `docker pull suwasto/mobark:0.1.0`. To pin
+another release, set `MOBARK_IMAGE_TAG=<version>` in `.env`.
+
+### Try the image alone (`docker run`)
+
+Just the app container — a quick look at the UI, auth, and settings
+without the full stack. **Analysis does not run here**: scan uploads
+are RQ jobs that need Redis + the worker, so use the compose stack
+above for anything real.
+
+```bash
+docker run -d --name mobark \
+  -p 8000:8000 \
+  -v mobark-data:/data \
+  -e MOBARK_DATABASE_URL=sqlite:////data/mobark.db \
+  -e MOBARK_DATA_DIR=/data \
+  suwasto/mobark:0.1.0
+```
+
+Open **http://localhost:8000** and register the first account (it
+becomes the instance admin). The `mobark-data` volume keeps the SQLite
+database and uploads across container recreates; drop `-v` for a
+throwaway run. To reach an LLM running on the host, add
+`-e MOBARK_OLLAMA_BASE_URL=http://host.docker.internal:11434` (plus
+`--add-host host.docker.internal:host-gateway` on Linux). Clean up with
+`docker rm -f mobark`.
+
+### Build from source (dev)
 
 ```bash
 docker compose up --build
 ```
 
-Open **http://localhost:8000**. Auth is on by default: a fresh install
-lands on the register/login screen. There are no seeded accounts: the
-**first account you register becomes the instance admin**, and every
-later account is a regular user who only sees their own scans. The
-first account also automatically **claims any unowned scans** (data
-scanned while auth was off, or via the CLI without `--user`), so that
-history lands on the admin's dashboard.
+Either way, open **http://localhost:8000**. Auth is on by default: a
+fresh install lands on the register/login screen. There are no seeded
+accounts: the **first account you register becomes the instance
+admin**, and every later account is a regular user who only sees their
+own scans. The first account also automatically **claims any unowned
+scans** (data scanned while auth was off, or via the CLI without
+`--user`), so that history lands on the admin's dashboard.
 
 For example, to try it as the admin, register a first account with the
 username of your choice (e.g. `admin`) and **a password you pick
@@ -76,7 +115,8 @@ not a default or seeded credential.
 To skip auth entirely (dev/CI): set `MOBARK_AUTH_ENABLED=0` in `.env`.
 
 See [Quickstart](https://suwasto.github.io/MobARK/quickstart/) for local
-development setup and the full configuration reference.
+development setup and the full configuration reference, and
+[`RELEASING.md`](RELEASING.md) for how releases get to Docker Hub.
 
 ## Architecture
 

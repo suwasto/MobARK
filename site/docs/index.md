@@ -50,7 +50,7 @@ leaving your infrastructure.
 Install a release from Docker Hub:
 
 ```bash
-docker compose pull   # suwasto/mobark:0.1.0 + redis + searxng
+docker compose pull   # suwasto/mobark:0.2.0 + redis + searxng
 docker compose up
 ```
 

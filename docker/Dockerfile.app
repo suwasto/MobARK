@@ -25,7 +25,7 @@ ENV PYTHONUNBUFFERED=1 \
 # Release version baked into the image (surfaces via /api/v1/health and the
 # FastAPI /docs title). The publish workflow sets it from the git tag;
 # local builds default to the source version.
-ARG MOBARK_VERSION=0.1.0
+ARG MOBARK_VERSION=0.2.0
 ENV MOBARK_VERSION=${MOBARK_VERSION}
 
 # --- JVM for jadx (build-time sanity check) ---
@@ -59,9 +59,22 @@ RUN mkdir -p /opt/mobark-tools && \
     && /opt/mobark-tools/jadx/bin/jadx --version
 
 # --- gitleaks (Go binary) ---
+# Arch-aware: gitleaks publishes per-arch tarballs (linux_x64 / linux_arm64).
+# TARGETARCH is BuildKit's automatic platform arg - amd64 on x86_64 hosts /
+# CI runners, arm64 on Apple Silicon and ARM servers (the multi-arch release
+# workflow builds both). The legacy builder sets no TARGETARCH, so the step
+# falls back to uname -m (x86_64 / aarch64).
 ARG GITLEAKS_VERSION=8.30.1
-RUN curl -fsSL -o /tmp/gitleaks.tar.gz \
-        "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+ARG TARGETARCH
+RUN set -eux; \
+    TARGETARCH="${TARGETARCH:-$(uname -m)}"; \
+    case "${TARGETARCH}" in \
+        amd64|x86_64) GITLEAKS_ARCH="linux_x64" ;; \
+        arm64|aarch64) GITLEAKS_ARCH="linux_arm64" ;; \
+        *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/gitleaks.tar.gz \
+        "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${GITLEAKS_ARCH}.tar.gz" \
     && tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks \
     && rm /tmp/gitleaks.tar.gz \
     && gitleaks version
@@ -97,6 +110,12 @@ RUN mkdir -p /opt/mobark-tools/apktool && \
     && /opt/mobark-tools/apktool/apktool --version >/dev/null 2>&1
 
 # --- Android build-tools: zipalign + apksigner (M8 rebuild pipeline) ---
+# amd64-only: Google publishes build-tools ONLY for Linux x86_64 (no arm64
+# build exists). On arm64 the download is skipped - the backend's rebuild
+# pipeline then fails loudly with a clear "not bundled on this architecture"
+# message, so edit & recompile (apktool b + zipalign + apksigner) is
+# amd64-only in v0.1.x while everything else runs natively.
+#
 # Pinned build-tools download (Apache-2.0). The zip extracts to a version
 # folder (e.g. android-15/); its contents are flattened into
 # /opt/mobark-tools/build-tools/ so the apksigner launcher keeps its lib/
@@ -110,15 +129,22 @@ RUN mkdir -p /opt/mobark-tools/apktool && \
 # (the first 35.x with a live underscore archive; verified against
 # repository2-3.xml + HEAD).
 ARG BUILD_TOOLS_VERSION=35.0.1
-RUN curl -fsSL -o /tmp/build-tools.zip \
-        "https://dl.google.com/android/repository/build-tools_r${BUILD_TOOLS_VERSION}_linux.zip" \
-    && mkdir -p /opt/mobark-tools/build-tools \
-    && unzip -q /tmp/build-tools.zip -d /tmp/build-tools \
-    && cp -r /tmp/build-tools/*/* /opt/mobark-tools/build-tools/ \
-    && rm -rf /tmp/build-tools /tmp/build-tools.zip \
-    && test -x /opt/mobark-tools/build-tools/zipalign \
-    && test -x /opt/mobark-tools/build-tools/apksigner \
-    && /opt/mobark-tools/build-tools/apksigner --version >/dev/null 2>&1
+ARG TARGETARCH
+RUN set -eux; \
+    TARGETARCH="${TARGETARCH:-$(uname -m)}"; \
+    if [ "${TARGETARCH}" = "amd64" ] || [ "${TARGETARCH}" = "x86_64" ]; then \
+        curl -fsSL -o /tmp/build-tools.zip \
+            "https://dl.google.com/android/repository/build-tools_r${BUILD_TOOLS_VERSION}_linux.zip" \
+        && mkdir -p /opt/mobark-tools/build-tools \
+        && unzip -q /tmp/build-tools.zip -d /tmp/build-tools \
+        && cp -r /tmp/build-tools/*/* /opt/mobark-tools/build-tools/ \
+        && rm -rf /tmp/build-tools /tmp/build-tools.zip \
+        && test -x /opt/mobark-tools/build-tools/zipalign \
+        && test -x /opt/mobark-tools/build-tools/apksigner \
+        && /opt/mobark-tools/build-tools/apksigner --version >/dev/null 2>&1; \
+    else \
+        echo "Skipping Android build-tools (zipalign/apksigner) on ${TARGETARCH}: Google publishes Linux x86_64 only - edit & recompile is amd64-only"; \
+    fi
 
 COPY backend/ /app/
 

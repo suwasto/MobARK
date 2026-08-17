@@ -35,6 +35,10 @@
 - On-demand apktool decode → smali tree.
 - Agent can **propose edits** (and you can hand-edit smali) with diff
   review, then rebuild a **resigned test APK** (apksigner/zipalign).
+- **amd64-only in the prebuilt images**: Google's Android build-tools
+  (zipalign/apksigner) and apktool's `aapt2` exist for Linux x86_64
+  alone, so on arm64 hosts (Apple Silicon) the rebuild pipeline fails
+  loudly with a clear message — the rest of the app runs natively.
 - **iOS stays read-only** in v1: there's no apktool/ldid equivalent,
   edit support is very limited, and rebuilding an IPA would require an
   Apple Developer account and signing certificates.

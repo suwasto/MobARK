@@ -143,8 +143,9 @@ def _zipalign_binary() -> str:
     if bin_path is None:
         raise RebuildError(
             "zipping",
-            "zipalign not found - it ships in the image's build-tools "
-            "(set MOBARK_ZIPALIGN_CMD)",
+            "zipalign not found - it ships in the image's build-tools on "
+            "linux/amd64 only (arm64 images skip the x86_64-only build-tools; "
+            "set MOBARK_ZIPALIGN_CMD)",
         )
     return bin_path
 
@@ -156,8 +157,9 @@ def _apksigner_binary() -> str:
     if bin_path is None:
         raise RebuildError(
             "signing",
-            "apksigner not found - it ships in the image's build-tools "
-            "(set MOBARK_APKSIGNER_CMD)",
+            "apksigner not found - it ships in the image's build-tools on "
+            "linux/amd64 only (arm64 images skip the x86_64-only build-tools; "
+            "set MOBARK_APKSIGNER_CMD)",
         )
     return bin_path
 

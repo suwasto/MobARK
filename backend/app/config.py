@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MOBARK_", env_file=".env", extra="ignore")
 
     app_name: str = "MobARK"
-    version: str = "0.1.0"
+    version: str = "0.2.0"
 
     database_url: str = "sqlite:///./data/mobark.db"
     redis_url: str = "redis://localhost:6379/0"
@@ -53,8 +53,10 @@ class Settings(BaseSettings):
     apktool_queue_stall_seconds: int = 120
     # ---- M8 Phase C: rebuild pipeline tools + timings ----
     # zipalign + apksigner (Android build-tools 35.0.0, bundled under
-    # /opt/mobark-tools/build-tools/) and keytool (ships in the bundled JRE -
-    # no tools_subdir). Each can be overridden with a *_CMD env var.
+    # /opt/mobark-tools/build-tools/ - linux/amd64 images only; Google
+    # publishes build-tools for Linux x86_64 alone) and keytool (ships in the
+    # bundled JRE - no tools_subdir). Each can be overridden with a *_CMD
+    # env var (the only way to get edit & recompile on arm64 hosts).
     zipalign_cmd: str | None = None
     apksigner_cmd: str | None = None
     keytool_cmd: str | None = None

@@ -6,17 +6,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-17
+
 ### Added
 
+- Multi-arch images: the release workflow now builds
+  `linux/amd64` + `linux/arm64` and the Dockerfile is arch-aware
+  (gitleaks per-arch tarballs, semgrep aarch64 wheels; jadx/apktool
+  are JVM jars). Apple Silicon / ARM hosts pull the native arm64
+  image. One amd64-only gap stays: **edit & recompile** needs Google's
+  Android build-tools (zipalign/apksigner) + apktool's `aapt2`, which
+  are Linux x86_64-only — the arm64 image skips them and the rebuild
+  pipeline fails loudly with a clear message.
 - Release pipeline: `docker.yml` workflow builds and pushes
   `suwasto/mobark` to Docker Hub on `v*` tags (version + `latest`,
-  `linux/amd64`), with the tag version baked into the image
+  multi-arch), with the tag version baked into the image
   (`MOBARK_VERSION`, surfaced by `/api/v1/health`). Compose now
   references the published image (`image: suwasto/mobark`, tag
   overridable via `MOBARK_IMAGE_TAG`), so releases install with
   `docker compose pull && docker compose up`; the image can also be
   smoke-tested standalone with `docker run` (UI/auth only — analysis
-  needs the full stack). Release process documented in `RELEASING.md`.
+  needs the full stack).
 - Public documentation site: tracked `site/` MkDocs project (Material
   theme) with curated pages: index, quickstart, features,
   architecture, auth, status, demo, third-party licenses
@@ -32,11 +42,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Documented local demo users (`admin` / `password123`, `alice` /
   `password123`) in the quickstart + auth pages.
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-08-17
 
-First tagged release — cut per [RELEASING.md](RELEASING.md) (git tag
-`v0.1.0` → Docker Hub publish). The pre-release feature history below
-is summarized for context.
+First tagged release (git tag `v0.1.0` → Docker Hub publish). The
+pre-release feature history below is summarized for context.
 
 ## Pre-release history
 

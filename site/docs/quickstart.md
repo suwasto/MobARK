@@ -3,9 +3,10 @@
 ## Docker (recommended)
 
 > Requires Docker with the Compose v2 plugin. Prebuilt images are
-> **`linux/amd64`** in v0.1.0 — the bundled analysis toolchain is
-> x86_64-only (see [RELEASING.md](https://github.com/suwasto/MobARK/blob/main/RELEASING.md)
-> before running on arm64 hosts).
+> **multi-arch** (`linux/amd64` + `linux/arm64`) — Apple Silicon and
+> ARM hosts pull the native arm64 image, no emulation needed. One gap:
+> **edit & recompile** depends on Google's Android build-tools, which
+> are Linux x86_64-only, so that feature is amd64-only.
 
 ### Install a release from Docker Hub
 
@@ -33,7 +34,7 @@ through) — the stack will not start without it.
 
 **Step 2 — Download the images.** `docker compose pull` reads the
 recipe and downloads the three images it references from Docker Hub:
-`suwasto/mobark:0.1.0` (the app + worker), `redis:7-alpine`, and
+`suwasto/mobark:0.2.0` (the app + worker), `redis:7-alpine`, and
 `searxng/searxng:latest`. Nothing runs yet — this step is just the
 download:
 
@@ -49,7 +50,7 @@ with different commands — and starts them wired together:
 docker compose up
 ```
 
-To pin another release instead of `0.1.0`, set `MOBARK_IMAGE_TAG=<version>`
+To pin another release instead of `0.2.0`, set `MOBARK_IMAGE_TAG=<version>`
 in `.env`, then re-run `docker compose pull` and `docker compose up`.
 
 ### Build from source (dev)
@@ -161,8 +162,8 @@ All settings are optional and read from the `MOBARK_` environment prefix
 | `MOBARK_GITHUB_CLIENT_ID` / `MOBARK_GITHUB_CLIENT_SECRET` | - | GitHub OAuth (login page shows the button only when both are set) |
 | `MOBARK_GOOGLE_CLIENT_ID` / `MOBARK_GOOGLE_CLIENT_SECRET` | - | Google OAuth (same, configured-only button) |
 | `MOBARK_PUBLIC_BASE_URL` | `http://localhost:8000` | Public origin: OAuth `redirect_uri`s are derived from it |
-| `MOBARK_IMAGE_TAG` | `0.1.0` | Compose-only: which `suwasto/mobark` tag to run (`docker compose pull`) |
-| `MOBARK_VERSION` | `0.1.0` | Compose-only: version baked into locally-built images |
+| `MOBARK_IMAGE_TAG` | `0.2.0` | Compose-only: which `suwasto/mobark` tag to run (`docker compose pull`) |
+| `MOBARK_VERSION` | `0.2.0` | Compose-only: version baked into locally-built images |
 
 See [Authentication](auth.md) for the full auth surface (OAuth setup,
 per-user isolation, the vault).

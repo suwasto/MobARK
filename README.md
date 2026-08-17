@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/69d2a0e3-8ee0-402d-95cb-9ccf065268ac
+
 <p align="center">
   <img src="site/assets/mobark-header.svg" alt="MobARK: Mobile Application Reverse Kit" width="720" />
 </p>
@@ -18,7 +22,7 @@
 ---
 
 <p align="center">
-  <a href="site/assets/demo/screen_record.mp4">▶ Watch the demo walkthrough video (MP4, ~74s)</a>
+https://github.com/user-attachments/assets/593af51b-7b7a-4b74-bf3c-22dc4f9e1fda
 </p>
 
 **MobARK** is a self-hosted dashboard for mobile application security

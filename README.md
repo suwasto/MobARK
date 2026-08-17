@@ -17,9 +17,7 @@
 
 ---
 
-<p align="center">
 https://github.com/user-attachments/assets/69d2a0e3-8ee0-402d-95cb-9ccf065268ac
-</p>
 
 **MobARK** is a self-hosted dashboard for mobile application security
 testing: Android (APK) and iOS (IPA). Upload a binary and MobARK

@@ -25,8 +25,8 @@ const EMPTY_COUNTS: SeverityCounts = {
 }
 
 /**
- * All findings for one scan (API default limit of 1000 covers the flagship
- * InsecureBankv2 523-finding scan) plus severity counts for the Overview
+ * All findings for one scan (API limit of 5000 covers large APKs with
+ * thousands of findings) plus severity counts for the Overview
  * stat boxes. Fetches suppressed findings too (single call) and splits them
  * out: `findings` = active, `suppressed` = the review queue. Counts are over
  * the ACTIVE set - suppressed false positives don't drive the posture or the
@@ -51,12 +51,12 @@ export function useFindings(scanId: number | null): UseFindingsResult {
     let cancelled = false
     setLoading(true)
     setError(null)
-    // v1 cap: the API's max page size is 1000 (covers the flagship
-    // InsecureBankv2 523-finding scan); larger scans would truncate the
-    // stat boxes / tab count - revisit with pagination in a later pass.
-    // include_suppressed=true so the review toggle needs no extra fetch.
+    // v2: limit raised to 5000 to support large APKs (150 MB+) with
+    // thousands of findings. The virtual list in FindingsPanel handles
+    // rendering. include_suppressed=true so the review toggle needs no
+    // extra fetch.
     api
-      .listFindings(scanId, { limit: 1000, includeSuppressed: true })
+      .listFindings(scanId, { limit: 5000, includeSuppressed: true })
       .then((list) => {
         if (!cancelled) setAll(list)
       })

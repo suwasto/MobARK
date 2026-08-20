@@ -51,7 +51,12 @@ def decompile(apk_path: Path, out_dir: Path, timeout: int | None = None) -> None
     result = run_tool(cmd, timeout=timeout, env_extra=_java_env())
     if result.timed_out:
         raise JadxError(f"jadx timed out after {timeout}s")
-    if result.returncode != 0:
+    # jadx exit codes: 0 = success, 2 = finished with errors (partial
+    # decompilation), 3 = finished with errors (alternative), 1 = fatal
+    # error.  Accept exit 2 and 3 as success because large / complex apps
+    # often decompile with warnings (obfuscated code, missing resources)
+    # but still produce usable output.
+    if result.returncode not in (0, 2, 3):
         raise JadxError(
             f"jadx exited {result.returncode}: {tail(result.stderr) or tail(result.stdout)}"
         )

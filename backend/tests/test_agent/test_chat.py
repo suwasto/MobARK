@@ -82,11 +82,10 @@ def test_answer_without_tool_calls_uses_findings_context(env, monkeypatch):
     assert result.tools_used == []
     assert result.tool_mode == "context-only"  # M6 Phase B
 
-    # Layer 1 context is in the system message, precision-tagged, full set.
+    # Layer 1 summary is in the system message (not the full findings dump).
     system = captured["messages"][0]["content"]
-    assert "FINDINGS CONTEXT" in system
-    assert "WebView with JavaScript enabled" in system
-    assert "[file/line]" in system
+    assert "SCAN SUMMARY" in system
+    assert "WebView with JavaScript enabled" not in system  # no full findings
     assert captured["tools"]  # tool schemas offered
 
 
@@ -2604,7 +2603,6 @@ def test_task_completion_answer_is_one_small_llm_call(
     result = chat_mod.task_completion_answer(scan_id)
     assert "rejected" in result.answer
     assert len(captured["messages"]) == 2  # system + user, no history
-    assert "FINDINGS CONTEXT" not in captured["messages"][0]["content"]
     assert "AndroidManifest.xml" in captured["messages"][1]["content"]  # verdicts
 
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api/client'
 import type {
   ChatSession,
@@ -149,7 +149,7 @@ function ResultFileChips({
   )
 }
 
-function StepRow({
+const StepRow = memo(function StepRow({
   step,
   onOpenFile,
 }: {
@@ -209,7 +209,7 @@ function StepRow({
       )}
     </div>
   )
-}
+})
 
 function Steps({ steps, onOpenFile }: { steps: ToolStep[]; onOpenFile: (file: string) => void }) {
   if (steps.length === 0) return null
@@ -378,15 +378,18 @@ function UserBubble({
   )
 }
 
-function AgentMessage({
+const AgentMessage = memo(function AgentMessage({
   message,
-  onRetry,
+  send,
   onOpenFile,
 }: {
   message: ChatMessage
-  onRetry: () => void
+  send: (q: string, mentionedFiles?: string[]) => void
   onOpenFile: (file: string) => void
 }) {
+  const handleRetry = useCallback(() => {
+    if (message.retryQuestion) send(message.retryQuestion, message.mentionedFiles)
+  }, [message.retryQuestion, message.mentionedFiles, send])
   if (message.role === 'user') {
     return <UserBubble message={message} onOpenFile={onOpenFile} />
   }
@@ -431,14 +434,14 @@ function AgentMessage({
 
       {message.errorKind && message.retryQuestion && (
         <div className="mt-3 border-t border-line-soft pt-2.5">
-          <button type="button" className="link-btn" onClick={onRetry}>
+          <button type="button" className="link-btn" onClick={handleRetry}>
             Retry
           </button>
         </div>
       )}
     </div>
   )
-}
+})
 
 /**
  * Agent dock (Phase G + M6 follow-up): right-hand chat rail over the SSE
@@ -773,9 +776,9 @@ export function AgentDock({
   // and it searches the code, maps the class to its editable smali, reads
   // the current content, and stores a proposal for review (never applied
   // automatically). Proposals may exist from earlier turns in this dock.
-  const welcome: ChatMessage = {
+  const welcome: ChatMessage = useMemo(() => ({
     id: -1,
-    role: 'agent',
+    role: 'agent' as const,
     content: `Scan complete for ${scan.filename}. ${greeting.total} findings, ${
       greeting.high
     } high. Ask me anything, or @mention a file to work on it.${
@@ -783,7 +786,7 @@ export function AgentDock({
         ? ` ${proposedCount} edit proposal${proposedCount === 1 ? '' : 's'} pending review.`
         : ''
     }`,
-  }
+  }), [scan.filename, greeting.total, greeting.high, proposedCount])
 
   // Keep the newest message in view. While a turn is live with a streaming
   // thinking box, pin the BOX to the bottom of the chat instead of the
@@ -1082,14 +1085,14 @@ export function AgentDock({
       <div className="agent-body" ref={bodyRef}>
         <AgentMessage
           message={welcome}
-          onRetry={() => undefined}
+          send={send}
           onOpenFile={onOpenFile}
         />
         {messages.map((m) => (
           <AgentMessage
             key={m.id}
             message={m}
-            onRetry={() => m.retryQuestion && send(m.retryQuestion, m.mentionedFiles)}
+            send={send}
             onOpenFile={onOpenFile}
           />
         ))}

@@ -200,6 +200,13 @@ export function useChat(scanId: number) {
   // Ref mirror of `pending` - the stream handlers (abort path especially)
   // need the latest turn without reading stale closure state.
   const pendingRef = useRef<PendingTurn | null>(null)
+  // Ref mirror of `sending` - the send callback reads it to guard against
+  // double-sends but must not depend on it (the state changes every token
+  // flush, which would re-create send and defeat AgentMessage memoization).
+  const sendingRef = useRef(false)
+  // Keep the ref in sync so callbacks read the latest value without
+  // depending on the state (which changes every token flush).
+  sendingRef.current = sending
 
   const mutatePending = useCallback((fn: (p: PendingTurn) => PendingTurn) => {
     const cur = pendingRef.current
@@ -278,10 +285,9 @@ export function useChat(scanId: number) {
     }
   }, [scanId])
 
-  const newSession = useCallback(async () => {
-    if (sending) return
-    try {
-      const s = await api.createChatSession(scanId)
+  const newSession = useCallback(async () => {      if (sendingRef.current) return
+      try {
+        const s = await api.createChatSession(scanId)
       loadSeqRef.current += 1
       setSessions((prev) => [s, ...prev.filter((x) => x.id !== s.id)])
       setActiveSessionId(s.id)
@@ -296,9 +302,9 @@ export function useChat(scanId: number) {
 
   const deleteSession = useCallback(
     async (sessionId: number) => {
-      if (sending) return
-      try {
-        await api.deleteChatSession(scanId, sessionId)
+    if (sendingRef.current) return
+    try {
+      await api.deleteChatSession(scanId, sessionId)
         const remaining = await api.listChatSessions(scanId)
         setSessions(remaining)
         if (sessionId === activeSessionId) {
@@ -388,7 +394,7 @@ export function useChat(scanId: number) {
       opts?: { advance?: boolean },
     ) => {
       const trimmed = question.trim()
-      if (sending) return
+      if (sendingRef.current) return
       if (!opts?.advance && !trimmed) return
       const advance = opts?.advance ?? false
       const id = ++requestIdRef.current
@@ -652,7 +658,7 @@ export function useChat(scanId: number) {
           })
       }
     },
-    [scanId, sending, activeSessionId, clearPending, mutatePending, refreshSessions],
+    [scanId, activeSessionId, clearPending, mutatePending, refreshSessions],
   )
 
   /** M8 follow-up (Aug 16): AUTO-ADVANCE - the backend starts the next

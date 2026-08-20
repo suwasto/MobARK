@@ -7,6 +7,10 @@ from rq import Queue
 from app.workers.redis import get_redis
 
 DEFAULT_QUEUE = "default"
+# 2-hour job timeout: large APKs (150 MB+) can take over an hour to
+# decompile. The old RQ default (180 s) was the root cause of jadx
+# timeouts on big apps.
+_DEFAULT_JOB_TIMEOUT = 7200  # 2 hours
 
 
 def dummy_job(message: str = "hello from MobARK") -> dict:
@@ -17,7 +21,7 @@ def dummy_job(message: str = "hello from MobARK") -> dict:
 
 def enqueue_dummy(message: str = "hello from MobARK"):
     """Enqueue the dummy job and return the RQ Job handle."""
-    queue = Queue(DEFAULT_QUEUE, connection=get_redis())
+    queue = Queue(DEFAULT_QUEUE, connection=get_redis(), default_timeout=_DEFAULT_JOB_TIMEOUT)
     return queue.enqueue(dummy_job, message)
 
 
@@ -158,7 +162,7 @@ def run_android_scan(scan_id: int) -> dict:
 
 def enqueue_scan(scan_id: int):
     """Enqueue the analysis job for a scan (platform auto-detected at run time)."""
-    queue = Queue(DEFAULT_QUEUE, connection=get_redis())
+    queue = Queue(DEFAULT_QUEUE, connection=get_redis(), default_timeout=_DEFAULT_JOB_TIMEOUT)
     return queue.enqueue(run_scan, scan_id)
 
 
@@ -217,7 +221,7 @@ def build_graph_scan(scan_id: int) -> dict:
 
 def enqueue_graph_build(scan_id: int):
     """Enqueue the graph build job for a scan (chained after analysis)."""
-    queue = Queue(DEFAULT_QUEUE, connection=get_redis())
+    queue = Queue(DEFAULT_QUEUE, connection=get_redis(), default_timeout=_DEFAULT_JOB_TIMEOUT)
     return queue.enqueue(build_graph_scan, scan_id)
 
 
@@ -289,7 +293,7 @@ def run_apktool_decode(scan_id: int) -> dict:
 
 def enqueue_apktool_decode(scan_id: int):
     """Enqueue the on-demand decode job (POST /scans/{id}/smali)."""
-    queue = Queue(DEFAULT_QUEUE, connection=get_redis())
+    queue = Queue(DEFAULT_QUEUE, connection=get_redis(), default_timeout=_DEFAULT_JOB_TIMEOUT)
     return queue.enqueue(run_apktool_decode, scan_id)
 
 
@@ -415,5 +419,5 @@ def run_rebuild(scan_id: int, build_id: int) -> dict:
 
 def enqueue_rebuild(scan_id: int, build_id: int):
     """Enqueue the rebuild job (POST /scans/{id}/rebuild)."""
-    queue = Queue(DEFAULT_QUEUE, connection=get_redis())
+    queue = Queue(DEFAULT_QUEUE, connection=get_redis(), default_timeout=_DEFAULT_JOB_TIMEOUT)
     return queue.enqueue(run_rebuild, scan_id, build_id)

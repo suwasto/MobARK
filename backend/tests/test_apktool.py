@@ -79,7 +79,7 @@ def test_decode_timeout_maps_to_clean_error(monkeypatch, tmp_path):
         "run_tool",
         lambda cmd, timeout: RunResult(-1, "", "", timed_out=True),
     )
-    with pytest.raises(apktool.ApktoolError, match="timed out after 1200s"):
+    with pytest.raises(apktool.ApktoolError, match="timed out after 7200s"):
         apktool.decode(_make_apk(tmp_path), tmp_path / "out")
 
 

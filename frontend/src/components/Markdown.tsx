@@ -1,6 +1,9 @@
+import { memo, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
+
+const plugins = [remarkGfm, remarkBreaks]
 
 /**
  * LLM-generated markdown (AI summary / per-finding explain / agent chat),
@@ -14,10 +17,10 @@ import remarkGfm from 'remark-gfm'
  * Styled via the `.md` class in index.css; raw HTML in model output is
  * escaped by react-markdown by default (never injected).
  */
-export function Markdown({ text }: { text: string }) {
-  return (
-    <div className="md">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{text}</ReactMarkdown>
-    </div>
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
+  const parsed = useMemo(
+    () => <ReactMarkdown remarkPlugins={plugins}>{text}</ReactMarkdown>,
+    [text],
   )
-}
+  return <div className="md">{parsed}</div>
+})

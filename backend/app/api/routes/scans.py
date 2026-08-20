@@ -113,7 +113,7 @@ _SEVERITY_RANK = {sev: i for i, sev in enumerate(SEVERITY_ORDER)}
 # Default covers the flagship test APK (InsecureBankv2: 523 findings); the
 # frontend can page with ?offset for larger scans.
 _FINDINGS_DEFAULT_LIMIT = 1000
-_FINDINGS_MAX_LIMIT = 1000
+_FINDINGS_MAX_LIMIT = 5000
 ArtifactFile = Annotated[UploadFile, File()]
 
 

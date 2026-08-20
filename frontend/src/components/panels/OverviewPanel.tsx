@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, ApiError } from '../../api/client'
 import type { SeverityCounts } from '../../hooks/useFindings'
 import { findingLocation } from '../../lib/findings'
@@ -39,7 +39,7 @@ function StatBox({ n, label, cls }: { n: number; label: string; cls: string }) {
 }
 
 /** Overview tab: risk gauge + severity counts + AI summary + top findings. */
-export function OverviewPanel({
+export const OverviewPanel = memo(function OverviewPanel({
   scan,
   findings,
   counts,
@@ -212,4 +212,4 @@ export function OverviewPanel({
       )}
     </div>
   )
-}
+})

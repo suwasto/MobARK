@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { api } from '../../api/client'
 import type { SeverityCounts } from '../../hooks/useFindings'
 import { useExplain } from '../../hooks/useExplain'
@@ -47,28 +48,55 @@ const SEVERITY_CAP: Record<Severity, string> = {
   info: 'Info',
 }
 
-/** One finding row: severity spine + title/meta + expandable AI explanation
- * + suppress/restore + jump-to-code + batch actions. */
-function FindingRow({
+// ---------------------------------------------------------------------------
+// Virtual list item types
+// ---------------------------------------------------------------------------
+
+interface HeaderItem {
+  type: 'header'
+  sev: Severity
+  count: number
+}
+
+interface FindingItem {
+  type: 'finding'
+  finding: FindingRead
+  groupCount: number
+}
+
+type VirtualItem = HeaderItem | FindingItem
+
+// Estimated pixel heights for the virtualizer.  Headers are compact;
+// findings vary (collapsed ~96px, expanded ~300px) but the virtualizer
+// measures actuals after first paint.
+const HEADER_H = 48
+const FINDING_H = 96
+
+// ---------------------------------------------------------------------------
+// FindingRow — memoized to skip re-renders when props haven't changed.
+// Expanded state is owned by the parent (FindingsPanel) so it survives
+// virtualizer unmount/remount cycles.
+// ---------------------------------------------------------------------------
+
+const FindingRow = memo(function FindingRow({
   scanId,
   finding,
   onChanged,
   onJumpToCode,
   groupCount,
   onBatchResult,
+  isOpen,
+  onToggleOpen,
 }: {
   scanId: number
   finding: FindingRead
   onChanged: () => void
   onJumpToCode: (finding: FindingRead) => void
-  /** How many rows in the CURRENT list share this finding's title (active
-   * list -> the suppress-all size; review list -> restore-all). */
   groupCount: number
-  /** A batch (title-group) toggle succeeded - the panel shows the Undo
-   * toast with the exact finding ids it toggled. */
   onBatchResult: (action: BatchAction, findingIds: number[]) => void
+  isOpen: boolean
+  onToggleOpen: (id: number) => void
 }) {
-  const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [batchBusy, setBatchBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -77,14 +105,10 @@ function FindingRow({
   // Fetch lazily the first time the row is expanded; the backend caches, so
   // the row keeps its own state for instant collapse/re-expand.
   useEffect(() => {
-    if (open && explain.kind === 'idle') void fetchExplain()
-  }, [open, explain.kind, fetchExplain])
+    if (isOpen && explain.kind === 'idle') void fetchExplain()
+  }, [isOpen, explain.kind, fetchExplain])
 
   const meta = findingLocation(finding)
-  // Aug 14 owner follow-up: the finding CONTAINER is not clickable - the
-  // dedicated "View code" button jumps to the code and the "▸ AI
-  // explanation" button expands the explanation. A clickable title was
-  // redundant (and confusing - two affordances for the same jump).
   const jumpable = finding.file_path != null && finding.file_path.length > 0
 
   const toggleSuppressed = async () => {
@@ -99,31 +123,20 @@ function FindingRow({
       }
       onChanged()
     } catch (err) {
-      // Never leave a silent failure - the row shows why the toggle didn't
-      // apply (network down, backend error, scan no longer analyzed).
       setActionError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
   }
 
-  // Batch toggle: suppress/restore every finding with this title at once
-  // (e.g. dozens of "up-to-date OS version" rows). Shown only when the group
-  // has more than this row - a lone finding would duplicate its own
-  // Suppress/Restore button. Risk is recomputed once server-side.
   const toggleBatch = async () => {
     if (batchBusy || busy) return
     setBatchBusy(true)
     setActionError(null)
     try {
-      // Title-only match (no category): the button label counts the WHOLE
-      // title group in the current list, so the batch must cover the same
-      // set - a category narrowing could suppress fewer than the label says.
       const res = finding.suppressed
         ? await api.unsuppressFindingsByTitle(scanId, finding.title)
         : await api.suppressFindingsByTitle(scanId, finding.title)
-      // Only toast when something actually toggled (a no-op batch - e.g. the
-      // group was already cleared from another row - gets no Undo offer).
       if (res.finding_ids.length > 0) {
         onBatchResult(finding.suppressed ? 'restored' : 'suppressed', res.finding_ids)
       }
@@ -136,7 +149,7 @@ function FindingRow({
   }
 
   return (
-    <div className={`finding ${open ? 'open' : ''} ${finding.suppressed ? 'suppressed' : ''}`}>
+    <div className={`finding ${isOpen ? 'open' : ''} ${finding.suppressed ? 'suppressed' : ''}`}>
       <div className={`spine ${finding.suppressed ? 'suppressed' : finding.severity}`} />
       <div className="min-w-0 flex-1 px-[18px] py-3.5">
         <div className="block w-full text-left">
@@ -174,8 +187,8 @@ function FindingRow({
           <button
             type="button"
             className="explain-btn"
-            aria-expanded={open}
-            onClick={() => setOpen((o) => !o)}
+            aria-expanded={isOpen}
+            onClick={() => onToggleOpen(finding.id)}
           >
             <span className="arrow">▸</span> AI explanation
           </button>
@@ -236,19 +249,17 @@ function FindingRow({
           </div>
         )}
 
-        {open && (
-          // Regenerate explicitly bypasses the server cache (costs one
-          // generation); the row's first expand stays cache-first.
+        {isOpen && (
           <ExplainBox state={explain} onRetry={() => void fetchExplain(true)} />
         )}
       </div>
     </div>
   )
-}
+})
 
-/** Findings tab: severity filter chips + full findings list + a review
+/** Findings tab: severity filter chips + virtualized findings list + a review
  * toggle that swaps in suppressed (false-positive) findings for restore. */
-export function FindingsPanel({
+export const FindingsPanel = memo(function FindingsPanel({
   scanId,
   findings,
   suppressed,
@@ -262,25 +273,22 @@ export function FindingsPanel({
 }: FindingsPanelProps) {
   const [filter, setFilter] = useState<SeverityFilter>('all')
   const [review, setReview] = useState(false)
-  // Group-header bulk toggle: which severity band is mid-toggle + the last
-  // failure (band-scoped so one error can't obscure the whole list).
   const [bandBusy, setBandBusy] = useState<Severity | null>(null)
   const [bandError, setBandError] = useState<{ sev: Severity; msg: string } | null>(null)
-  // The Undo toast after a band / title-group batch toggle. ``findingIds``
-  // are EXACTLY the rows this call flipped (server returns them), so Undo
-  // restores precisely - never touching earlier, separately-suppressed rows.
   const [toast, setToast] = useState<UndoToast | null>(null)
+  // Lift expanded-state into the parent so it survives virtualizer unmount
+  // (when a row scrolls out of the viewport the virtualizer removes it from
+  // the DOM; the next scroll-in recreates it — the Set preserves the open
+  // flag across that cycle).
+  const [openIds, setOpenIds] = useState<Set<number>>(() => new Set())
 
   const source = review ? suppressed : findings
   const visible = useMemo(
-    () =>
-      filter === 'all' ? source : source.filter((f) => f.severity === filter),
+    () => (filter === 'all' ? source : source.filter((f) => f.severity === filter)),
     [source, filter],
   )
 
-  // Show the Undo toast for a finished batch toggle (band or title group).
-  // Auto-dismisses after a few seconds - the key drives the timer, so an
-  // Undo failure message (same key) doesn't reset it.
+  // --- Undo toast ---
   const showBatchToast = useCallback(
     (action: BatchAction, findingIds: number[], scope: string) => {
       setToast((prev) => ({
@@ -305,8 +313,6 @@ export function FindingsPanel({
     if (!toast || toast.busy) return
     setToast((t) => (t ? { ...t, busy: true } : t))
     try {
-      // Undo flips the action: a suppress's undo restores, a restore's undo
-      // suppresses - both by the exact ids the original call returned.
       if (toast.action === 'suppressed') {
         await api.unsuppressFindingsByIds(scanId, toast.findingIds)
       } else {
@@ -315,8 +321,6 @@ export function FindingsPanel({
       setToast(null)
       onChanged()
     } catch (err) {
-      // Keep the toast so the user sees the failure and can retry - it still
-      // auto-dismisses on the original timer.
       setToast((t) =>
         t
           ? { ...t, busy: false, message: `Undo failed: ${err instanceof Error ? err.message : String(err)}` }
@@ -325,10 +329,7 @@ export function FindingsPanel({
     }
   }
 
-  // Group header "Suppress all (n)" / "Restore all (n)": bulk-clear the
-  // whole severity band in one call (risk recomputed once server-side). The
-  // header count equals the band size in the CURRENT list (active or
-  // review), and the severity-only match toggles exactly that set.
+  // --- Severity band bulk toggle ---
   const toggleSeverityBand = async (sev: Severity) => {
     if (bandBusy != null) return
     setBandBusy(sev)
@@ -338,11 +339,7 @@ export function FindingsPanel({
         ? await api.unsuppressFindingsBySeverity(scanId, sev)
         : await api.suppressFindingsBySeverity(scanId, sev)
       if (res.finding_ids.length > 0) {
-        showBatchToast(
-          review ? 'restored' : 'suppressed',
-          res.finding_ids,
-          `${SEVERITY_CAP[sev]} findings`,
-        )
+        showBatchToast(review ? 'restored' : 'suppressed', res.finding_ids, `${SEVERITY_CAP[sev]} findings`)
       }
       onChanged()
     } catch (err) {
@@ -351,20 +348,16 @@ export function FindingsPanel({
       setBandBusy(null)
     }
   }
-  // Per-title group sizes over the CURRENT list (active or review) - powers
-  // the per-row "Suppress all (n)" / "Restore all (n)" batch action. One
-  // pass instead of a per-row filter over a 1000-row scan.
+
+  // Per-title group sizes — O(n) single pass, used by FindingRow buttons.
   const groupCounts = useMemo(() => {
     const m = new Map<string, number>()
     for (const f of source) m.set(f.title, (m.get(f.title) ?? 0) + 1)
     return m
   }, [source])
 
-  // Findings grouped by severity (mirroring the report body's structure -
-  // ``### High (7)`` etc.): the 'all' view renders one section per severity
-  // with a colored header instead of one flat list.
-  const groups = useMemo(() => {
-    const grouped: { sev: Severity; items: FindingRead[] }[] = []
+  // --- Flatten severity groups into a single virtual list ---
+  const flatItems = useMemo(() => {
     const bySev = new Map<Severity, FindingRead[]>()
     for (const f of visible) {
       const sev = (f.severity in SEVERITY_CAP ? f.severity : 'info') as Severity
@@ -372,12 +365,49 @@ export function FindingsPanel({
       if (list) list.push(f)
       else bySev.set(sev, [f])
     }
+    const items: VirtualItem[] = []
     for (const sev of FILTER_ORDER) {
-      const items = bySev.get(sev)
-      if (items && items.length) grouped.push({ sev, items })
+      const items_in = bySev.get(sev)
+      if (!items_in || items_in.length === 0) continue
+      items.push({ type: 'header', sev, count: items_in.length })
+      for (const f of items_in) {
+        items.push({ type: 'finding', finding: f, groupCount: groupCounts.get(f.title) ?? 1 })
+      }
     }
-    return grouped
-  }, [visible])
+    return items
+  }, [visible, groupCounts])
+
+  // Stable estimateSize — avoids re-creating on every render.
+  const estimateSize = useCallback(
+    (i: number) => (flatItems[i]?.type === 'header' ? HEADER_H : FINDING_H),
+    [flatItems],
+  )
+
+  // --- Virtualizer ---
+  const parentRef = useRef<HTMLDivElement>(null)
+  const virtualizer = useVirtualizer({
+    count: flatItems.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize,
+    overscan: 3,
+  })
+
+  const toggleOpen = useCallback(
+    (id: number) => setOpenIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    }),
+    [],
+  )
+
+  // Stable callback for batch results passed to each row — avoids a new
+  // function reference per row per render which would defeat React.memo.
+  const handleBatchResult = useCallback(
+    (action: BatchAction, ids: number[]) => showBatchToast(action, ids, 'findings'),
+    [showBatchToast],
+  )
 
   const chips: { key: SeverityFilter; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: review ? suppressed.length : total },
@@ -455,59 +485,86 @@ export function FindingsPanel({
             : 'No findings match this severity.'}
         </div>
       )}
-      {!loading &&
-        !error &&
-        groups.map(({ sev, items }) => (
-          <div key={sev} className="mb-5">
-            {/* Severity group header - colored like the report's h3 (the
-                same conventional palette as the sev-tag chips), with the
-                bulk band action on the right. */}
-            <div className={`sev-group-head ${sev}`}>
-              {SEVERITY_CAP[sev]}
-              <span className="sev-group-count">({items.length})</span>
-              <button
-                type="button"
-                className="link-btn suppress-btn sev-band-btn"
-                disabled={bandBusy != null}
-                title={
-                  review
-                    ? `Restore all ${items.length} suppressed ${SEVERITY_CAP[sev]} findings - they drive the score again`
-                    : `Suppress all ${items.length} ${SEVERITY_CAP[sev]} findings as false positives - they stop driving the score`
-                }
-                onClick={() => void toggleSeverityBand(sev)}
-              >
-                {bandBusy === sev
-                  ? review
-                    ? 'Restoring…'
-                    : 'Suppressing…'
-                  : review
-                    ? `Restore all (${items.length})`
-                    : `Suppress all (${items.length})`}
-              </button>
-            </div>
-            {bandError?.sev === sev && (
-              <div className="mb-3 font-mono text-[10.5px] text-crimson">
-                {bandError.msg}
-              </div>
-            )}
-            {items.map((f) => (
-              <FindingRow
-                key={f.id}
-                scanId={scanId}
-                finding={f}
-                onChanged={onChanged}
-                onJumpToCode={onJumpToCode}
-                groupCount={groupCounts.get(f.title) ?? 1}
-                onBatchResult={(action, ids) =>
-                  showBatchToast(action, ids, 'findings')
-                }
-              />
-            ))}
-          </div>
-        ))}
 
-      {/* Undo toast after a band / group batch toggle - fixed bottom-center
-          so it survives the list refetch (the panel stays mounted). */}
+      {/* Virtualized list */}
+      {!loading && !error && visible.length > 0 && (
+        <div
+          ref={parentRef}
+          className="findings-virtual-list"
+          style={{ height: 'calc(100vh - 280px)', overflow: 'auto' }}
+        >
+          <div
+            style={{
+              height: `${virtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virt) => {
+              const item = flatItems[virt.index]
+              return (
+                <div
+                  key={virt.index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: `${virt.size}px`,
+                    transform: `translateY(${virt.start}px)`,
+                  }}
+                >
+                  {item.type === 'header' ? (
+                    <div>
+                      <div className={`sev-group-head ${item.sev}`}>
+                        {SEVERITY_CAP[item.sev]}
+                        <span className="sev-group-count">({item.count})</span>
+                        <button
+                          type="button"
+                          className="link-btn suppress-btn sev-band-btn"
+                          disabled={bandBusy != null}
+                          title={
+                            review
+                              ? `Restore all ${item.count} suppressed ${SEVERITY_CAP[item.sev]} findings - they drive the score again`
+                              : `Suppress all ${item.count} ${SEVERITY_CAP[item.sev]} findings as false positives - they stop driving the score`
+                          }
+                          onClick={() => void toggleSeverityBand(item.sev)}
+                        >
+                          {bandBusy === item.sev
+                            ? review
+                              ? 'Restoring…'
+                              : 'Suppressing…'
+                            : review
+                              ? `Restore all (${item.count})`
+                              : `Suppress all (${item.count})`}
+                        </button>
+                      </div>
+                      {bandError?.sev === item.sev && (
+                        <div className="mb-3 font-mono text-[10.5px] text-crimson">
+                          {bandError.msg}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <FindingRow
+                      scanId={scanId}
+                      finding={item.finding}
+                      onChanged={onChanged}
+                      onJumpToCode={onJumpToCode}
+                      groupCount={item.groupCount}
+                      onBatchResult={handleBatchResult}
+                      isOpen={openIds.has(item.finding.id)}
+                      onToggleOpen={toggleOpen}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Undo toast after a band / group batch toggle */}
       {toast && (
         <div className="undo-toast" role="status">
           <span className="undo-toast-msg">{toast.message}</span>
@@ -531,4 +588,4 @@ export function FindingsPanel({
       )}
     </div>
   )
-}
+})

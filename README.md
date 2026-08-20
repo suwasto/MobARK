@@ -203,6 +203,24 @@ full component diagram.
 **Future plans:** dynamic analysis (runtime/device testing) is next on
  the roadmap: see [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
+## Legal Notice
+
+MobARK performs static decompilation of mobile applications for
+authorized security testing, and supports modification and recompilation
+of Android applications via smali editing. The legality of decompilation
+and reverse engineering varies significantly by jurisdiction. Before using
+MobARK, you must ensure that your use complies with all applicable laws
+in your region.
+
+Do not use MobARK against any application unless you own it, have been
+explicitly authorized to test it, or have confirmed that your testing is
+lawful under local regulations. If you are unsure, seek legal counsel before proceeding.
+
+Malware analysis, examining unauthorised/malicious software samples is distinct
+and well-established use case with different legal footing than testing a 
+legitimate third party's application, but the same jurisdiction-dependent caveat
+applies: confirm your local law before proceeding if uncertain.
+
 ## License
 
 Apache-2.0: see [`LICENSE`](LICENSE). GPL/LGPL tools in the stack

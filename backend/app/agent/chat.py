@@ -23,6 +23,7 @@ keyed by scan id (``_CANCEL_FLAGS``) and polls it at every round boundary
 raises :class:`ChatInterrupted`, and the flag is cleared in a ``finally``
 so the next chat starts fresh.
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -41,40 +42,41 @@ from app.request_ctx import current_master_key, current_user_id
 SYSTEM_PROMPT = (
     "You are MobARK, a mobile application reverse engineering assistant answering "
     "questions about a scanned app (Android APK or iOS IPA).\n\n"
-    "Evidence available to you:\n"
-    "1. FINDINGS CONTEXT below - the complete static-analysis findings set. "
-    "Every finding is tagged with its precision:\n"
-    "   [file/line] findings have a concrete source location (file, and "
-    "line when shown).\n"
-    "   [binary-level presence only, no specific location] findings prove "
-    "the evidence exists in the binary/bundle but have NO source location "
-    "- never invent one for them.\n"
-    "2. Tools: search_code (regex grep over the decompiled/extracted tree), "
-    "read_file (read a file, optionally a line range), read_manifest "
-    "(manifest/Info.plist summary), get_permissions (requested permissions "
-    "/ usage strings), search_strings (grep over resources only), "
-    "run_secrets_scan (on-demand gitleaks re-run over a targeted path), "
-    "get_decompiled_class (Android only - read one decompiled class by name), "
-    "and for Android scans only, graph_query / graph_path / graph_explain "
-    "(code call/import/inheritance graph). iOS never gets "
-    "get_decompiled_class - there is no decompiled Swift/ObjC source in v1.\n\n"
+    "SCAN SUMMARY provides a brief overview of the scan (filename, platform, "
+    "finding counts). Use your tools to investigate further - do NOT ask the "
+    "user to run tools for you.\n\n"
+    "Tools:\n"
+    "- search_code(pattern): regex grep over the decompiled/extracted tree. "
+    "Searches all source files.\n"
+    "- read_file(path, line_start?, line_end?): read a file from the tree "
+    "(path relative to the tree root), optionally a line range. Use this "
+    "DIRECTLY when the user names a specific file (e.g. 'read "
+    "MainActivity.java', 'show me AuthManager.kt').\n"
+    "- read_manifest(): read the manifest/Info.plist summary.\n"
+    "- get_permissions(): list requested permissions / usage strings.\n"
+    "- search_strings(pattern): grep over resources only.\n"
+    "- run_secrets_scan(path?): on-demand gitleaks re-run over a targeted path.\n"
+    "- get_decompiled_class(name): Android only - read one decompiled class by name.\n"
+    "- graph_query/graph_path/graph_explain: Android only - code call/import/"
+    "inheritance graph. iOS never gets these.\n\n"
     "Rules:\n"
-    "- Answer ONLY from the findings context and tool results. Never invent "
-    "findings, files, lines, entitlements, symbols, or graph nodes.\n"
-    "- Cite exact file paths inline, e.g. `com/app/MyWebViewClient.java:42`. "
-    "For [binary] evidence, say so explicitly (\"binary-level presence - no "
-    "specific source location\").\n"
-    "- For structural questions (\"where is X\", \"what calls Y\") on "
-    "Android, prefer the graph tools, then confirm details with read_file.\n"
-    "- On iOS, semgrep yields nothing by design and the graph tools are "
+    "- When the user names a specific file path or filename (e.g. 'read "
+    "MainActivity.java', 'show me com/foo/AuthManager.java', 'what does "
+    "LoginActivity.kt contain'), call read_file DIRECTLY on that path - "
+    "do NOT search for it first. If the exact path is unclear, use a brief "
+    "search_code to resolve it, then read_file.\n"
+    "- For general questions ('where is certificate pinning?', 'how does "
+    "auth work?'), use search_code FIRST to find relevant code, then "
+    "read_file to inspect. Never guess from the summary alone.\n"
+    "- Cite exact file paths inline, e.g. `com/app/MyWebViewClient.java:42`.\n"
+    '- For structural questions ("where is X", "what calls Y") on '
+    "Android, prefer the graph tools, then confirm with read_file.\n"
+    "- On iOS, semgrep yields nothing by design and graph tools are "
     "Android-only.\n"
-    "- If the evidence cannot answer the question, say you don't know rather "
+    "- If the tools cannot answer the question, say you don't know rather "
     "than guessing.\n"
-    "- NEVER describe an action you intend to take instead of taking it. If a "
-    "question needs the code, actually call search_code / read_file / "
-    "read_editable_file - a plan like \"Let's search for X\" with no tool call "
-    "is not an answer. Call the tool, then compose the final answer from its "
-    "real results."
+    "- NEVER describe an action you intend to take instead of taking it. "
+    "Actually call the tool, then compose the answer from its results."
 )
 
 # M8 Phase D: appended to the system prompt ONLY when the scan is Android
@@ -274,7 +276,7 @@ _GREETING_RE = re.compile(r"^(hi+|hello+|hey+|yo+|howdy|hola)[!. ]*$", re.IGNORE
 _GREETING_ANSWER = (
     "Hello! I'm MobARK, the security agent for this scan. Ask me anything about "
     "the findings, the decompiled code, or the app's security posture - try "
-    "\"where is certificate pinning handled?\" or \"explain the WebView risk.\""
+    '"where is certificate pinning handled?" or "explain the WebView risk."'
 )
 
 
@@ -368,9 +370,7 @@ def _clear_cancel(scan_id: int, event: threading.Event) -> None:
 
 def _raise_if_cancelled(scan_id: int, event: threading.Event) -> None:
     if event.is_set():
-        raise ChatInterrupted(
-            f"agent chat for scan {scan_id} was interrupted by the user"
-        )
+        raise ChatInterrupted(f"agent chat for scan {scan_id} was interrupted by the user")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -408,9 +408,7 @@ def _deadline_remaining(deadline: float, scan_id: int, timeout: float) -> float:
     """
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise AgentTimeout(
-            f"agent chat for scan {scan_id} exceeded its {timeout:.0f}s budget"
-        )
+        raise AgentTimeout(f"agent chat for scan {scan_id} exceeded its {timeout:.0f}s budget")
     return remaining
 
 
@@ -695,6 +693,41 @@ def _classify_tool_result(result: str) -> tuple[str, str, str | None, int | None
     return "ok", preview, None, None
 
 
+def _render_scan_summary(context: FindingsContext) -> str:
+    """Minimal scan overview for the system prompt — counts by severity and
+    tool, just enough for the agent to know what's available without
+    bloating the context with thousands of findings.
+    """
+    # Count by severity
+    sev_counts: dict[str, int] = {}
+    tool_counts: dict[str, int] = {}
+    for e in context.entries:
+        sev_counts[e.severity] = sev_counts.get(e.severity, 0) + 1
+        tool_counts[e.tool] = tool_counts.get(e.tool, 0) + 1
+
+    sev_parts = []
+    for sev in ("high", "warning", "info"):
+        n = sev_counts.get(sev, 0)
+        if n:
+            sev_parts.append(f"{n} {sev}")
+    sev_str = ", ".join(sev_parts) if sev_parts else "none"
+
+    tool_parts = [f"{tool}: {n}" for tool, n in tool_counts.items()]
+    tool_str = ", ".join(tool_parts) if tool_parts else "none"
+
+    lines = [
+        f"SCAN SUMMARY - {context.filename} ({context.platform or 'unknown'}, "
+        f"status {context.status})",
+        f"Findings: {context.count} total ({sev_str})",
+        f"Tools with findings: {tool_str}",
+        "",
+        "Use search_code / read_file / get_permissions / read_manifest / "
+        "graph_query to investigate specific areas. The summary above is "
+        "a brief overview — always use tools for details.",
+    ]
+    return "\n".join(lines)
+
+
 def _load_context(scan_id: int) -> FindingsContext:
     from app.db import SessionLocal
     from app.models import Scan
@@ -789,10 +822,7 @@ def _load_edit_review_state(scan_id: int) -> str:
     try:
         rows = list(
             db.scalars(
-                select(Edit)
-                .where(Edit.scan_id == scan_id)
-                .order_by(Edit.id.desc())
-                .limit(12)
+                select(Edit).where(Edit.scan_id == scan_id).order_by(Edit.id.desc()).limit(12)
             )
         )
     finally:
@@ -804,7 +834,7 @@ def _load_edit_review_state(scan_id: int) -> str:
         instruction = (e.instruction or "").strip().replace("\n", " ")[:120]
         row = f"- edit #{e.id} {e.file_path} [{e.status}]"
         if instruction:
-            row += f" \"{instruction}\""
+            row += f' "{instruction}"'
         lines.append(row)
     return (
         "\n\nEDIT REVIEW STATE - the M8 edit proposals for this scan and "
@@ -836,9 +866,7 @@ _ADVANCE_SECTION = (
 # Defensive answer when an advance turn finds no pending task (the frontend
 # only opens the advance stream when the apply/reject response said a task
 # is pending, but a race/edge must never spin an LLM turn).
-_ADVANCE_NOTHING_LEFT = (
-    "The edit task is complete - no pending tasks remain in the task list."
-)
+_ADVANCE_NOTHING_LEFT = "The edit task is complete - no pending tasks remain in the task list."
 
 
 # M8 follow-up (Aug 16): the TASK LIST section for the system prompt - the
@@ -875,10 +903,7 @@ def _deterministic_completion(scan_id: int) -> str:
     try:
         edits = list(
             db.scalars(
-                select(Edit)
-                .where(Edit.scan_id == scan_id)
-                .order_by(Edit.id.desc())
-                .limit(20)
+                select(Edit).where(Edit.scan_id == scan_id).order_by(Edit.id.desc()).limit(20)
             )
         )
     finally:
@@ -923,23 +948,16 @@ def task_completion_answer(
     try:
         edits = list(
             db.scalars(
-                select(Edit)
-                .where(Edit.scan_id == scan_id)
-                .order_by(Edit.id.desc())
-                .limit(20)
+                select(Edit).where(Edit.scan_id == scan_id).order_by(Edit.id.desc()).limit(20)
             )
         )
     finally:
         db.close()
     tl = edit_tasks.load_task_list(scan_id)
-    task_lines = (
-        edit_tasks.render_section(tl)
-        if tl and tl.tasks
-        else "(no task list on record)"
-    )
+    task_lines = edit_tasks.render_section(tl) if tl and tl.tasks else "(no task list on record)"
     verdict_lines = "\n".join(
         f"- {e.file_path} [{e.status}]"
-        + (f" \"{(e.instruction or '').strip()[:100]}\"" if e.instruction else "")
+        + (f' "{(e.instruction or "").strip()[:100]}"' if e.instruction else "")
         for e in edits
     )
     system = (
@@ -971,6 +989,72 @@ def task_completion_answer(
     if not answer:
         answer = _deterministic_completion(scan_id)
     return _build_result(scan_id, answer, [], [], thinking=thinking)
+
+
+# Source file extensions the agent can read from the decompiled tree.
+# Only extensions long enough to avoid false-positive matches in natural
+# language (e.g. ".m" and ".h" are too short / too common).
+_FILE_EXTS = (
+    ".java",
+    ".kt",
+    ".kts",
+    ".xml",
+    ".smali",
+    ".swift",
+    ".plist",
+    ".json",
+    ".txt",
+    ".properties",
+    ".yml",
+    ".yaml",
+    ".html",
+    ".css",
+    ".js",
+    ".ts",
+    ".gradle",
+    ".toml",
+    ".ini",
+)
+# Build a regex that matches tokens ending in a known source-file extension.
+# Captures the full token (e.g. "com/foo/Bar.kt" or "MainActivity.java").
+_EXT_PATTERN = "|".join(re.escape(ext) for ext in _FILE_EXTS)
+_FILE_PATH_RE = re.compile(r"\b([A-Za-z0-9_./\\-]+(?:" + _EXT_PATTERN + r"))\b")
+# Common English words that happen to end in a source-file extension.
+_FALSE_POSITIVE_WORDS = frozenset(
+    {
+        "the.java",
+        "the.xml",
+        "the.json",
+        "the.txt",
+        "the.js",
+        "do.java",
+        "so.java",
+        "no.java",
+        "to.java",
+        "go.java",
+    }
+)
+
+
+def _detect_file_paths(question: str) -> list[str]:
+    """Extract likely file paths from a user question for auto-mention.
+
+    Heuristic: find tokens that look like source files (package path + known
+    extension, or just a filename with a known extension). Returns tree-
+    relative paths that can be resolved by ``_load_mentioned_files``. Empty
+    list when no candidates are found.
+    """
+    candidates: list[str] = []
+    for m in _FILE_PATH_RE.finditer(question):
+        path = m.group(1)
+        # Skip common English words (case-insensitive check) and short names
+        # that are likely not real file paths.
+        if len(path) < 6 or path.lower() in _FALSE_POSITIVE_WORDS:
+            continue
+        # Dedup.
+        if path not in candidates:
+            candidates.append(path)
+    return candidates[:5]  # cap to avoid prompt bloat
 
 
 def _load_pending_edits(scan_id: int) -> list[dict]:
@@ -1189,9 +1273,7 @@ def answer_question(
     # the dock can render them in the specialized thinking box - they arrive
     # BEFORE the answer text on reasoning models (shown on top, no cursor).
     on_thinking = (
-        (lambda delta: _emit(on_event, "thinking", {"delta": delta}))
-        if on_event
-        else None
+        (lambda delta: _emit(on_event, "thinking", {"delta": delta})) if on_event else None
     )
 
     from app.agent.tools import edit_tools_allowed, execute_tool, web_tools_allowed
@@ -1236,9 +1318,7 @@ def answer_question(
     pending_edits = _load_pending_edits(scan_id) if edit_allowed else []
     is_edit_continuation = _is_edit_continuation(question, pending_edits)
     edit_verb_this_turn = edit_allowed and (
-        not advance
-        and not is_edit_continuation
-        and bool(_EDIT_INTENT_RE.search(question))
+        not advance and not is_edit_continuation and bool(_EDIT_INTENT_RE.search(question))
     )
     # A genuinely NEW change request (never a continuation cue, never an
     # advance turn) supersedes any stale task list - the old plan is
@@ -1269,7 +1349,11 @@ def answer_question(
 
     # M8 follow-up: user @-mentions - the mentioned files' content is attached
     # so the model answers/proposes about them directly (no search round).
-    mentioned_section = _load_mentioned_files(scan_id, mentioned_files or [])
+    # Auto-detect: extract file paths from the question text so the model
+    # reads them directly even when the user doesn't use @mention syntax.
+    auto_mentioned = _detect_file_paths(question)
+    all_mentioned = list(dict.fromkeys((mentioned_files or []) + auto_mentioned))
+    mentioned_section = _load_mentioned_files(scan_id, all_mentioned)
     # M8 follow-up (Aug 12): the EDIT REVIEW STATE section - the scan's
     # proposals + verdicts - so a "continue" turn knows what was applied /
     # rejected and proposes the next file of the original task. Only when
@@ -1282,7 +1366,7 @@ def answer_question(
             "content": (
                 system_prompt
                 + "\n\n"
-                + context.rendered
+                + _render_scan_summary(context)
                 + mentioned_section
                 + review_state
                 + task_section
@@ -1385,9 +1469,7 @@ def answer_question(
                     # error is wrapped so the API can surface a clean 502 with the
                     # upstream message (the request was valid, the upstream wasn't).
                     _deadline_remaining(deadline, scan_id, timeout)
-                    raise ChatUpstreamError(
-                        model_arch_hint(f"LLM call failed: {exc}")
-                    ) from exc
+                    raise ChatUpstreamError(model_arch_hint(f"LLM call failed: {exc}")) from exc
 
             message = response.choices[0].message
             content = (message.content or "").strip()
@@ -1406,14 +1488,10 @@ def answer_question(
                 # execute the parsed calls rather than letting the raw XML
                 # become the final answer (no tool would ever run). Only
                 # names the model was actually offered are executed.
-                xml_calls = _parse_xml_tool_calls(content) or _parse_xml_tool_calls(
-                    round_thinking
-                )
+                xml_calls = _parse_xml_tool_calls(content) or _parse_xml_tool_calls(round_thinking)
                 offered = {s["function"]["name"] for s in (tools or [])}
                 if xml_calls:
-                    tool_calls = [
-                        c for c in xml_calls if c.function.name in offered
-                    ]
+                    tool_calls = [c for c in xml_calls if c.function.name in offered]
 
             if not tool_calls:
                 # M8 follow-up (Aug 11): plan narration must not be the final
@@ -1612,9 +1690,7 @@ def answer_question(
                 # Also checked after each tool so a slow tool can't hide an
                 # interrupt until the whole round is done.
                 _raise_if_cancelled(scan_id, cancel)
-                messages.append(
-                    {"role": "tool", "tool_call_id": call_id, "content": result}
-                )
+                messages.append({"role": "tool", "tool_call_id": call_id, "content": result})
     finally:
         # Never leave a stale flag behind: the next chat for the same scan
         # must start fresh.

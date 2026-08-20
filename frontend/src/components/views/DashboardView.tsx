@@ -300,6 +300,8 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
     }
   }, [refetchFindings, current?.id])
 
+  const onOpenFindings = useCallback(() => setTab('findings'), [])
+
   if (!current) return null
   const failed = current.status === 'failed'
 
@@ -386,7 +388,7 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
                 counts={counts}
                 findingsLoading={loading}
                 findingsError={error}
-                onOpenFindings={() => setTab('findings')}
+                onOpenFindings={onOpenFindings}
               />
             </div>
             <div className={tab !== 'findings' ? 'hidden' : undefined}>

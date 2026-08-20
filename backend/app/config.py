@@ -29,17 +29,17 @@ class Settings(BaseSettings):
     gitleaks_cmd: str | None = None
     semgrep_cmd: str | None = None
     java_home: str | None = None  # needed when jadx's JVM is not on PATH
-    jadx_timeout_seconds: int = 1200
+    jadx_timeout_seconds: int = 7200
     jadx_threads: int = 4
-    gitleaks_timeout_seconds: int = 600
-    semgrep_timeout_seconds: int = 900
+    gitleaks_timeout_seconds: int = 3600
+    semgrep_timeout_seconds: int = 3600
 
     # ---- M8 edit & recompile: apktool (Android smali decode) ----
     # apktool.jar runs under the bundled JRE in the container (the
     # /opt/mobark-tools/apktool/apktool wrapper script); on the host it
     # resolves from PATH unless MOBARK_APKTOOL_CMD is set.
     apktool_cmd: str | None = None
-    apktool_timeout_seconds: int = 1200
+    apktool_timeout_seconds: int = 7200
     # M8 follow-up (Aug 12): warm pre-decode + stuck-queue guard. Pre-decode
     # starts the apktool job in the background when an Android scan finishes,
     # so the Smali view is usually already ready before it is opened (the
@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     keytool_cmd: str | None = None
     # Per-step deadline for the rebuild pipeline (apktool b, zipalign,
     # apksigner sign/verify, keytool keystore generation).
-    rebuild_timeout_seconds: int = 900
+    rebuild_timeout_seconds: int = 3600
 
     # ---- M3 model backends ----
     # Local LLM servers on the host. Docker Compose overrides these with

@@ -53,7 +53,7 @@ default**.
 ## Quick start (Docker)
 
 > Requires Docker with the Compose v2 plugin. Prebuilt images are
-> **multi-arch** (`linux/amd64` + `linux/arm64`) — Apple Silicon and
+> **multi-arch** (`linux/amd64` + `linux/arm64`) Apple Silicon and
 > ARM hosts pull the native arm64 image. One gap: **edit & recompile**
 > needs Google's Android build-tools (Linux x86_64-only), so that
 > feature is amd64-only.
@@ -64,9 +64,9 @@ MobARK runs as **four containers** that `docker-compose.yml`
 orchestrates: `app` (the web UI + API), `worker` (runs the analysis),
 `redis` (the job queue between them), and `searxng` (the search engine
 the agent's web research uses). Everything is downloaded from **Docker
-Hub** — a release install never builds or clones the source code.
+Hub** a release install never builds or clones the source code.
 
-**Step 1 — Download the config files.** `docker-compose.yml` is the
+**Step 1 Download the config files.** `docker-compose.yml` is the
 recipe that tells Docker which images to run and how to connect them;
 `.env` holds your settings. In a folder of your choice:
 
@@ -80,21 +80,21 @@ curl -o docker/searxng/settings.yml https://raw.githubusercontent.com/suwasto/Mo
 
 That last file is the SearXNG config the stack mounts into the search
 container (it enables the JSON API the agent's web research searches
-through) — the stack will not start without it.
+through) the stack will not start without it.
 
-**Step 2 — Download the images.** `docker compose pull` reads the
+**Step 2 Download the images.** `docker compose pull` reads the
 recipe and downloads the three images it references from Docker Hub:
 `suwasto/mobark:0.3.0` (the app + worker), `redis:7-alpine`, and
-`searxng/searxng:latest`. Nothing runs yet — this step is just the
+`searxng/searxng:latest`. Nothing runs yet this step is just the
 download:
 
 ```bash
 docker compose pull
 ```
 
-**Step 3 — Start the stack.** `docker compose up` launches the four
-containers — `app` and `worker` both run the `suwasto/mobark` image
-with different commands — and starts them wired together:
+**Step 3 Start the stack.** `docker compose up` launches the four
+containers `app` and `worker` both run the `suwasto/mobark` image
+with different commands and starts them wired together:
 
 ```bash
 docker compose up

@@ -25,7 +25,7 @@ ENV PYTHONUNBUFFERED=1 \
 # Release version baked into the image (surfaces via /api/v1/health and the
 # FastAPI /docs title). The publish workflow sets it from the git tag;
 # local builds default to the source version.
-ARG MOBARK_VERSION=0.2.0
+ARG MOBARK_VERSION=0.3.0
 ENV MOBARK_VERSION=${MOBARK_VERSION}
 
 # --- JVM for jadx (build-time sanity check) ---

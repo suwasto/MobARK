@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-21
+
+### Fixed
+
+- Decompile jobs on large APKs were failing after 3 minutes due to the
+  RQ worker default timeout. Raised RQ and per-tool timeouts to handle
+  large apps.
+
+### Changed
+
+- Optimized page performance when handling large scans: virtualized
+  findings list, memoized Markdown rendering, and compact agent context
+  to reduce token usage.
+
 ## [0.2.0] - 2026-08-17
 
 ### Added

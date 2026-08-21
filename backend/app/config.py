@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MOBARK_", env_file=".env", extra="ignore")
 
     app_name: str = "MobARK"
-    version: str = "0.2.0"
+    version: str = "0.3.0"
 
     database_url: str = "sqlite:///./data/mobark.db"
     redis_url: str = "redis://localhost:6379/0"

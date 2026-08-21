@@ -84,7 +84,7 @@ through) — the stack will not start without it.
 
 **Step 2 — Download the images.** `docker compose pull` reads the
 recipe and downloads the three images it references from Docker Hub:
-`suwasto/mobark:0.2.0` (the app + worker), `redis:7-alpine`, and
+`suwasto/mobark:0.3.0` (the app + worker), `redis:7-alpine`, and
 `searxng/searxng:latest`. Nothing runs yet — this step is just the
 download:
 
@@ -100,7 +100,7 @@ with different commands — and starts them wired together:
 docker compose up
 ```
 
-To pin another release instead of `0.2.0`, set `MOBARK_IMAGE_TAG=<version>`
+To pin another release instead of `0.3.0`, set `MOBARK_IMAGE_TAG=<version>`
 in `.env`, then re-run `docker compose pull` and `docker compose up`.
 
 ### Build from source (dev)

@@ -199,5 +199,31 @@ class Settings(BaseSettings):
     # localhost dev; set it to the real origin in production.
     public_base_url: str = "http://localhost:8000"
 
+    # ---- M11 dynamic analysis (V2): device + session management ----
+    # External CLI tools, subprocess-invoked (never imported), following the
+    # *_CMD pattern from jadx/gitleaks/semgrep. On the host they resolve from
+    # PATH unless the *_CMD override is set; in the container they point at
+    # the bundled installs in the Dockerfile.
+    adb_cmd: str | None = None
+    # pymobiledevice3 (iOS device management over usbmuxd).
+    pymobiledevice3_cmd: str | None = None
+    # Per-operation deadline for the subprocess device/tool calls (adb,
+    # pymobiledevice3, frida-server reachability probes). A hung device
+    # command can never block the API worker past this.
+    dynamic_op_timeout_seconds: int = 30
+    # frida-server default port forwarded from the target device. Android
+    # forwards this on the local loopback to reach the device's frida-server;
+    # iOS reaches frida-server over SSH on the same port.
+    frida_port: int = 27042
+    # iOS frida-server-over-SSH reachability (a jailbroken device runs
+    # frida-server reachable at this SSH address). Empty = iOS frida is
+    # unreachable (preflight reports it, never a crash).
+    frida_ssh_host: str = "127.0.0.1"
+    frida_ssh_port: int = 22
+    # ---- M11 FR-D5a (config knobs only; the Corellium client is M17) ----
+    # Both empty = the Corellium-backed iOS path is disabled/off by default.
+    corellium_base_url: str | None = None
+    corellium_api_key: str | None = None
+
 
 settings = Settings()

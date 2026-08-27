@@ -1,7 +1,7 @@
-from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 from alembic import command
+from alembic.config import Config
 
 
 def test_alembic_upgrade_head_creates_tables(tmp_path, monkeypatch):
@@ -650,4 +650,35 @@ def test_alembic_0005_downgrade_removes_suppression_columns(tmp_path, monkeypatc
     finding_columns = {c["name"] for c in inspector.get_columns("findings")}
     assert "suppressed" not in finding_columns
     assert "suppressed_at" not in finding_columns
+    engine.dispose()
+
+
+def test_alembic_0018_dynamic_sessions_up_and_down(tmp_path, monkeypatch):
+    """M11 (V2) migration 0018: the dynamic_sessions lifecycle table - up
+    creates it with the FR-D3 identity columns + scan FK index; down drops it."""
+    db_url = f"sqlite:///{tmp_path / 'dynamic-mig.db'}"
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "dynamic_sessions" in set(inspector.get_table_names())
+    columns = {c["name"] for c in inspector.get_columns("dynamic_sessions")}
+    assert {
+        "id", "scan_id", "platform", "state", "device_id", "device_name",
+        "connection_type", "frida_version", "target_pid", "root_status",
+        "jailbreak_method", "corellium_enabled", "last_error", "started_at",
+        "ended_at", "created_at",
+    } <= columns
+    assert "ix_dynamic_sessions_scan_id" in {
+        ix["name"] for ix in inspector.get_indexes("dynamic_sessions")
+    }
+    engine.dispose()
+
+    command.downgrade(cfg, "0017")
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "dynamic_sessions" not in set(inspector.get_table_names())
     engine.dispose()

@@ -922,3 +922,101 @@ class ProvidersResponse(BaseModel):
 
     auth_enabled: bool
     providers: list[str]
+
+
+class DynamicDevice(BaseModel):
+    """One discovered device/emulator (M11, V2 - FR-D2). ``model`` is the
+    Android product/model; ``detail`` a per-platform human note (e.g. the iOS
+    version)."""
+
+    id: str
+    name: str
+    platform: str
+    model: str | None = None
+    detail: str | None = None
+
+
+class DynamicPreflight(BaseModel):
+    """The FR-D1 per-check gate for one device+target pair. ``checks`` maps
+    each prerequisite name to its boolean; ``ok`` is all-true. The UI renders
+    each check individually, never a single opaque failure."""
+
+    platform: str
+    device_id: str
+    target_app: str
+    checks: dict[str, bool]
+    ok: bool
+
+
+class DynamicSessionConnect(BaseModel):
+    """POST /api/v1/dynamic/session/connect body. ``target_app`` is the
+    package name (Android) or bundle identifier (iOS) Frida attaches to."""
+
+    scan_id: int
+    platform: str
+    device_id: str
+    target_app: str
+
+
+class DynamicEvent(BaseModel):
+    """One live event in the FR-D10 feed: platform-agnostic, tagged by
+    platform. ``source`` is the type axis (hook | bypass | net | note);
+    ``tag`` is a short machine label (pinning/root/keychain/...); ``code`` is
+    the producing hook-script id (null for a manual note)."""
+
+    ts: str
+    source: str
+    tag: str
+    platform: str
+    text: str
+    code: str | None = None
+
+
+class DynamicEventCreate(BaseModel):
+    """POST /api/v1/dynamic/session/events body - the HTTP fallback / test
+    surface that pushes an observation into the live feed. ``platform`` and
+    ``ts`` are stamped by the backend (from the active session), never the
+    caller."""
+
+    source: str = "note"
+    tag: str = "note"
+    text: str
+    code: str | None = None
+
+
+class DynamicDefaultHook(BaseModel):
+    """M12 default hook script from the registry (FR-D9), with its real
+    frida JS body. ``id`` is the stable code the live event feed uses."""
+
+    id: str
+    name: str
+    platform: str
+    description: str
+    script: str
+
+
+class DynamicSessionRead(BaseModel):
+    """One dynamic_sessions row (the FR-D3 identity + lifecycle state)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    scan_id: int
+    platform: str
+    state: str
+    device_id: str | None = None
+    device_name: str | None = None
+    connection_type: str | None = None
+    frida_version: str | None = None
+    target_pid: int | None = None
+    root_status: bool | None = None
+    jailbreak_method: str | None = None
+    corellium_enabled: bool = False
+    last_error: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    created_at: datetime
+
+    @field_serializer("created_at", "started_at", "ended_at")
+    def _ser_ts(self, value: datetime | None) -> datetime | None:
+        return _utc_aware(value) if value is not None else None

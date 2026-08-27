@@ -162,3 +162,40 @@ risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).
 - **Aug 14–15, 2026 — DONE: M9.1 auth + vault + severity rework.** (Detail
   now lives in `docs/progress/M9.1.md` / git history; this file keeps only
   the durable parts above.)
+- **Aug 27, 2026 — DONE: M11 (V2 dynamic analysis) device + session
+  foundation.** First V2 milestone. `backend/app/dynamic/` mirrors
+  `analysis/` (`android/` + `ios/` subpackages behind one shared router,
+  mounted in `main.py` under `Depends(get_current_user)` at
+  `/api/v1/dynamic/...`). Sessions are **scan-scoped + single-active**
+  (FR-D5): the `dynamic_sessions` table (migration **0018**) is the durable
+  lifecycle; the LIVE frida handle lives process-locally in
+  `dynamic/base.py::ActiveSession`, torn down on disconnect. Devices are
+  subprocess/CLI-only (adb + pymobiledevice3, the `*_CMD` pattern); frida
+  imported lazily behind the platform-client seam. Per-check preflight
+  (never a raw exception); `DynamicError` hierarchy → global FastAPI
+  exception handler (404 no-session/foreign-scan, 409 preflight-reject or
+  already-active, 502 tool-unreachable). `MOBARK_CORELLIUM_BASE_URL`/
+  `_API_KEY` config knobs land (empty = off); the Corellium client is M17.
+  Build posture: **backend + fake devices** — real attach is an owner manual
+  checkpoint. 911 backend tests green + ruff clean; frontend untouched.
+
+- **Aug 27, 2026 — DONE: M12 (V2 dynamic) live hooks + event stream.**
+  `dynamic/events.py` owns the FR-D10 feed: `DynamicEvent`
+  `{ts, source, tag, platform, text, code}` (source ∈ hook|bypass|net|note),
+  a bounded per-session ring buffer + subscriber fan-out on the
+  `ActiveSession.feed` slot (ephemeral, torn down on disconnect; the
+  `dynamic_events` DB table ships in M15). Transport is **SSE**, not
+  WebSocket (owner, Aug 27): v1 has zero WS infra, so M12 reuses the chat
+  `StreamingResponse` pattern — `GET /api/v1/dynamic/session/events/stream`
+  (`: ping` keepalive, `_stream_events` module-level generator, ends on
+  disconnect) + `GET`/`POST /api/v1/dynamic/session/events` HTTP fallback
+  (catch-up snapshot + observation push, platform/ts stamped server-side) +
+  `GET /api/v1/dynamic/session/scripts` (default-hook registry). **Real,
+  runnable frida hook scripts authored but NOT executed** (fake posture;
+  real exec = owner manual checkpoint): `dynamic/scripts/android/*.js`
+  (pinning validators + root-detection) + `ios/*.js` (ATS/pinning +
+  jailbreak + Keychain) — the M15 built-in-library seed. **FR-D11
+  (static-finding → bypass-suggestion) REMOVED at owner direction** (cost
+  tokens, low value; authoring stays LLM-driven M16 / manual M15). Full
+  backend suite green (927 passed / 1 skipped / 13 deselected, +16) + ruff
+  clean; frontend untouched.

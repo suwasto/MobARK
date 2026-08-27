@@ -344,3 +344,55 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+
+
+class DynamicSession(Base):
+    """One dynamic-analysis session (M11, V2 - Frida device + session mgmt).
+
+    The PERSISTED lifecycle of a runtime session - one scan on one device
+    at a time (FR-D5). ``state`` tracks disconnected | preflight | attached |
+    error. The LIVE handles (the frida session, mirror stream) are NOT here -
+    they live in the process-local runtime registry (app/dynamic/base.py),
+    torn down on disconnect; this row is the durable record the UI reads.
+
+    ``platform`` (android|ios) drives which device backend attached;
+    ``connection_type`` (adb|ssh|corellium) + the per-platform metadata
+    (``frida_version``/``target_pid``/``root_status`` Android,
+    ``jailbreak_method`` iOS) surface the FR-D3 identity the UI shows.
+    """
+
+    __tablename__ = "dynamic_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scan_id: Mapped[int] = mapped_column(
+        ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # android | ios
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    # disconnected | preflight | attached | error
+    state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="disconnected"
+    )
+    device_id: Mapped[str | None] = mapped_column(String(128))
+    device_name: Mapped[str | None] = mapped_column(String(256))
+    # adb | ssh | corellium
+    connection_type: Mapped[str | None] = mapped_column(String(16))
+    frida_version: Mapped[str | None] = mapped_column(String(64))
+    target_pid: Mapped[int | None] = mapped_column(Integer)
+    # Android: whether the attached process runs as root (True on a rooted
+    # device/emulator under ``adb root``).
+    root_status: Mapped[bool | None] = mapped_column()
+    # iOS-only (nullable): the jailbreak method (checkra1n/palera1n/...).
+    jailbreak_method: Mapped[str | None] = mapped_column(String(64))
+    # True only when attached through the opt-in Corellium backend (M17).
+    corellium_enabled: Mapped[bool] = mapped_column(
+        nullable=False, default=False
+    )
+    # The specific failure for ``state == error`` (never a silent break).
+    last_error: Mapped[str | None] = mapped_column(Text)
+
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )

@@ -144,6 +144,19 @@ typing-extensions (PSF), uvloop (MIT/Apache), watchfiles (MIT), websockets
 > streaming path reuses litellm's existing `completion(stream=True)`: no new
 > packages were added.
 
+> **M11 (V2) dynamic analysis (Aug 27, 2026): no new pip deps; runtime tools
+> are subprocess/lazy-boundary only.** Device management is CLI-subprocess:
+> **adb** (Apache-2.0, Android platform-tools) and **pymobiledevice3**
+> (MIT) resolve from PATH or a `MOBARK_*_CMD` override, exactly like
+> jadx/gitleaks — never imported. **frida-python / frida-tools** (MIT) are
+> imported LAZILY inside `app/dynamic/android/attach.py` and
+> `app/dynamic/ios/attach.py` function bodies (never at module load), so the
+> import is optional at runtime and fake-device test doubles swap the whole
+> backend out without it; `frida-server` runs on the target device (never
+> containerized, per the V2 PRD). **mitmproxy** (MIT) is M14 (traffic
+> capture), not M11. Corellium (M17) is an opt-in, off-by-default HTTP API
+> client. No license-posture change: every imported library stays permissive.
+
 ## Installed & in use: frontend (M5+, pinned)
 
 | Package | Version | License | Notes |

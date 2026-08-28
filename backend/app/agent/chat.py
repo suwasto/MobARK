@@ -248,6 +248,37 @@ _WEB_PROMPT = (
 )
 
 
+# M16 (V2): appended to the system prompt ONLY when the scan has a LIVE
+# dynamic session (dynamic_tools_allowed - the dynamic tools are otherwise
+# never even offered, see schemas_for_platform). Explains the FR-D19 approval
+# contract so a real model drafts (never claims approval/execution) and
+# observes the session rather than attaching devices itself.
+_M16_DYNAMIC_PROMPT = (
+    "\n\nA DYNAMIC SESSION IS ACTIVE for this scan (frida attached to the "
+    "running app). You have five dynamic tools:\n"
+    "- attach_session: report the live session state (platform, device, "
+    "frida version, PID, root/jailbreak status) - OBSERVE ONLY, never attach "
+    "a device yourself (connect happens in the dashboard).\n"
+    "- list_active_scripts: which of the scan's frida scripts are currently "
+    "running.\n"
+    "- draft_frida_script(request, body, name?, description?): store an "
+    "AGENT-AUTHORED frida script DRAFT for the active session's platform "
+    "(origin=agent, status=proposed). Compose the FULL frida JS body yourself "
+    "for the natural-language request - Android hooks Java/OkHttp/"
+    "TrustManager (Java.perform), iOS hooks ObjC/SecTrust/NSURLSession "
+    "(ObjC.schedulePerformBlock). A draft is NEVER approved or run "
+    "automatically - the tester must approve it in the scripts panel first "
+    "(FR-D19). After storing a draft, tell the user it is ready for review; "
+    "NEVER claim a script was approved or ran.\n"
+    "- run_script(script_id) / stop_script(script_id): run/stop a READY "
+    "script (built-in, manual, or an approved agent script). Refuses an "
+    "unapproved draft.\n"
+    "Use these when the user asks to hook/bypass/log/observe the RUNNING app "
+    "(e.g. 'draft a script that logs SSL keys', 'bypass the pinning check', "
+    "'stop the root-detection hook')."
+)
+
+
 class ChatNotConfigured(RuntimeError):
     """No chat model configured in the M3 backend store."""
 
@@ -1276,7 +1307,12 @@ def answer_question(
         (lambda delta: _emit(on_event, "thinking", {"delta": delta})) if on_event else None
     )
 
-    from app.agent.tools import edit_tools_allowed, execute_tool, web_tools_allowed
+    from app.agent.tools import (
+        dynamic_tools_allowed,
+        edit_tools_allowed,
+        execute_tool,
+        web_tools_allowed,
+    )
     from app.config import settings
 
     context = _load_context(scan_id)
@@ -1300,9 +1336,16 @@ def answer_question(
     # apktool decode is ready - same never-even-offered rule (the model gets
     # the review contract explained when they ARE available).
     edit_allowed = edit_tools_allowed(scan_id)
+    # M16 (V2): the dynamic-analysis tools only when the scan has a LIVE
+    # dynamic session (the active session's scan_id matches) - the same
+    # never-even-offered rule; the model gets the FR-D19 approval contract
+    # explained when they ARE available.
+    dynamic_allowed = dynamic_tools_allowed(scan_id)
     system_prompt = SYSTEM_PROMPT + (_WEB_PROMPT if web_allowed else "")
     if edit_allowed:
         system_prompt += _M8_EDIT_PROMPT
+    if dynamic_allowed:
+        system_prompt += _M16_DYNAMIC_PROMPT
     # M8 follow-up (Aug 16): edit-task loop state computed HERE, before the
     # prompt is assembled - a fresh change request supersedes a stale task
     # list, and the TASK LIST section (when one exists) rides in the system
@@ -1406,6 +1449,7 @@ def answer_question(
         context.platform,
         web_research_enabled=web_allowed,
         edit_tools_enabled=edit_allowed,
+        dynamic_tools_enabled=dynamic_allowed,
     )
     tools_used: list[str] = []
     tool_runs: list[ToolRun] = []

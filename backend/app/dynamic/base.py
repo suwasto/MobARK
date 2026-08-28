@@ -65,6 +65,16 @@ class ActiveSession:
     ``MirrorRelay`` carrying the latest frame + ``continuous|polled``
     fidelity flag + latency, ephemeral, torn down with the session. Created
     at connect time, stopped + released on disconnect (FR-D4).
+
+    ``traffic`` is the M14 captured-traffic log (FR-D12/D13/D14) - a
+    ``TrafficLog`` carrying the bounded row buffer + the FR-D14 running
+    count + the capture-active flag, ephemeral, torn down with the session.
+    Created at connect time, stopped + released on disconnect (FR-D4).
+
+    ``scripts`` is the M15 per-scan script runner (FR-D15/D16/D17) - a
+    ``ScriptRunner`` tracking which of the scan's scripts are running
+    (flag-tracking in the fake posture; real frida injection is an owner
+    manual checkpoint), ephemeral, torn down with the session on disconnect.
     """
 
     row_id: int
@@ -76,6 +86,8 @@ class ActiveSession:
     meta: dict[str, Any] = field(default_factory=dict)
     feed: Any = field(default=None, repr=False)
     mirror: Any = field(default=None, repr=False)
+    traffic: Any = field(default=None, repr=False)
+    scripts: Any = field(default=None, repr=False)
 
     @property
     def connection_type(self) -> str:

@@ -95,6 +95,36 @@ _WEB_TOOLS = frozenset({"web_search", "web_fetch"})
 _MAX_WEB_RESULTS = 10
 _WEB_FETCH_MAX_CHARS = 8000
 
+# M16 (V2): the dynamic-analysis agent tools (FR-D18/D19/D20). Offered ONLY
+# when the scan has a LIVE dynamic session (``dynamic_tools_allowed`` - the
+# single-active session's scan_id matches), same never-even-seen rule as the
+# web/edit gates; the handlers re-check the gate defensively. These operate
+# on the ACTIVE session (frida attached to the running app), not the
+# decompiled tree:
+#   - attach_session: report the live session state (observe only - the agent
+#     never attaches a device; connect happens in the dashboard).
+#   - list_active_scripts: which of the scan's scripts are currently running.
+#   - draft_frida_script: store an AGENT-authored draft (origin=agent,
+#     status=proposed) that ALWAYS requires the tester's approval (FR-D19)
+#     before it becomes a saved/runnable script - never auto-approved, never
+#     auto-run.
+#   - run_script / stop_script: run/stop a READY script (refuses an
+#     unapproved draft - the approval gate).
+_M16_DYNAMIC_TOOLS = frozenset(
+    {
+        "attach_session",
+        "list_active_scripts",
+        "draft_frida_script",
+        "run_script",
+        "stop_script",
+    }
+)
+# Draft validation caps (mirror the M15 manual-script caps in
+# app/dynamic/router.py - one budget for the whole script surface).
+_M16_NAME_MAX = 128
+_M16_BODY_MAX = 256 * 1024
+_M16_DESC_MAX = 2000
+
 _ANDROID_NS = "http://schemas.android.com/apk/res/android"
 
 # Suffixes treated as text outright; anything else is binary-sniffed.
@@ -342,6 +372,251 @@ def web_fetch(scan_id: int, url: str) -> dict:
         raise ToolError(str(exc)) from exc
     page["text"] = page["text"][:_WEB_FETCH_MAX_CHARS]
     return page
+
+
+# ---- M16 dynamic-analysis tools (active-session gated, FR-D18/D19/D20) ------
+# These operate on the LIVE dynamic session (the single-active session scoped
+# to a scan, FR-D5) rather than the decompiled tree. One gate - the scan has
+# an active session - controls whether the model is even *offered* them; the
+# handlers re-check the same rule defensively so a raw API caller can never
+# run/stop/draft against a session that isn't live or belongs to another
+# scan. ``draft_frida_script`` is the M16 approval-gated surface: it stores
+# an AGENT-authored draft (origin=agent, status=proposed) that ALWAYS needs
+# the tester's explicit approval (FR-D19) before it can run; ``run_script``
+# refuses an unapproved draft (the approval gate).
+
+
+def dynamic_tools_allowed(scan_id: int) -> bool:
+    """True when the scan has a LIVE dynamic session (the ActiveSession's
+    scan_id matches - the M16 gate). The dynamic tools act on the
+    single-active session, so they're only offered to the model when the scan
+    is actually connected; the handlers re-check the same rule defensively.
+    Never raises - a missing session simply denies."""
+    from app.dynamic import base
+
+    active = base.active_session()
+    return active is not None and active.scan_id == scan_id
+
+
+def _require_dynamic_session(scan_id: int):
+    """The ActiveSession for this scan, or a clean ToolError when none is live
+    or the active session belongs to another scan (FR-D5 single-active)."""
+    from app.dynamic import base
+
+    active = base.active_session()
+    if active is None:
+        raise ToolError(
+            "no live dynamic session for this scan - connect one in the "
+            "Dynamic analysis panel first (device discovery -> preflight -> "
+            "connect)"
+        )
+    if active.scan_id != scan_id:
+        raise ToolError(
+            f"the active dynamic session belongs to scan {active.scan_id}, "
+            f"not {scan_id} - disconnect it and connect this scan's session "
+            "before using the dynamic tools"
+        )
+    return active
+
+
+def attach_session(scan_id: int) -> dict:
+    """Report the scan's live dynamic session state (FR-D3 identity: platform,
+    device, frida version, target PID, root/jailbreak status). The agent
+    OBSERVES only - a session is started via the dashboard connect flow, never
+    silently attached by the agent (no autonomous device attach)."""
+    active = _require_dynamic_session(scan_id)
+    return {
+        "attached": True,
+        "scan_id": active.scan_id,
+        "platform": active.platform,
+        "device_id": active.device_id,
+        "device_name": active.device_name,
+        "connection_type": active.connection_type,
+        "frida_version": active.meta.get("frida_version"),
+        "target_pid": active.meta.get("target_pid"),
+        "root_status": active.meta.get("root_status"),
+        "jailbreak_method": active.meta.get("jailbreak_method"),
+    }
+
+
+def list_active_scripts(scan_id: int) -> list[dict]:
+    """Which of the scan's scripts are currently RUNNING (FR-D15) - read from
+    the session's ScriptRunner (the LIVE flag; the DB never stores running
+    state). Returns ``[{id, name, platform, origin, status}]``."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import DynamicScript
+
+    active = _require_dynamic_session(scan_id)
+    if active.scripts is None:
+        raise ToolError("the active session has no script runner")
+    running = active.scripts.running_ids()
+    if not running:
+        return []
+    db = SessionLocal()
+    try:
+        rows = db.scalars(
+            select(DynamicScript).where(DynamicScript.id.in_(running))
+        ).all()
+    finally:
+        db.close()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "platform": r.platform,
+            "origin": r.origin,
+            "status": r.status,
+        }
+        for r in rows
+    ]
+
+
+def _draft_default_name(request: str) -> str:
+    """A readable default draft name from the natural-language request (kept
+    under the 128-char cap; the model can pass an explicit name instead)."""
+    req = " ".join(request.split())
+    short = req[:60].rstrip(" ,.:;")
+    return f"agent: {short}" if short else "agent script"
+
+
+def draft_frida_script(
+    scan_id: int,
+    request: str,
+    body: str,
+    name: str = "",
+    description: str = "",
+) -> dict:
+    """FR-D18/D19: store an AGENT-authored frida script DRAFT for the active
+    session's platform. The model composes the FULL frida JS ``body`` for the
+    natural-language ``request``; the tool validates + persists it as
+    ``origin=agent`` + ``status=proposed`` - NEVER auto-approved, NEVER
+    auto-run. The tester must approve it in the scripts panel (FR-D19) before
+    it can run; on approval it is indistinguishable from manual/built-in
+    (FR-D20). Returns the draft ``{id, name, platform, origin, status,
+    description, script, request}``. The agent must tell the user the draft is
+    ready for review - never claim it was approved or ran."""
+    from app.db import SessionLocal
+    from app.models import DynamicScript
+
+    active = _require_dynamic_session(scan_id)
+    name = (name or "").strip() or _draft_default_name(request)
+    body = (body or "").strip()
+    if not body:
+        raise ToolError(
+            "draft_frida_script requires a script body - compose the frida JS "
+            "for the request yourself (e.g. Java.perform(...) for Android, "
+            "ObjC.schedulePerformBlock(...) for iOS)"
+        )
+    if len(name) > _M16_NAME_MAX:
+        raise ToolError(f"script name must be {_M16_NAME_MAX} chars or fewer")
+    if len(body) > _M16_BODY_MAX:
+        raise ToolError(f"script body must be {_M16_BODY_MAX} chars or fewer")
+    desc = (description or "").strip()
+    if len(desc) > _M16_DESC_MAX:
+        raise ToolError(f"script description must be {_M16_DESC_MAX} chars or fewer")
+    db = SessionLocal()
+    try:
+        row = DynamicScript(
+            scan_id=active.scan_id,
+            name=name,
+            body=body,
+            platform=active.platform,
+            origin="agent",
+            description=desc or None,
+            status="proposed",
+        )
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return {
+            "id": row.id,
+            "name": row.name,
+            "platform": row.platform,
+            "origin": row.origin,
+            "status": row.status,
+            "description": row.description,
+            "script": row.body,
+            "request": request,
+        }
+    finally:
+        db.close()
+
+
+def _load_managed_script(scan_id: int, script_id: int):
+    """A script row scoped to the ACTIVE session's scan (foreign = ToolError,
+    the per-scan isolation rule)."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import DynamicScript
+
+    active = _require_dynamic_session(scan_id)
+    db = SessionLocal()
+    try:
+        row = db.scalar(
+            select(DynamicScript).where(
+                DynamicScript.id == script_id,
+                DynamicScript.scan_id == active.scan_id,
+            )
+        )
+    finally:
+        db.close()
+    if row is None:
+        raise ToolError(f"script {script_id} not found for this scan")
+    return row
+
+
+def _publish_script_note(active, row, verb: str) -> None:
+    """Mirror a script lifecycle change into the FR-D10 live feed (the same
+    dual-surface the M15 router uses - a script is a first-class feed
+    citizen)."""
+    if active.feed is not None:
+        active.feed.publish(
+            source="note",
+            tag="script",
+            text=f"script '{row.name}' {verb}",
+            code=row.code,
+        )
+
+
+def run_script(scan_id: int, script_id: int) -> dict:
+    """Run one of the scan's scripts against the active session (FR-D16). An
+    unapproved agent draft (status=proposed) is REFUSED - the FR-D19 approval
+    gate. In the fake posture this marks the script running (flag-tracking);
+    real frida injection is an owner manual checkpoint. Mirrors a ``note``
+    event into the live feed."""
+    active = _require_dynamic_session(scan_id)
+    row = _load_managed_script(scan_id, script_id)
+    if row.status != "ready":
+        raise ToolError(
+            f"script '{row.name}' is an unapproved agent draft "
+            f"(status={row.status}) - it must be approved in the scripts panel "
+            "before it can run (FR-D19: no silent execution of agent-authored "
+            "scripts)"
+        )
+    if active.scripts is not None:
+        active.scripts.start(script_id)
+    _publish_script_note(active, row, "started")
+    return {"id": row.id, "name": row.name, "running": True}
+
+
+def stop_script(scan_id: int, script_id: int) -> dict:
+    """Stop one of the scan's scripts individually (FR-D15: stop any active
+    script). Idempotent. An unapproved agent draft is refused (FR-D19 - it can
+    never have been started). Mirrors a ``note`` event into the live feed."""
+    active = _require_dynamic_session(scan_id)
+    row = _load_managed_script(scan_id, script_id)
+    if row.status != "ready":
+        raise ToolError(
+            f"script '{row.name}' is an unapproved agent draft "
+            f"(status={row.status}) - approve it before managing it (FR-D19)"
+        )
+    if active.scripts is not None:
+        active.scripts.stop(script_id)
+    _publish_script_note(active, row, "stopped")
+    return {"id": row.id, "name": row.name, "running": False}
 
 
 # ---- M8 edit tools (Android-only, decode-ready gated) -----------------------
@@ -1377,6 +1652,133 @@ TOOL_SCHEMAS: list[dict] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "attach_session",
+            "description": (
+                "The scan has a LIVE dynamic session (frida attached to the "
+                "running app). Report the session state: platform, device, "
+                "connection type, frida-server version, target PID, and "
+                "root/jailbreak status. OBSERVE ONLY - never attach a device "
+                "yourself; the session is started via the dashboard connect "
+                "flow. Errors cleanly when no session is live for this scan."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_active_scripts",
+            "description": (
+                "Which of this scan's frida scripts are currently RUNNING "
+                "against the active session (built-in, manual, or approved "
+                "agent scripts). Returns a list of running script ids + "
+                "names. Use before run_script/stop_script to know the state."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "draft_frida_script",
+            "description": (
+                "Store an AGENT-AUTHORED frida script DRAFT for the active "
+                "session's platform (FR-D18). Compose the FULL frida JS body "
+                "yourself for the natural-language request - Android hooks "
+                "Java/OkHttp/TrustManager (Java.perform), iOS hooks "
+                "ObjC/SecTrust/NSURLSession (ObjC.schedulePerformBlock). The "
+                "draft is stored as status=proposed and is NEVER approved or "
+                "run automatically - the tester must approve it in the "
+                "scripts panel first (FR-D19). After storing, tell the user "
+                "the draft is ready for review; never claim it was approved "
+                "or ran."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "request": {
+                        "type": "string",
+                        "description": (
+                            "The natural-language request this draft fulfils "
+                            "(e.g. 'log SSL keys', 'bypass the pinning check')"
+                        ),
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "The FULL frida JS script body you composed",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Optional short script name (defaults to the request)",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "Optional short human-readable description of what "
+                            "the script hooks and why"
+                        ),
+                    },
+                },
+                "required": ["request", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_script",
+            "description": (
+                "Run a READY frida script (built-in, manual, or an approved "
+                "agent script) against the active session, by script id. "
+                "Refuses an unapproved agent draft (FR-D19 approval gate). "
+                "Get script ids from the session's script list/attach_session "
+                "context. In the current build run/stop are flag-tracking."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "script_id": {
+                        "type": "integer",
+                        "description": "The script's id in the per-scan library",
+                    },
+                },
+                "required": ["script_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "stop_script",
+            "description": (
+                "Stop a running frida script of this scan, by script id "
+                "(FR-D15: stop any active script). Idempotent - stopping an "
+                "already-stopped script is a no-op. Refuses an unapproved "
+                "agent draft (FR-D19)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "script_id": {
+                        "type": "integer",
+                        "description": "The script's id in the per-scan library",
+                    },
+                },
+                "required": ["script_id"],
+            },
+        },
+    },
 ]
 
 _HANDLERS = {
@@ -1409,6 +1811,22 @@ _HANDLERS = {
     # multi-file edit plan (see app.analysis.edit_tasks).
     "write_task_list": lambda scan_id, a: write_task_list(scan_id, a["content"]),
     "read_task_list": lambda scan_id, a: read_task_list(scan_id),
+    # M16: active-session-gated dynamic tools - the handlers re-check the
+    # live-session-for-this-scan gate defensively (a raw API caller can never
+    # draft/run/stop against a session that isn't live or belongs to another
+    # scan). draft_frida_script stores a proposed (unapproved) draft; run_script
+    # refuses proposed rows (FR-D19 approval gate).
+    "attach_session": lambda scan_id, a: attach_session(scan_id),
+    "list_active_scripts": lambda scan_id, a: list_active_scripts(scan_id),
+    "draft_frida_script": lambda scan_id, a: draft_frida_script(
+        scan_id,
+        a.get("request", ""),
+        a.get("body", ""),
+        a.get("name", ""),
+        a.get("description", ""),
+    ),
+    "run_script": lambda scan_id, a: run_script(scan_id, int(a["script_id"])),
+    "stop_script": lambda scan_id, a: stop_script(scan_id, int(a["script_id"])),
 }
 
 
@@ -1417,6 +1835,7 @@ def schemas_for_platform(
     *,
     web_research_enabled: bool = False,
     edit_tools_enabled: bool = False,
+    dynamic_tools_enabled: bool = False,
 ) -> list[dict]:
     """Tool schemas offered to a model for a scan's platform + web gating.
 
@@ -1434,6 +1853,13 @@ def schemas_for_platform(
     M8: the edit tools (``read_editable_file``/``propose_smali_edit``) are
     appended only when ``edit_tools_enabled`` holds (Android + apktool decode
     ready - ``edit_tools_allowed``) - same never-even-seen rule.
+
+    M16: the dynamic tools (``attach_session``/``list_active_scripts``/
+    ``draft_frida_script``/``run_script``/``stop_script``) are appended only
+    when ``dynamic_tools_enabled`` holds (a live dynamic session for the scan
+    - ``dynamic_tools_allowed``) - same rule. Both platforms get all five
+    (dynamic sessions exist for Android AND iOS in V2); the platform
+    awareness is the draft being tagged with the active session's platform.
     """
     return [
         s
@@ -1441,6 +1867,9 @@ def schemas_for_platform(
         if not (s["function"]["name"] in _ANDROID_ONLY_TOOLS and platform != "android")
         and not (s["function"]["name"] in _WEB_TOOLS and not web_research_enabled)
         and not (s["function"]["name"] in _M8_EDIT_TOOLS and not edit_tools_enabled)
+        and not (
+            s["function"]["name"] in _M16_DYNAMIC_TOOLS and not dynamic_tools_enabled
+        )
     ]
 
 

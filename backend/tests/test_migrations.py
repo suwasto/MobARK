@@ -682,3 +682,63 @@ def test_alembic_0018_dynamic_sessions_up_and_down(tmp_path, monkeypatch):
     inspector = inspect(engine)
     assert "dynamic_sessions" not in set(inspector.get_table_names())
     engine.dispose()
+
+
+def test_alembic_0019_dynamic_scripts_up_and_down(tmp_path, monkeypatch):
+    """M15 (V2) migration 0019: the dynamic_scripts table - up creates it with
+    the per-scan script columns (origin/code/platform) + scan FK index; down
+    drops it."""
+    db_url = f"sqlite:///{tmp_path / 'scripts-mig.db'}"
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "dynamic_scripts" in set(inspector.get_table_names())
+    columns = {c["name"] for c in inspector.get_columns("dynamic_scripts")}
+    assert {
+        "id", "scan_id", "name", "body", "platform", "origin",
+        "description", "code", "created_at",
+    } <= columns
+    assert "ix_dynamic_scripts_scan_id" in {
+        ix["name"] for ix in inspector.get_indexes("dynamic_scripts")
+    }
+    engine.dispose()
+
+    command.downgrade(cfg, "0018")
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "dynamic_scripts" not in set(inspector.get_table_names())
+    engine.dispose()
+
+
+def test_alembic_0020_dynamic_scripts_status_up_and_down(tmp_path, monkeypatch):
+    """M16 (V2) migration 0020: dynamic_scripts.status - the FR-D19
+    agent-draft approval column (proposed|ready, default ready). Up adds it
+    with the ready default; down drops it."""
+    db_url = f"sqlite:///{tmp_path / 'scripts-status-mig.db'}"
+    monkeypatch.setenv("MOBARK_DATABASE_URL", db_url)
+
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    cols = {
+        c["name"]: c
+        for c in inspector.get_columns("dynamic_scripts")
+    }
+    assert "status" in cols
+    # default ready: existing (built-in/manual) rows backfill ready
+    assert cols["status"]["default"] == "'ready'"
+    engine.dispose()
+
+    command.downgrade(cfg, "0019")
+    engine = create_engine(db_url)
+    inspector = inspect(engine)
+    assert "status" not in {
+        c["name"] for c in inspector.get_columns("dynamic_scripts")
+    }
+    engine.dispose()

@@ -14,6 +14,7 @@ known failure maps to a clean HTTP error via ``DynamicError`` (never a raw
 """
 from __future__ import annotations
 
+import base64
 import json
 import queue
 import threading
@@ -24,7 +25,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import DbSession, require_scan_access
-from app.dynamic import base, events, scripts
+from app.dynamic import base, events, mirror, scripts
 from app.dynamic.base import (
     DynamicError,
     NoActiveSession,
@@ -39,6 +40,8 @@ from app.schemas import (
     DynamicDevice,
     DynamicEvent,
     DynamicEventCreate,
+    DynamicMirrorPublish,
+    DynamicMirrorState,
     DynamicPreflight,
     DynamicSessionConnect,
     DynamicSessionRead,
@@ -169,6 +172,12 @@ def connect_session(payload: DynamicSessionConnect, db: DbSession) -> DynamicSes
                 # M12: the session owns its live event feed (FR-D10) - torn
                 # down with the session on disconnect.
                 feed=events.EventFeed(payload.platform),
+                # M13: the session owns its live screen mirror (FR-D6/D7/D8).
+                # continuous=True on Android (scrcpy relay), False on iOS
+                # (polled screenshotr) - the FR-D7 fidelity flag.
+                mirror=mirror.MirrorRelay(
+                    payload.platform, continuous=payload.platform == "android"
+                ),
             )
         )
     except SessionConflict:
@@ -196,6 +205,11 @@ def disconnect_session(db: DbSession) -> DynamicSessionRead:
     except DynamicError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     finally:
+        # FR-D4: stop the mirror stream too, then release the single-active
+        # slot (the mirror/feed die with the ActiveSession - no leak into the
+        # next session).
+        if active.mirror is not None:
+            active.mirror.stop()
         base.end_session()
     row = db.get(DynamicSession, active.row_id)
     if row is not None:
@@ -322,3 +336,60 @@ def list_default_hooks(platform: str | None = None) -> list[DynamicDefaultHook]:
     if platform not in scripts.available_platforms():
         raise DynamicError(400, f"unknown platform {platform!r} (expected android|ios)")
     return [DynamicDefaultHook(**h) for h in scripts.default_hooks(platform)]
+
+
+# ---- M13: device mirror relay (FR-D6/D7/D8) ----
+
+def _require_mirror() -> mirror.MirrorRelay:
+    """The active session's mirror relay, or a clean 404 when none is live."""
+    active = base.active_session()
+    if active is None or active.mirror is None:
+        raise NoActiveSession()
+    return active.mirror
+
+
+@router.get("/session/mirror", response_model=DynamicMirrorState)
+def mirror_state() -> DynamicMirrorState:
+    """The ACTIVE session's mirror state (FR-D7): the continuous|polled
+    fidelity flag, live status, frame count, latest frame + latency. 404 when
+    no session is live."""
+    return DynamicMirrorState(**_require_mirror().stats())
+
+
+@router.post("/session/mirror/publish", response_model=DynamicMirrorState, status_code=201)
+def mirror_publish(payload: DynamicMirrorPublish) -> DynamicMirrorState:
+    """Push a frame into the active session's mirror relay. The HTTP fallback
+    / test surface that drives the mirror in the fake-device posture - the
+    later per-platform capture path publishes the same bytes so real frames
+    land in the same relay unchanged. ``data`` is base64 (a WS message is
+    binary; this is the JSON fallback). Never raises on an oversized/empty
+    frame - the relay drops it."""
+    relay = _require_mirror()
+    data = base64.b64decode(payload.data) if payload.data else b""
+    relay.publish(
+        data, codec=payload.encoding or ("jpeg" if relay.polled else "h264")
+    )
+    return _mirror_state_read(relay)
+
+
+@router.post("/session/mirror/start", response_model=DynamicMirrorState)
+def mirror_start() -> DynamicMirrorState:
+    """Start the ACTIVE session's frame source (idempotent). In the fake
+    posture this marks the relay running; the real per-platform capture is an
+    owner manual checkpoint."""
+    relay = _require_mirror()
+    relay.start()
+    return _mirror_state_read(relay)
+
+
+@router.post("/session/mirror/stop", response_model=DynamicMirrorState)
+def mirror_stop() -> DynamicMirrorState:
+    """Stop the ACTIVE session's frame source (idempotent; FR-D4 teardown
+    always stops it)."""
+    relay = _require_mirror()
+    relay.stop()
+    return _mirror_state_read(relay)
+
+
+def _mirror_state_read(relay: mirror.MirrorRelay) -> DynamicMirrorState:
+    return DynamicMirrorState(**relay.stats())

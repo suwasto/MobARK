@@ -199,3 +199,30 @@ risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).
   tokens, low value; authoring stays LLM-driven M16 / manual M15). Full
   backend suite green (927 passed / 1 skipped / 13 deselected, +16) + ruff
   clean; frontend untouched.
+
+- **Aug 28, 2026 — DONE: M13 (V2 dynamic) device mirroring.** FR-D6/D7/D8.
+  Mirror is the codebase's FIRST WebSocket (binary H.264/JPEG frames don't
+  fit the SSE event feed, which stays as-is). `dynamic/mirror.py` `MirrorRelay`
+  = the event-feed analogue (bounded frame store + subscriber fan-out + live
+  latency ping/pong + the honest `continuous|polled` fidelity flag for
+  FR-D7), hung off `ActiveSession.mirror` (created at connect, torn down on
+  disconnect). Per-platform frame sources: `android/mirror.py` (continuous
+  scrcpy-protocol, `*_CMD`-guarded, clean DynamicError 502 on missing tool)
+  + `ios/mirror.py` (polled `screenshotr`, `polled=True`). **Critical
+  routing constraint (verified with a probe): a router-level
+  `Depends(get_current_user)` is `Request`-typed and breaks WebSocket routes,
+  so the mirror WS lives on a dedicated `mirror_router` included WITHOUT the
+  auth list-dep and authenticates IN-HANDLER** (cookie → `user_from_token`
+  → `require_scan_access` on the active session's scan_id; 4401 bad-session /
+  4404 no-session-or-foreign, never a leak; auth-off parity passes).
+  Guarded control API (sits under `get_current_user`): `GET /session/mirror`
+  (state) · `POST /session/mirror/publish` (base64 frame, the fake-posture
+  HTTP fallback) · `POST .../start` + `.../stop` (live flag). The bridge
+  thread polls the send queue with `get_nowait`+sleep — a blocking
+  `asyncio.to_thread(queue.get)` thread is uncancellable and hangs the event
+  loop teardown (debugged via a hung TestClient). Config: `scrcpy_cmd`,
+  `mirror_poll_interval_seconds`, `mirror_frame_bytes`. Full backend suite
+  green (952 passed / 1 skipped / 13 deselected, +25) + ruff clean;
+  frontend untouched — **the Mirror panel UI defers to M18** (sidebar is the
+  M18 dashboard contract; owner approved backend-first at kickoff). Real
+  on-device mirroring = owner manual checkpoint.

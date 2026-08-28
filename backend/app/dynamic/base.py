@@ -60,6 +60,11 @@ class ActiveSession:
     ``feed`` is the M12 live event feed (FR-D10) for this session - a bounded
     ring buffer + SSE subscriber fan-out, ephemeral, torn down with the
     session. Set by the router at connect time (after the platform is known).
+
+    ``mirror`` is the M13 live screen mirror (FR-D6/D7/D8) - a
+    ``MirrorRelay`` carrying the latest frame + ``continuous|polled``
+    fidelity flag + latency, ephemeral, torn down with the session. Created
+    at connect time, stopped + released on disconnect (FR-D4).
     """
 
     row_id: int
@@ -70,6 +75,7 @@ class ActiveSession:
     backend: Any
     meta: dict[str, Any] = field(default_factory=dict)
     feed: Any = field(default=None, repr=False)
+    mirror: Any = field(default=None, repr=False)
 
     @property
     def connection_type(self) -> str:

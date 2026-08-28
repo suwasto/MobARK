@@ -224,6 +224,16 @@ class Settings(BaseSettings):
     # Both empty = the Corellium-backed iOS path is disabled/off by default.
     corellium_base_url: str | None = None
     corellium_api_key: str | None = None
+    # ---- M13 device mirroring (FR-D6/D7/D8) ----
+    # Android continuous mirroring transport (scrcpy-protocol relay). Empty =
+    # resolve from PATH; in the container it points at the bundled install.
+    scrcpy_cmd: str | None = None
+    # iOS polled-mirror cadence (screenshotr) in seconds - iOS is polled, not
+    # a continuous stream (FR-H7); lower-fidelity by design.
+    mirror_poll_interval_seconds: int = 2
+    # Upper bound for a single mirror frame (H.264 NAL / JPEG). Oversized
+    # frames are dropped by the relay, never buffered or streamed.
+    mirror_frame_bytes: int = 8 * 1024 * 1024
 
 
 settings = Settings()

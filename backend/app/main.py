@@ -10,6 +10,7 @@ from app.api.routes import health, models, scans, search
 from app.auth import routes as auth_routes
 from app.config import settings
 from app.dynamic.base import DynamicError
+from app.dynamic.mirror_router import router as mirror_router
 from app.dynamic.router import router as dynamic_router
 
 
@@ -46,6 +47,12 @@ app.include_router(scans.router, prefix="/api/v1", dependencies=_AUTH_DEPENDENCI
 app.include_router(models.router, prefix="/api/v1", dependencies=_AUTH_DEPENDENCIES)
 app.include_router(search.router, prefix="/api/v1", dependencies=_AUTH_DEPENDENCIES)
 app.include_router(dynamic_router, prefix="/api/v1", dependencies=_AUTH_DEPENDENCIES)
+# M13: the mirror WebSocket route CANNOT ride a router whose list-deps
+# include the Request-typed get_current_user (FastAPI can't build a Request
+# from a websocket scope - verified). It authenticates IN-HANDLER (cookie ->
+# session -> scan access) and 401/404-closes on failure. Included without
+# the auth list-dep; the origin/cookie posture is unchanged.
+app.include_router(mirror_router, prefix="/api/v1")
 
 
 @app.get("/")

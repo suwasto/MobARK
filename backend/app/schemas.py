@@ -1020,3 +1020,30 @@ class DynamicSessionRead(BaseModel):
     @field_serializer("created_at", "started_at", "ended_at")
     def _ser_ts(self, value: datetime | None) -> datetime | None:
         return _utc_aware(value) if value is not None else None
+
+
+class DynamicMirrorState(BaseModel):
+    """The ACTIVE session's mirror state (M13, FR-D7). ``continuous`` is the
+    honest fidelity flag: True = Android scrcpy-style relay, False (``polled``)
+    = iOS screenshotr polls. ``live`` is the frame source's running state;
+    ``last_frame`` carries the latest frame's control envelope (no binary);
+    ``latency_ms`` is the WS ping/pong round-trip (None until first ping)."""
+
+    platform: str
+    continuous: bool
+    polled: bool
+    live: bool
+    frame_count: int
+    last_frame: dict | None = None
+    latency_ms: int | None = None
+    subscribers: int = 0
+
+
+class DynamicMirrorPublish(BaseModel):
+    """POST /api/v1/dynamic/session/mirror/publish body - the HTTP fallback /
+    test surface that pushes a frame into the mirror relay. ``data`` is
+    base64-encoded binary; ``encoding`` hints the format (h264 | jpeg),
+    defaulted by the relay from the platform's fidelity flag."""
+
+    data: str = ""
+    encoding: str | None = None

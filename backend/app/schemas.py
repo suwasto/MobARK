@@ -630,6 +630,38 @@ class WebResearchUpdate(BaseModel):
     enabled: bool
 
 
+class CorelliumConfigRead(BaseModel):
+    """One configured Corellium backend (M17, FR-D5a - opt-in paid iOS path).
+    The API key is never returned - only ``has_api_key`` (same honesty rule as
+    model/search backends). ``configured`` is the usable pair (base URL + a
+    plaintext-resolvable key)."""
+
+    base_url: str = ""
+    has_api_key: bool = False
+    configured: bool = False
+    enabled: bool = False
+
+
+class CorelliumConfigUpsert(BaseModel):
+    """Runtime edits to the Corellium config. An empty ``api_key`` clears the
+    stored key; None leaves it unchanged. An empty ``base_url`` clears the
+    whole config (unconfigured again)."""
+
+    base_url: str | None = None
+    api_key: str | None = None
+    enabled: bool | None = None
+
+
+class CorelliumHealth(BaseModel):
+    """Reachability of the configured Corellium endpoint + how many virtual
+    iOS instances the API key can see (the Settings probe)."""
+
+    configured: bool = False
+    reachable: bool = False
+    instance_count: int = 0
+    error: str | None = None
+
+
 # ---- Dependencies tab (local-first inventory) ----
 
 
@@ -1047,3 +1079,105 @@ class DynamicMirrorPublish(BaseModel):
 
     data: str = ""
     encoding: str | None = None
+
+
+class DynamicTrafficRow(BaseModel):
+    """One captured request (M14, FR-D12). ``method``/``path``/``status`` are
+    the FR-D12 surface; ``host`` the request authority; ``flagged`` + ``flags``
+    the FR-D13 signal (never the raw body - bodies are scanned then dropped)."""
+
+    id: int
+    ts: str
+    method: str
+    path: str
+    host: str | None = None
+    status: int | None = None
+    size_bytes: int = 0
+    flagged: bool = False
+    flags: list[dict] = []
+
+
+class DynamicTrafficCreate(BaseModel):
+    """POST /api/v1/dynamic/session/traffic body - the HTTP fallback / test
+    surface that pushes one captured request into the log. ``method``/``path``
+    required; ``request_body``/``response_body`` optional (run through the
+    FR-D13 detector, never retained); ``ts``/``platform`` are stamped by the
+    backend from the active session, never the caller."""
+
+    method: str
+    path: str
+    host: str | None = None
+    status: int | None = None
+    size_bytes: int = 0
+    request_body: str | None = None
+    response_body: str | None = None
+
+
+class DynamicTrafficLog(BaseModel):
+    """The ACTIVE session's traffic log (FR-D14): the buffered rows, the
+    running captured-request count (``total`` - never shrinks when the buffer
+    drops), and the capture-active flag."""
+
+    platform: str
+    capture_active: bool
+    total: int
+    rows: list[DynamicTrafficRow]
+
+
+class DynamicCaStatus(BaseModel):
+    """The FR-D14a CA-trust gate. ``required``: True only for iOS (Android
+    trusts the CA via device settings, no profile step). ``trusted``: whether
+    the mitmproxy CA config profile is installed + trusted (meaningful only
+    when ``required``). ``profile_available``: whether the ``.mobileconfig``
+    artifact exists to serve to the tester."""
+
+    platform: str
+    required: bool
+    trusted: bool | None = None
+    profile_available: bool = False
+
+
+class DynamicScriptRead(BaseModel):
+    """One per-scan frida script (M15, FR-D15/D16/D17). ``origin`` is
+    builtin|manual|agent; ``code`` is the stable M12 default-hook id (null
+    for a manual script). ``script`` is the JS body. ``running`` is the
+    process-local LIVE flag (which scripts are active - FR-D15), read from
+    the ScriptRunner, NOT persisted. ``status`` (proposed|ready) is the M16
+    approval-gate column: an agent-authored draft is ``proposed`` until the
+    tester approves it (FR-D19)."""
+
+    id: int
+    scan_id: int
+    name: str
+    platform: str
+    origin: str
+    status: str = "ready"
+    description: str | None = None
+    code: str | None = None
+    script: str
+    running: bool = False
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def _ser_ts(self, value: datetime) -> datetime:
+        return _utc_aware(value)
+
+
+class DynamicScriptCreate(BaseModel):
+    """POST /api/v1/dynamic/session/scripts/managed body - author a manual
+    script (FR-D16). ``platform`` is taken from the active session, never the
+    caller; ``origin`` is set to ``manual`` server-side."""
+
+    name: str
+    body: str
+    description: str | None = None
+
+
+class DynamicScriptUpdate(BaseModel):
+    """PUT /api/v1/dynamic/session/scripts/managed/{id} body - edit a manual
+    script (name/body/description all optional; a built-in or agent script is
+    read-only and 400s)."""
+
+    name: str | None = None
+    body: str | None = None
+    description: str | None = None

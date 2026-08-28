@@ -22,10 +22,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from sqlalchemy import select
 
 from app.api.deps import DbSession, require_scan_access
-from app.dynamic import base, events, mirror, scripts
+from app.dynamic import base, events, mirror, script_runner, scripts, traffic
+from app.dynamic.android import traffic as android_traffic
 from app.dynamic.base import (
     DynamicError,
     NoActiveSession,
@@ -33,9 +35,11 @@ from app.dynamic.base import (
     SessionConflict,
 )
 from app.dynamic.client import get_backend
-from app.models import DynamicSession
+from app.dynamic.ios import traffic as ios_traffic
+from app.models import DynamicScript, DynamicSession
 from app.request_ctx import current_user_id
 from app.schemas import (
+    DynamicCaStatus,
     DynamicDefaultHook,
     DynamicDevice,
     DynamicEvent,
@@ -43,8 +47,14 @@ from app.schemas import (
     DynamicMirrorPublish,
     DynamicMirrorState,
     DynamicPreflight,
+    DynamicScriptCreate,
+    DynamicScriptRead,
+    DynamicScriptUpdate,
     DynamicSessionConnect,
     DynamicSessionRead,
+    DynamicTrafficCreate,
+    DynamicTrafficLog,
+    DynamicTrafficRow,
 )
 
 router = APIRouter(prefix="/dynamic", tags=["dynamic"])
@@ -136,7 +146,12 @@ def connect_session(payload: DynamicSessionConnect, db: DbSession) -> DynamicSes
             platform=payload.platform,
             state="error",
             device_id=payload.device_id,
-            connection_type="adb" if payload.platform == "android" else "ssh",
+            connection_type=(
+                "corellium"
+                if payload.device_id.startswith("corellium:")
+                else ("adb" if payload.platform == "android" else "ssh")
+            ),
+            corellium_enabled=payload.device_id.startswith("corellium:"),
             last_error=exc.message,
         )
         db.add(row)
@@ -153,13 +168,18 @@ def connect_session(payload: DynamicSessionConnect, db: DbSession) -> DynamicSes
         target_pid=meta.get("target_pid"),
         root_status=meta.get("root_status"),
         jailbreak_method=meta.get("jailbreak_method"),
-        corellium_enabled=False,
+        corellium_enabled=bool(meta.get("corellium_enabled")),
         started_at=datetime.now(UTC),
     )
     db.add(row)
     db.commit()
     db.refresh(row)
     try:
+        # M12: the session owns its live event feed (FR-D10) - torn down
+        # with the session on disconnect. The SAME feed instance drives the
+        # M14 FR-D10 ``net`` events so every captured request mirrors into
+        # the live feed (traffic.TrafficLog publishes them).
+        session_feed = events.EventFeed(payload.platform)
         base.begin_session(
             base.ActiveSession(
                 row_id=row.id,
@@ -169,15 +189,20 @@ def connect_session(payload: DynamicSessionConnect, db: DbSession) -> DynamicSes
                 device_name=row.device_name or payload.device_id,
                 backend=backend,
                 meta=meta,
-                # M12: the session owns its live event feed (FR-D10) - torn
-                # down with the session on disconnect.
-                feed=events.EventFeed(payload.platform),
+                feed=session_feed,
                 # M13: the session owns its live screen mirror (FR-D6/D7/D8).
                 # continuous=True on Android (scrcpy relay), False on iOS
                 # (polled screenshotr) - the FR-D7 fidelity flag.
                 mirror=mirror.MirrorRelay(
                     payload.platform, continuous=payload.platform == "android"
                 ),
+                # M14: the session owns its captured-traffic log (FR-D12/D13/
+                # D14). The same feed drives the FR-D10 ``net`` events.
+                traffic=traffic.TrafficLog(payload.platform, feed=session_feed),
+                # M15: the session owns its per-scan script runner (FR-D15/D16/
+                # D17) - flag-tracking which scripts are running in the fake
+                # posture (real frida injection is an owner manual checkpoint).
+                scripts=script_runner.ScriptRunner(),
             )
         )
     except SessionConflict:
@@ -205,11 +230,15 @@ def disconnect_session(db: DbSession) -> DynamicSessionRead:
     except DynamicError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     finally:
-        # FR-D4: stop the mirror stream too, then release the single-active
-        # slot (the mirror/feed die with the ActiveSession - no leak into the
-        # next session).
+        # FR-D4: stop the mirror stream + the traffic capture too, then
+        # release the single-active slot (mirror/feed/traffic/scripts die with
+        # the ActiveSession - no leak into the next session).
         if active.mirror is not None:
             active.mirror.stop()
+        if active.traffic is not None:
+            active.traffic.stop()
+        if active.scripts is not None:
+            active.scripts.clear()
         base.end_session()
     row = db.get(DynamicSession, active.row_id)
     if row is not None:
@@ -393,3 +422,414 @@ def mirror_stop() -> DynamicMirrorState:
 
 def _mirror_state_read(relay: mirror.MirrorRelay) -> DynamicMirrorState:
     return DynamicMirrorState(**relay.stats())
+
+
+# ---- M14: network traffic capture (FR-D12/D13/D14/D14a) ----
+
+
+def _require_traffic() -> traffic.TrafficLog:
+    """The active session's captured-traffic log, or a clean 404 when none is
+    live (scoped to the single active session, like the feed/mirror)."""
+    active = base.active_session()
+    if active is None or active.traffic is None:
+        raise NoActiveSession()
+    return active.traffic
+
+
+@router.get("/session/traffic", response_model=DynamicTrafficLog)
+def session_traffic() -> DynamicTrafficLog:
+    """The ACTIVE session's captured traffic (FR-D12/D14): the buffered rows
+    ({method, path, status} + the FR-D13 flag signal), the running request
+    count, and the capture-active flag. 404 when no session is live."""
+    return DynamicTrafficLog(**(_require_traffic().snapshot()))
+
+
+@router.post("/session/traffic", response_model=DynamicTrafficRow, status_code=201)
+def post_traffic(payload: DynamicTrafficCreate) -> DynamicTrafficRow:
+    """Push one captured request into the active session's traffic log. This
+    is the HTTP fallback / test surface that drives the log in the fake
+    posture - the later capture path publishes the same data so real flows
+    land here unchanged. Bodies (optional) run through the FR-D13 detector
+    and are never retained; each row also mirrors into the FR-D10 feed as a
+    ``net`` event. ``platform``/``ts`` are stamped by the backend from the
+    active session, never the caller."""
+    row = _require_traffic().publish(
+        method=payload.method,
+        path=payload.path,
+        host=payload.host,
+        status=payload.status,
+        size_bytes=payload.size_bytes,
+        request_body=payload.request_body,
+        response_body=payload.response_body,
+    )
+    return DynamicTrafficRow(**row.asdict())
+
+
+@router.post("/session/traffic/start", response_model=DynamicTrafficLog)
+def traffic_start() -> DynamicTrafficLog:
+    """Start capturing traffic for the ACTIVE session (idempotent). The
+    platform's capture tool is resolved first - a clean 502 when mitmdump is
+    missing (never a crash). FR-D4 teardown always stops capture."""
+    _require_traffic()
+    active = base.active_session()
+    if active.platform == "android":
+        android_traffic.make_source().check()
+    else:
+        ios_traffic.make_source().check()
+    active.traffic.start()
+    return DynamicTrafficLog(**active.traffic.snapshot())
+
+
+@router.post("/session/traffic/stop", response_model=DynamicTrafficLog)
+def traffic_stop() -> DynamicTrafficLog:
+    """Stop capturing traffic for the ACTIVE session (idempotent)."""
+    log = _require_traffic()
+    log.stop()
+    return DynamicTrafficLog(**log.snapshot())
+
+
+@router.get("/session/traffic/ca-status", response_model=DynamicCaStatus)
+def traffic_ca_status() -> DynamicCaStatus:
+    """The FR-D14a CA-trust gate. iOS: the config-profile step is REQUIRED -
+    ``trusted`` reports whether the profile is installed + trusted and
+    ``profile_available`` whether the ``.mobileconfig`` artifact exists to
+    serve. Android: no profile step (``required=False`` - the CA is trusted
+    via device settings). 404 when no session is live."""
+    active = base.active_session()
+    if active is None:
+        raise NoActiveSession()
+    if active.platform == "android":
+        return DynamicCaStatus(
+            platform="android", required=False, trusted=None, profile_available=False
+        )
+    source = ios_traffic.make_source()
+    profile = source.ca_profile_path()
+    return DynamicCaStatus(
+        platform="ios",
+        required=True,
+        trusted=source.ca_trusted(),
+        profile_available=profile is not None,
+    )
+
+
+@router.get("/session/traffic/ca-profile")
+def traffic_ca_profile() -> FileResponse:
+    """Serve the mitmproxy CA configuration profile (``.mobileconfig``) for
+    the tester to install on an iOS device (FR-D14a). iOS-only: Android
+    trusts the CA via device settings and 400s here. A clean 404 when no
+    session is live, the session is Android, or no profile artifact exists."""
+    active = base.active_session()
+    if active is None:
+        raise NoActiveSession()
+    if active.platform != "ios":
+        raise DynamicError(
+            400,
+            "the CA configuration profile is iOS-only - Android trusts the "
+            "CA via device settings",
+        )
+    source = ios_traffic.make_source()
+    profile = source.ca_profile_path()
+    if profile is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "the mitmproxy CA configuration profile is not available yet "
+                "- generate it on the iOS device path first"
+            ),
+        )
+    return FileResponse(
+        profile,
+        media_type="application/x-apple-aspen-config",
+        filename=Path(profile).name,
+    )
+
+
+# ---- M15: per-scan script management (FR-D15/D16/D17) ----
+
+# Validation caps for a manual script (FR-D16: name + JS body + description).
+_SCRIPT_NAME_MAX = 128
+_SCRIPT_BODY_MAX = 256 * 1024
+_SCRIPT_DESC_MAX = 2000
+
+
+def _require_runner() -> tuple[base.ActiveSession, script_runner.ScriptRunner]:
+    """The active session + its per-scan script runner, or a clean 404 when
+    none is live (scoped to the single active session, like feed/mirror/
+    traffic)."""
+    active = base.active_session()
+    if active is None or active.scripts is None:
+        raise NoActiveSession()
+    return active, active.scripts
+
+
+def _seed_builtins(db: DbSession, scan_id: int, platform: str) -> None:
+    """Seed the scan's built-in library from the M12 default hooks, idempotent
+    (rows keyed by scan_id + the stable hook ``code``). This is the M15
+    built-in-library seed - no static-finding auto-suggestion (FR-D11 was
+    removed at owner direction in M12); the built-ins are simply listed and
+    picked manually (FR-D15/D16)."""
+    existing = {
+        r.code
+        for r in db.scalars(
+            select(DynamicScript).where(
+                DynamicScript.scan_id == scan_id,
+                DynamicScript.origin == "builtin",
+            )
+        )
+    }
+    for hook in scripts.default_hooks(platform):
+        if hook["id"] not in existing:
+            db.add(
+                DynamicScript(
+                    scan_id=scan_id,
+                    name=hook["name"],
+                    body=hook["script"],
+                    platform=platform,
+                    origin="builtin",
+                    description=hook["description"],
+                    code=hook["id"],
+                    status="ready",
+                )
+            )
+    db.commit()
+
+
+def _script_read(
+    row: DynamicScript, runner: script_runner.ScriptRunner | None = None
+) -> DynamicScriptRead:
+    running = runner.is_running(row.id) if runner is not None else False
+    return DynamicScriptRead(
+        id=row.id,
+        scan_id=row.scan_id,
+        name=row.name,
+        platform=row.platform,
+        origin=row.origin,
+        status=row.status,
+        description=row.description,
+        code=row.code,
+        script=row.body,
+        running=running,
+        created_at=row.created_at,
+    )
+
+
+def _get_managed_script(
+    db: DbSession, scan_id: int, script_id: int
+) -> DynamicScript:
+    """A script row scoped to the active session's scan (foreign 404 - the
+    per-scan isolation rule, no existence leak)."""
+    row = db.scalar(
+        select(DynamicScript).where(
+            DynamicScript.id == script_id,
+            DynamicScript.scan_id == scan_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=404, detail="script not found for this scan"
+        )
+    return row
+
+
+def _publish_script_event(active: base.ActiveSession, row: DynamicScript, verb: str) -> None:
+    """Mirror a script lifecycle change into the FR-D10 live feed (the
+    dual-surface pattern: the script is a first-class citizen of the feed)."""
+    if active.feed is not None:
+        active.feed.publish(
+            source="note", tag="script", text=f"script '{row.name}' {verb}", code=row.code
+        )
+
+
+@router.get("/session/scripts/managed", response_model=list[DynamicScriptRead])
+def list_managed_scripts(db: DbSession) -> list[DynamicScriptRead]:
+    """The ACTIVE session's per-scan scripts (built-in + manual + agent), each
+    with the live ``running`` flag (FR-D15: view active scripts + stop any).
+    The built-in library is seeded lazily + idempotently. 404 when no session
+    is live. Platform-tagged: everything here is the active session's platform."""
+    active, runner = _require_runner()
+    _seed_builtins(db, active.scan_id, active.platform)
+    rows = db.scalars(
+        select(DynamicScript)
+        .where(DynamicScript.scan_id == active.scan_id)
+        .order_by(DynamicScript.id)
+    ).all()
+    return [_script_read(r, runner) for r in rows]
+
+
+@router.post(
+    "/session/scripts/managed", response_model=DynamicScriptRead, status_code=201
+)
+def create_managed_script(payload: DynamicScriptCreate, db: DbSession) -> DynamicScriptRead:
+    """Author a manual script (FR-D16): name + JS body + optional description.
+    ``origin`` is set to ``manual`` and ``platform`` to the active session's
+    platform (never the caller). Validates name/body bounds up front."""
+    active, runner = _require_runner()
+    name = payload.name.strip()
+    body = payload.body.strip()
+    if not name:
+        raise DynamicError(400, "script name is required")
+    if len(name) > _SCRIPT_NAME_MAX:
+        raise DynamicError(400, f"script name must be {_SCRIPT_NAME_MAX} chars or fewer")
+    if not body:
+        raise DynamicError(400, "script body is required")
+    if len(body) > _SCRIPT_BODY_MAX:
+        raise DynamicError(400, f"script body must be {_SCRIPT_BODY_MAX} chars or fewer")
+    desc = (payload.description or "").strip()
+    if len(desc) > _SCRIPT_DESC_MAX:
+        raise DynamicError(400, f"script description must be {_SCRIPT_DESC_MAX} chars or fewer")
+    row = DynamicScript(
+        scan_id=active.scan_id,
+        name=name,
+        body=body,
+        platform=active.platform,
+        origin="manual",
+        description=desc or None,
+        status="ready",
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _script_read(row, runner)
+
+
+@router.get(
+    "/session/scripts/managed/{script_id}", response_model=DynamicScriptRead
+)
+def get_managed_script(script_id: int, db: DbSession) -> DynamicScriptRead:
+    """One per-scan script (scoped to the active session's scan; foreign 404)."""
+    active, runner = _require_runner()
+    return _script_read(_get_managed_script(db, active.scan_id, script_id), runner)
+
+
+@router.put(
+    "/session/scripts/managed/{script_id}", response_model=DynamicScriptRead
+)
+def update_managed_script(
+    script_id: int, payload: DynamicScriptUpdate, db: DbSession
+) -> DynamicScriptRead:
+    """Edit a MANUAL script (name/body/description; all optional). A built-in
+    or agent script is read-only and 400s (FR-D16: manual authoring)."""
+    active, runner = _require_runner()
+    row = _get_managed_script(db, active.scan_id, script_id)
+    if row.origin != "manual":
+        raise DynamicError(
+            400,
+            "only manual scripts can be edited - built-in and agent scripts "
+            "are read-only",
+        )
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise DynamicError(400, "script name cannot be empty")
+        if len(name) > _SCRIPT_NAME_MAX:
+            raise DynamicError(400, f"script name must be {_SCRIPT_NAME_MAX} chars or fewer")
+        row.name = name
+    if payload.body is not None:
+        body = payload.body.strip()
+        if not body:
+            raise DynamicError(400, "script body cannot be empty")
+        if len(body) > _SCRIPT_BODY_MAX:
+            raise DynamicError(400, f"script body must be {_SCRIPT_BODY_MAX} chars or fewer")
+        row.body = body
+    if payload.description is not None:
+        desc = payload.description.strip()
+        if len(desc) > _SCRIPT_DESC_MAX:
+            raise DynamicError(400, f"script description must be {_SCRIPT_DESC_MAX} chars or fewer")
+        row.description = desc or None
+    db.commit()
+    db.refresh(row)
+    return _script_read(row, runner)
+
+
+@router.delete("/session/scripts/managed/{script_id}")
+def delete_managed_script(script_id: int, db: DbSession) -> dict:
+    """Delete a MANUAL script (stops it if running), or REJECT an
+    unapproved agent-authored draft (origin=agent, status=proposed - the
+    M16 rejection path). A built-in or an already-approved agent script is
+    read-only and 400s."""
+    active, runner = _require_runner()
+    row = _get_managed_script(db, active.scan_id, script_id)
+    if row.origin != "manual" and not (
+        row.origin == "agent" and row.status == "proposed"
+    ):
+        raise DynamicError(
+            400,
+            "only manual scripts can be deleted, or a still-unapproved agent "
+            "draft rejected - built-in and approved agent scripts are read-only",
+        )
+    runner.stop(script_id)
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
+def _require_ready(row: DynamicScript) -> None:
+    """The FR-D19 approval gate: an unapproved agent draft (status=proposed)
+    cannot run or be stopped - it is not a manageable script yet. Clean 400,
+    never a crash."""
+    if row.status != "ready":
+        raise DynamicError(
+            400,
+            f"script '{row.name}' is an unapproved agent draft "
+            f"(status={row.status}) - approve it first before running "
+            "(FR-D19: no silent execution of agent-authored scripts)",
+        )
+
+
+@router.post(
+    "/session/scripts/managed/{script_id}/run", response_model=DynamicScriptRead
+)
+def run_managed_script(script_id: int, db: DbSession) -> DynamicScriptRead:
+    """Run a per-scan script (FR-D16). In the fake posture this just marks it
+    running (flag-tracking); real frida injection of the body is an owner
+    manual checkpoint. An unapproved agent draft 400s (FR-D19 approval gate).
+    Mirrors a ``note`` event into the live feed. 404 when the script isn't in
+    the active session's scan."""
+    active, runner = _require_runner()
+    row = _get_managed_script(db, active.scan_id, script_id)
+    _require_ready(row)
+    runner.start(script_id)
+    _publish_script_event(active, row, "started")
+    return _script_read(row, runner)
+
+
+@router.post(
+    "/session/scripts/managed/{script_id}/stop", response_model=DynamicScriptRead
+)
+def stop_managed_script(script_id: int, db: DbSession) -> DynamicScriptRead:
+    """Stop a per-scan script individually (FR-D15: stop any active script).
+    Idempotent (stopping an already-stopped script is a no-op). An unapproved
+    agent draft 400s (FR-D19 - it can never have been started)."""
+    active, runner = _require_runner()
+    row = _get_managed_script(db, active.scan_id, script_id)
+    _require_ready(row)
+    runner.stop(script_id)
+    _publish_script_event(active, row, "stopped")
+    return _script_read(row, runner)
+
+
+@router.post(
+    "/session/scripts/managed/{script_id}/approve", response_model=DynamicScriptRead
+)
+def approve_agent_script(script_id: int, db: DbSession) -> DynamicScriptRead:
+    """FR-D19 approval gate: approve an AGENT-authored script draft
+    (origin=agent, status=proposed) - it becomes ``ready`` and is then
+    indistinguishable from manual/built-in (FR-D20): runnable, listed,
+    managed identically. Refuses anything that is not a proposed agent draft
+    (a manual/built-in script, or an already-approved agent script) with a
+    clean 400. Mirrors a ``note`` event into the live feed. 404 when the
+    draft isn't in the active session's scan."""
+    active, runner = _require_runner()
+    row = _get_managed_script(db, active.scan_id, script_id)
+    if row.origin != "agent" or row.status != "proposed":
+        raise DynamicError(
+            400,
+            "only a proposed agent-authored script draft can be approved - "
+            "manual/built-in scripts are already ready and an approved agent "
+            "script stays approved",
+        )
+    row.status = "ready"
+    db.commit()
+    db.refresh(row)
+    _publish_script_event(active, row, "approved")
+    return _script_read(row, runner)

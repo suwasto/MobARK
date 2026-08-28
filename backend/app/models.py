@@ -396,3 +396,46 @@ class DynamicSession(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )
+
+
+class DynamicScript(Base):
+    """One per-scan frida script (M15, V2 - FR-D15/D16/D17).
+
+    The PERSISTED script library for a scan's dynamic session: built-in
+    (seeded from the M12 default hooks), manual (authored in-dashboard,
+    FR-D16), and agent-authored (M16). ``origin`` (builtin|manual|agent)
+    distinguishes the three; ``platform`` (android|ios) tags the target.
+    ``code`` keeps the stable M12 default-hook id so a built-in's event-feed
+    linkage survives the move into the DB (null for a manual script).
+
+    The RUNNING state is NOT here - it lives process-locally in the
+    ``ScriptRunner`` on the ActiveSession (like the feed/mirror/traffic),
+    torn down on disconnect; this row is the durable definition the UI lists
+    (FR-D15: which scripts are active is read from the runner, never the DB).
+    """
+
+    __tablename__ = "dynamic_scripts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scan_id: Mapped[int] = mapped_column(
+        ForeignKey("scans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    # android | ios
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)
+    # builtin | manual | agent
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)
+    # proposed | ready (migration 0020). An AGENT-authored draft (origin=agent)
+    # is 'proposed' until the tester approves it (FR-D19 - the M16 approval
+    # gate); built-in and manual scripts are always 'ready'. Distinct from the
+    # RUNNING state, which stays process-local in the ScriptRunner.
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="ready", server_default="ready"
+    )
+    description: Mapped[str | None] = mapped_column(Text)
+    # stable M12 default-hook id for built-ins (event-feed code); null manual.
+    code: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utcnow
+    )

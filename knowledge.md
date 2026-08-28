@@ -137,7 +137,7 @@ risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).
 - Backend: `backend/.venv`, Python 3.11+; `pytest` unit tests (integration
   marked, need Redis + worker), `ruff check .`. Frontend: `npm run build`
   (tsc -b && vite build). Full stack: `docker compose up --build`.
-- Migration head is **0017** (see `backend/alembic/versions/`).
+- Migration head is **0020** (see `backend/alembic/versions/`).
 - E2E scripts: `scripts/e2e_auth.sh`, `scripts/e2e_report.sh`,
   `scripts/e2e_gemini.sh`, `scripts/render_social_preview.sh` (headless
   Chrome PNG), `scripts/sync_wordmark.py`.
@@ -200,6 +200,35 @@ risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).
   backend suite green (927 passed / 1 skipped / 13 deselected, +16) + ruff
   clean; frontend untouched.
 
+- **Aug 28, 2026 — DONE: M14 (V2 dynamic) network traffic capture.** FR-D12/
+  D13/D14/D14a. `dynamic/traffic.py::TrafficLog` = the feed/mirror analogue
+  (bounded `{method,path,host,status,size,flagged,flags[]}` row buffer +
+  FR-D14 running `total` count + `capture_active` flag), hung off
+  `ActiveSession.traffic` (created at connect, stopped + released on
+  disconnect). **FR-D13 = NEW in-process detector `dynamic/flag.py`, NOT
+  gitleaks** (owner override at kickoff: gitleaks stays static-only):
+  credentials / bearer tokens / PII (email, SSN, phone, credit-card-with-Luhn),
+  per-category first-hit, bodies scanned up to `traffic_flag_body_bytes` then
+  DROPPED — rows carry only bounded `traffic_flag_snippet_chars` snippets,
+  never the raw body. Per-platform sources `*_CMD`-guarded (DeviceError 502 on
+  missing tool): `android/traffic.py` (mitmdump + device-settings proxy `adb
+  shell settings put global http_proxy`) + `ios/traffic.py` (mitmdump +
+  config-profile CA trust, FR-D14a). **Every captured request also mirrors
+  into the FR-D10 feed as a `net` event** — the M12 feed was hoisted into a
+  `session_feed` local in the connect route so the TrafficLog shares the SAME
+  instance (no duplicated feed). Deployment: **subprocess-in-app-image model**
+  (no compose service / no Dockerfile change — the task line's 'always-on
+  compose service' superseded by the V2 deployment note; real bundling = M19
+  / owner manual checkpoint); config `mitmproxy_cmd`/`mitmproxy_listen_port`/
+  `traffic_max_rows`/`traffic_flag_*`. Guarded API (all under
+  `get_current_user`): `GET/POST /session/traffic` (+201) · `POST
+  .../start|stop` (502 missing tool, idempotent) · `GET .../ca-status`
+  (iOS required/trusted/profile_available; Android required=false) · `GET
+  .../ca-profile` (serves the `.mobileconfig`, clean 404/400). Full backend
+  suite green (**986 passed / 1 skipped / 13 deselected**, +34) + ruff clean;
+  frontend untouched — the **traffic panel UI defers to M18** (sidebar).
+  Real on-device decrypted capture = owner manual checkpoint.
+
 - **Aug 28, 2026 — DONE: M13 (V2 dynamic) device mirroring.** FR-D6/D7/D8.
   Mirror is the codebase's FIRST WebSocket (binary H.264/JPEG frames don't
   fit the SSE event feed, which stays as-is). `dynamic/mirror.py` `MirrorRelay`
@@ -226,3 +255,81 @@ risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).
   frontend untouched — **the Mirror panel UI defers to M18** (sidebar is the
   M18 dashboard contract; owner approved backend-first at kickoff). Real
   on-device mirroring = owner manual checkpoint.
+
+- **Aug 28, 2026 — DONE: M15 (V2 dynamic) script management.** FR-D15/D16/D17.
+  `dynamic_scripts` table (migration **0019**): `id, scan_id FK, name, body,
+  platform, origin(builtin|manual|agent), description, code, created_at` —
+  the durable per-scan script library; the RUNNING state is NOT a column (it
+  lives process-locally in a `dynamic/script_runner.py::ScriptRunner` on
+  `ActiveSession.scripts`, torn down on disconnect, FR-D4 — the
+  feed/mirror/traffic pattern). **Built-in library = the M12 default hooks,
+  seeded per scan + idempotent** (scan_id+code key) lazily on first list —
+  **no static-finding→script auto-suggestion** (FR-D11 was removed at owner
+  direction in M12; the task line's "reuse M12 static→script link logic" is
+  superseded). `code` keeps the stable M12 hook id so built-in event-feed
+  linkage survives the move into the DB. Manual authoring (`POST`) takes only
+  name/body/description; `origin=manual` + the active session's platform are
+  server-side; bounded validation (name ≤128, body ≤256 KB, desc ≤2000).
+  Builtin/agent rows are read-only (PUT/DELETE 400). run/stop = flag-tracking
+  (real frida injection = owner manual checkpoint), each mirroring a
+  `source=note, tag=script` event into the FR-D10 feed. Surface nests under
+  `/api/v1/dynamic/session/scripts/managed` (GET list w/ live `running` flag
+  · POST · GET/PUT/DELETE /{id} · POST /{id}/run|stop) to avoid colliding
+  with M12's `/session/scripts` library registry; per-scan isolation via a
+  `scan_id == active.scan_id` choke point (foreign 404). `DynamicScriptRead`
+  exposes the body as `script`. Full backend suite green (**1008 passed / 1
+  skipped / 13 deselected**, +22) + ruff clean; frontend untouched — the
+  scripts panel defers to M18 (sidebar).
+
+- **Aug 28, 2026 — DONE: M16 (V2 dynamic) agent-authored scripts.**
+  FR-D18/D19/D20. The five M16 agent tools land in `agent/tools.py`
+  (`attach_session` · `list_active_scripts` · `draft_frida_script` ·
+  `run_script` · `stop_script`) gated by `dynamic_tools_allowed(scan_id)` (a
+  LIVE single-active session whose `scan_id` matches) + `schemas_for_platform
+  (…, dynamic_tools_enabled=…)` — the never-even-offered rule, same as the M7
+  web / M8 edit gates; both platforms get all five (V2 has Android AND iOS
+  sessions), platform-awareness = the draft tagged with the active session's
+  platform. **Owner decisions (question tool, kickoff): the FR-D19 approval
+  gate = a `status` column on `dynamic_scripts` (migration **0020**,
+  proposed|ready, default ready) — the M8 propose→human-approve pattern;
+  `attach_session` is OBSERVE-only (the agent never attaches a device;
+  connect stays a dashboard action); backend + approval API only (UI defers
+  to M18).** `draft_frida_script(request, body, name?, description?)` stores
+  `origin=agent, status=proposed` (the model composes the FULL frida JS) —
+  never auto-approved, never auto-run; `POST /session/scripts/managed/{id}/
+  approve` is the ONLY way a draft becomes ready (400 manual/builtin/
+  already-ready); DELETE on a proposed draft is the rejection path; an
+  approved agent script is read-only like a built-in (FR-D20). run/stop
+  refuse a proposed draft (`_require_ready` in the router AND the handlers —
+  defense in depth). `chat.py` gains the `_M16_DYNAMIC_PROMPT` section
+  (draft ≠ run; never claim approved/ran) appended only when the gate holds.
+  Full backend suite green (**1033 passed / 1 skipped / 13 deselected**, +25)
+  + ruff clean; frontend untouched — scripts panel + approval UI defer to
+  M18 (sidebar).
+
+- **Aug 28, 2026 — DONE: M17 (V2 dynamic) optional Corellium iOS backend.**
+  FR-D5a + self-hosted posture; **owner decisions (question tool, kickoff):
+  backend-only + fake posture (real frida attach = owner manual checkpoint);
+  the Corellium Settings UI defers to M18; base URL + API key live in a
+  PER-USER store + vault (mirrors v1's optional cloud-LLM handling).**
+  `dynamic/ios/corellium/`: `config.py` (single-config `CorelliumStore`,
+  env-seeded `MOBARK_CORELLIUM_*` → system layer → per-user
+  `users/<uid>/corellium.json`, AES-GCM key blob, `configured()` = base URL +
+  plaintext-resolvable key — off by default, FR-D5a), `client.py`
+  (`CorelliumClient`: Bearer auth, `GET /v1/projects` → per-project
+  instances, normalized `{id,name,model,os,state}`, `instance_state`,
+  `reachable`; every failure → `CorelliumError` 502. Base URL deliberately
+  NOT SSRF-guarded — Corellium docs support on-prem/private appliances, same
+  reasoning as local model backends), `devices.py` (`corellium:` device-id
+  prefix routing + FR-D1 per-check preflight: frida reachable == instance on,
+  jailbreak True by Corellium's default), `attach.py` (`connection_type=
+  corellium`, `corellium_enabled=True`, honest `frida_version=corellium-agent`),
+  `router.py` (GET/PUT/DELETE `/api/v1/dynamic/corellium/config` + `POST /test`
+  probe, all under `get_current_user`, key never returned). **Seam: the iOS
+  backend, not a new platform** — `get_backend("ios")` returns `IosBackend`
+  which merges physical (pmd3) + Corellium instances when configured, routes
+  by `corellium:` prefix, tolerates pmd3 absence (a Corellium-only tester has
+  no physical path); `router.py` `corellium_enabled` now reads `meta` (was
+  hardcoded False). Full backend suite green (**1056 passed / 1 skipped / 13
+  deselected**, +23) + ruff clean; frontend untouched — Corellium Settings
+  panel + sidebar defer to M18.

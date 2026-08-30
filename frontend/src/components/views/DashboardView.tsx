@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../../api/client'
+import { useDynamicSession } from '../../hooks/useDynamicSession'
 import { useFindings } from '../../hooks/useFindings'
 import { formatRelative, platformLabel } from '../../lib/format'
 import { useApp } from '../../state/AppContext'
@@ -9,6 +10,7 @@ import { ProposalsModal } from '../ProposalsModal'
 import { Splitter } from '../Splitter'
 import { TargetBar } from '../TargetBar'
 import { AgentDock } from '../agent/AgentDock'
+import { DynamicAnalysisPanel } from '../dynamic/DynamicAnalysisPanel'
 import { CodeMapsPanel } from '../panels/CodeMapsPanel'
 import { DecompilerPanel } from '../panels/DecompilerPanel'
 import { DependenciesPanel } from '../panels/DependenciesPanel'
@@ -23,6 +25,7 @@ type Tab =
   | 'decompiler'
   | 'codemaps'
   | 'report'
+  | 'dynamic'
 
 // Resizable Agent dock (owner follow-up, Aug 9): dragged width persisted per
 // browser like the decompiler splitters. The 45vw CSS cap keeps a wide drag
@@ -90,22 +93,6 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
   // reopened tab should start at its top, not wherever the previous tab
   // left off. Refs the shared scroll container on <main>.
   const mainRef = useRef<HTMLElement>(null)
-  // The sticky tab bar's rendered height, exposed as --tabbar-h on <main> so
-  // per-tab sticky regions (e.g. the Decompiler toolbar + hint, owner
-  // request Aug 11) can pin BELOW it instead of overlapping it. Measured at
-  // mount and on resize (font/zoom changes) via ResizeObserver.
-  const tabbarRef = useRef<HTMLDivElement>(null)
-  const [tabbarH, setTabbarH] = useState(0)
-  useLayoutEffect(() => {
-    const el = tabbarRef.current
-    if (!el) return
-    const update = () => setTabbarH(el.offsetHeight)
-    update()
-    if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
   // Citation-click -> decompiler: agent cites `file:line` paths relative to
   // the platform tree root; the Decompiler tab resolves them against the
   // loaded tree and reports back via onRequestConsumed. Finding jumps carry
@@ -302,6 +289,13 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
 
   const onOpenFindings = useCallback(() => setTab('findings'), [])
 
+  // M18: the ONE shared dynamic-session hook. The backend holds a single
+  // process-local active session; the sidebar's Dynamic section badge AND the
+  // DynamicAnalysisPanel both read it, so connect/disconnect stays in sync.
+  const dynamicSession = useDynamicSession(current?.id ?? null)
+  const dynamicConnected = dynamicSession.connected
+  const dynamicPlatform = dynamicSession.session?.platform ?? null
+
   if (!current) return null
   const failed = current.status === 'failed'
 
@@ -317,6 +311,10 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
       ? [{ key: 'codemaps' as Tab, label: 'Code maps' }]
       : []),
     { key: 'report', label: 'Report' },
+    // NOTE: 'dynamic' is intentionally NOT in this list - the sidebar
+    // renders it as its own separated section (the mockup's dynamic-side
+    // entry with the live platform + running-script badge) below the v1
+    // tabs. The Tab union + panel mount still handle it.
   ]
 
   return (
@@ -328,15 +326,52 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
         style={
           {
             gridTemplateColumns: dockCollapsed
-              ? 'minmax(0, 1fr) 44px'
-              : `minmax(0, 1fr) 6px clamp(${DOCK_MIN}px, ${dockW}px, 45vw)`,
+              ? '190px minmax(0, 1fr) 44px'
+              : `190px minmax(0, 1fr) 6px clamp(${DOCK_MIN}px, ${dockW}px, 45vw)`,
           } as CSSProperties
         }
       >
+        {/* M18 sidebar: the section nav that replaced the sticky top tab bar.
+            Persistent left column (mockup 190px), mono items, active =
+            border-left steel + raised bg. The Dynamic section carries the
+            LIVE session platform + running-script count (mockup). */}
+        <aside className="sidebar">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              className={`side-item ${tab === t.key ? 'active' : ''}`}
+              onClick={() => setTab(t.key)}
+            >
+              <span>{t.label}</span>
+            </button>
+          ))}
+
+          <div
+            className={`side-item dynamic-side ${tab === 'dynamic' ? 'active' : ''}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => setTab('dynamic')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') setTab('dynamic')
+            }}
+          >
+            <div className="side-dyn-row">
+              <span className={`dynamic-status-dot ${dynamicConnected ? 'live' : ''}`} />
+              <span>Dynamic analysis</span>
+            </div>
+            <span className="side-dyn-sub">
+              {dynamicConnected
+                ? `${dynamicPlatform === 'ios' ? 'iOS' : 'Android'} · ${dynamicSession.runningScripts} script${dynamicSession.runningScripts === 1 ? '' : 's'} active`
+                : 'no active session'}
+            </span>
+          </div>
+        </aside>
+
         <main
           ref={mainRef}
           className="min-w-0 overflow-y-auto"
-          style={{ '--tabbar-h': `${tabbarH}px` } as CSSProperties}
+          style={{ '--tabbar-h': `0px` } as CSSProperties}
         >
           {/* Header (scrolls away with the content) */}
           <div className="px-7 pt-5">
@@ -350,22 +385,6 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
               {current.platform ? `${platformLabel(current.platform)} · ` : ''}
               scanned {formatRelative(current.created_at)} · {total} findings
             </p>
-          </div>
-
-          {/* Sticky tab bar - stays put while the panel content scrolls. */}
-          <div ref={tabbarRef} className="sticky top-0 z-20 bg-graphite px-7 pt-4">
-            <div className="tabs">
-              {tabs.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  className={`tab ${tab === t.key ? 'active' : ''}`}
-                  onClick={() => setTab(t.key)}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Panels - kept MOUNTED once first visited: visibility is toggled
@@ -453,6 +472,17 @@ export function DashboardView({ onPickFile, uploading, scanOverride }: Dashboard
                 key={current.id}
                 scanId={current.id}
                 active={tab === 'report'}
+              />
+            </div>
+            <div className={tab !== 'dynamic' ? 'hidden' : undefined}>
+              {/* The dynamic session is shared with the sidebar badge via the
+                 lifted hook. The panel's sub-hooks (events/mirror) reset on
+                 session state, so no scan key needed here - the session is
+                 the identity. */}
+              <DynamicAnalysisPanel
+                scanId={current.id}
+                platform={current.platform}
+                session={dynamicSession}
               />
             </div>
           </div>

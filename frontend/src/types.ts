@@ -541,3 +541,186 @@ export interface DependenciesResponse {
   truncated: boolean
   generated_at: string
 }
+
+// ---- V2 dynamic analysis (M11–M17 backend, M18 dashboard) ----
+
+/** One discovered device/emulator (FR-D2). `model` = Android product/model;
+ * `detail` = a per-platform human note (e.g. the iOS version). */
+export interface DynamicDevice {
+  id: string
+  name: string
+  platform: string
+  model: string | null
+  detail: string | null
+}
+
+/** The FR-D1 per-check gate: each prerequisite's boolean + the all-true
+ * `ok`. The UI renders every check individually, never one opaque failure. */
+export interface DynamicPreflight {
+  platform: string
+  device_id: string
+  target_app: string
+  checks: Record<string, boolean>
+  ok: boolean
+}
+
+export interface DynamicSessionConnect {
+  scan_id: number
+  platform: string
+  device_id: string
+  target_app: string
+}
+
+/** One live FR-D10 event: platform-agnostic, tagged by platform. `source` is
+ * the type axis (hook|bypass|net|note); `code` the producing hook id. */
+export interface DynamicEvent {
+  ts: string
+  source: string
+  tag: string
+  platform: string
+  text: string
+  code: string | null
+}
+
+export interface DynamicEventCreate {
+  source?: string
+  tag?: string
+  text: string
+  code?: string | null
+}
+
+/** One M12 default hook from the registry (real frida JS body). */
+export interface DynamicDefaultHook {
+  id: string
+  name: string
+  platform: string
+  description: string
+  script: string
+}
+
+/** One dynamic_sessions row (FR-D3 identity + lifecycle state). */
+export interface DynamicSessionRead {
+  id: number
+  scan_id: number
+  platform: string
+  state: string
+  device_id: string | null
+  device_name: string | null
+  connection_type: string | null
+  frida_version: string | null
+  target_pid: number | null
+  root_status: boolean | null
+  jailbreak_method: string | null
+  corellium_enabled: boolean
+  last_error: string | null
+  started_at: string | null
+  ended_at: string | null
+  created_at: string
+}
+
+/** The active session's mirror state (FR-D7): the honest continuous|polled
+ * fidelity flag + live status + latest frame envelope + latency. */
+export interface DynamicMirrorState {
+  platform: string
+  continuous: boolean
+  polled: boolean
+  live: boolean
+  frame_count: number
+  last_frame: Record<string, unknown> | null
+  latency_ms: number | null
+  subscribers: number
+}
+
+/** One captured request (FR-D12): the FR-D13 signal, never the raw body. */
+export interface DynamicTrafficRow {
+  id: number
+  ts: string
+  method: string
+  path: string
+  host: string | null
+  status: number | null
+  size_bytes: number
+  flagged: boolean
+  flags: { category: string; snippet: string }[]
+}
+
+/** The active session's traffic log (FR-D14): bounded rows + running total +
+ * capture-active flag. */
+export interface DynamicTrafficLog {
+  platform: string
+  capture_active: boolean
+  total: number
+  rows: DynamicTrafficRow[]
+}
+
+export interface DynamicTrafficCreate {
+  method: string
+  path: string
+  host?: string | null
+  status?: number | null
+  size_bytes?: number
+  request_body?: string | null
+  response_body?: string | null
+}
+
+/** FR-D14a CA-trust gate. `required` true only for iOS. */
+export interface DynamicCaStatus {
+  platform: string
+  required: boolean
+  trusted: boolean | null
+  profile_available: boolean
+}
+
+/** One per-scan frida script (M15/M16). `origin` = builtin|manual|agent;
+ * `status` = proposed|ready (the M16 approval gate); `running` is the LIVE
+ * process-local flag, never persisted. */
+export interface DynamicScriptRead {
+  id: number
+  scan_id: number
+  name: string
+  platform: string
+  origin: string
+  status: string
+  description: string | null
+  code: string | null
+  script: string
+  running: boolean
+  created_at: string
+}
+
+export interface DynamicScriptCreate {
+  name: string
+  body: string
+  description?: string | null
+}
+
+export interface DynamicScriptUpdate {
+  name?: string | null
+  body?: string | null
+  description?: string | null
+}
+
+// ---- M17 Corellium config (opt-in iOS virtual-device backend) ----
+
+export interface CorelliumConfigRead {
+  base_url: string
+  /** The key itself is never returned - only whether one is set. */
+  has_api_key: boolean
+  /** Usable pair = base URL AND a plaintext-resolvable key (off by default). */
+  configured: boolean
+  enabled: boolean
+}
+
+export interface CorelliumConfigUpsert {
+  base_url?: string | null
+  /** An empty string clears the stored key; null leaves it unchanged. */
+  api_key?: string | null
+  enabled?: boolean | null
+}
+
+export interface CorelliumHealth {
+  configured: boolean
+  reachable: boolean
+  instance_count: number
+  error: string | null
+}

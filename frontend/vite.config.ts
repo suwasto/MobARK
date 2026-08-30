@@ -19,6 +19,9 @@ export default defineConfig({
       '/api': {
         target: apiTarget,
         changeOrigin: true,
+        // V2 dynamic (M13): the mirror relay is a WebSocket under /api - the
+        // dev proxy must upgrade it or the WS handshake fails in dev.
+        ws: true,
       },
     },
   },

@@ -3,6 +3,7 @@ import { ApiError } from '../../api/client'
 import { useApp } from '../../state/AppContext'
 import { BackendsTab } from './BackendsTab'
 import { BYOKTab } from './BYOKTab'
+import { CorelliumTab } from './CorelliumTab'
 import { SearchTab } from './SearchTab'
 
 interface SettingsModalProps {
@@ -10,7 +11,7 @@ interface SettingsModalProps {
   onClose: () => void
 }
 
-type TabKey = 'backends' | 'byok' | 'search'
+type TabKey = 'backends' | 'byok' | 'search' | 'corellium'
 
 /**
  * Settings modal (mockup 1:1): Model backends + Bring your own key + Search
@@ -132,6 +133,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     { key: 'backends', label: 'Model backends' },
     { key: 'byok', label: 'Bring your own key' },
     { key: 'search', label: 'Search & research' },
+    // M17 deferral, landed M18: the opt-in Corellium iOS virtual-device
+    // backend, clearly separated from the default self-hosted device path.
+    { key: 'corellium', label: 'Corellium' },
   ]
 
   return (
@@ -179,6 +183,9 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           </div>
           <div className={`modal-pane ${tab === 'search' ? 'active' : ''}`}>
             <SearchTab />
+          </div>
+          <div className={`modal-pane ${tab === 'corellium' ? 'active' : ''}`}>
+            <CorelliumTab />
           </div>
         </div>
 

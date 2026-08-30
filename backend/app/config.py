@@ -234,6 +234,24 @@ class Settings(BaseSettings):
     # Upper bound for a single mirror frame (H.264 NAL / JPEG). Oversized
     # frames are dropped by the relay, never buffered or streamed.
     mirror_frame_bytes: int = 8 * 1024 * 1024
+    # ---- M14 network traffic capture (FR-D12/D13/D14/D14a) ----
+    # mitmdump (subprocess-only, never imported) - the decrypted-traffic
+    # capture tool. Empty = resolve from PATH; in the container it points at
+    # the bundled install (M19 deployment; the compose stack adds no service).
+    mitmproxy_cmd: str | None = None
+    # Local port mitmdump listens on (the device's proxy target - the
+    # Android device-settings path + the iOS config-profile path both point
+    # here).
+    mitmproxy_listen_port: int = 8080
+    # Upper bound for the per-session traffic row buffer (the FR-D14 running
+    # count never shrinks; only the retained rows drop).
+    traffic_max_rows: int = 500
+    # FR-D13: a single request/response body is scanned only up to this many
+    # bytes (oversized bodies are truncated for detection, never stored).
+    traffic_flag_body_bytes: int = 1024 * 1024
+    # FR-D13: a flag snippet is truncated to this many chars (bodies are
+    # never retained - only bounded snippets ride in the row).
+    traffic_flag_snippet_chars: int = 120
 
 
 settings = Settings()

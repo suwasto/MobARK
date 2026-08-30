@@ -333,3 +333,39 @@ risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).
   hardcoded False). Full backend suite green (**1056 passed / 1 skipped / 13
   deselected**, +23) + ruff clean; frontend untouched — Corellium Settings
   panel + sidebar defer to M18.
+
+- **Aug 30, 2026 — DONE: M18 (V2 dynamic) dashboard integration.** The FIRST
+  V2 frontend milestone. The v2 nav moved from the sticky top tab bar to a
+  **persistent left sidebar** (mockup 190px; the ONLY structural change —
+  TopBar/TargetBar/Agent dock/panels untouched, mockup reference not a
+  redesign); a **"Dynamic analysis" section** renders below a top border with
+  the LIVE session status dot + **platform indicator** + running-script count.
+  The full dynamic panel set mounts live: **ConnectCard** (device scan →
+  FR-D1 preflight checklist → connect, target-app prefilled from
+  dependencies) + **SessionCard** (connection/frida/PID/root + Disconnect) +
+  **MirrorPanel** (WS binary frames, honest `continuous|polled` fidelity —
+  JPEG/polled renders as `<img>` blobs, H.264/continuous surfaces live +
+  latency + frame count on the phone placeholder) + **EventsPanel** (SSE
+  stream + HTTP catch-up + note push, tag-colored hook/bypass/net/note rows) +
+  **TrafficPanel** (rows + FR-D13 bounded flag snippets + start/stop + iOS CA
+  profile) + **ScriptsPanel** (builtin/manual/agent + run/stop + manual
+  author). **Live transport = match the backend (owner decision): SSE for
+  events + WS ONLY for mirror frames + HTTP poll/refresh for traffic/scripts —
+  the shipped M12/M13 transport, not a re-platform.** Both M16/M17 deferrals
+  landed: the **agent-script approval UI** (proposed drafts → amber card →
+  Approve `POST …/approve` / Reject `DELETE`) and the **Corellium Settings
+  tab** (base URL + write-only key + Test + Clear). The ONE `useDynamicSession`
+  hook is lifted to `DashboardView` so the sidebar badge + panel share state.
+  New files: `hooks/useDynamicSession|useDynamicEvents|useDynamicMirror.ts`,
+  `components/dynamic/{DynamicAnalysisPanel,ConnectCard,SessionCard,MirrorPanel,
+  EventsPanel,TrafficPanel,ScriptsPanel}.tsx`,
+  `components/settings/CorelliumTab.tsx`; `types.ts` + `api/client.ts` gain
+  the full dynamic + Corellium surface; `vite.config.ts` `ws: true` on the
+  `/api` dev proxy (mirror WS upgrade). Gate: **`npm run build` (tsc -b &&
+  vite build) green** + headless-Chrome click-throughs against a fake-posture
+  stub (sidebar + dynamic section + connect-card 502 error path + **19
+  connected-state checks PASS**: session card, SSE events streaming + live
+  append, WS mirror LIVE + fidelity, traffic capturing + flagged row, scripts
+  + running + approval-resolve, Corellium tab). Backend untouched (1056 green
+  stays); **M14 leftovers stay uncommitted in the working tree** (config.py
+  traffic settings + `tests/test_dynamic_traffic.py`, owner direction).

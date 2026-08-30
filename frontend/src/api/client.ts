@@ -13,6 +13,25 @@ import type {
   ChatRequest,
   ChatResponse,
   ChatSession,
+  CorelliumConfigRead,
+  CorelliumConfigUpsert,
+  CorelliumHealth,
+  DependenciesResponse,
+  DynamicCaStatus,
+  DynamicDefaultHook,
+  DynamicDevice,
+  DynamicEvent,
+  DynamicEventCreate,
+  DynamicMirrorState,
+  DynamicPreflight,
+  DynamicScriptCreate,
+  DynamicScriptRead,
+  DynamicScriptUpdate,
+  DynamicSessionConnect,
+  DynamicSessionRead,
+  DynamicTrafficCreate,
+  DynamicTrafficLog,
+  DynamicTrafficRow,
   EditCreate,
   EditDiff,
   EditRead,
@@ -32,10 +51,9 @@ import type {
   ModelBackendUpsert,
   ProvidersResponse,
   RegisterRequest,
+  ReportResponse,
   ScanGraphState,
   ScanRead,
-  DependenciesResponse,
-  ReportResponse,
   SearchBackendCreate,
   SearchBackendRead,
   SearchBackendUpsert,
@@ -542,4 +560,110 @@ export const api = {
    * the stack; custom instances 400). */
   startSearchBackend: (id: string) =>
     request<SearchBackendRead>(`/search/backends/${id}/start`, { method: 'POST' }),
+
+  // ---- V2 dynamic analysis (M11–M17 backend, M18 dashboard) ----
+  /** M11: discovered devices for a platform (FR-D2). */
+  dynamicDevices: (platform: string) =>
+    request<DynamicDevice[]>(`/dynamic/devices?platform=${encodeURIComponent(platform)}`),
+  /** M11: the FR-D1 per-check gate for one device+target pair. */
+  dynamicPreflight: (platform: string, deviceId: string, targetApp: string) =>
+    request<DynamicPreflight>(
+      `/dynamic/preflight?platform=${encodeURIComponent(platform)}&device_id=${encodeURIComponent(deviceId)}&target_app=${encodeURIComponent(targetApp)}`,
+    ),
+  /** M11: start a live dynamic session (single-active per scan). */
+  dynamicConnect: (payload: DynamicSessionConnect) =>
+    request<DynamicSessionRead>('/dynamic/session/connect', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** M11: tear down the active session. */
+  dynamicDisconnect: () =>
+    request<DynamicSessionRead>('/dynamic/session/disconnect', { method: 'POST' }),
+  /** M11: the active session, or null (the sidebar + panel poll this). */
+  dynamicSession: () => request<DynamicSessionRead | null>('/dynamic/session'),
+  /** M12: catch-up snapshot of the active session's event feed (the HTTP
+   * fallback a reconnect uses to re-sync). 404 when no session is live. */
+  dynamicEvents: () => request<DynamicEvent[]>('/dynamic/session/events'),
+  /** M12: push an observation into the live feed (the fake-posture HTTP
+   * fallback; platform/ts are stamped server-side). */
+  dynamicPostEvent: (payload: DynamicEventCreate) =>
+    request<DynamicEvent>('/dynamic/session/events', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  /** M12: the SSE stream URL (same-origin; the chat-streaming pattern).
+   * Used with a raw `fetch` + StreamDecoder - not the JSON `request` helper. */
+  dynamicEventsStreamUrl: () => `${API_BASE}/dynamic/session/events/stream`,
+  /** M12: the default hook library for a platform (real frida JS). */
+  dynamicDefaultHooks: (platform?: string) =>
+    request<DynamicDefaultHook[]>(
+      `/dynamic/session/scripts${platform ? `?platform=${encodeURIComponent(platform)}` : ''}`,
+    ),
+  /** M13: the active session's mirror state (fidelity + live + latency). */
+  dynamicMirrorState: () => request<DynamicMirrorState>('/dynamic/session/mirror'),
+  dynamicMirrorStart: () =>
+    request<DynamicMirrorState>('/dynamic/session/mirror/start', { method: 'POST' }),
+  dynamicMirrorStop: () =>
+    request<DynamicMirrorState>('/dynamic/session/mirror/stop', { method: 'POST' }),
+  /** M13: the mirror WS URL (same-origin; cookies ride automatically). The
+   * first message is the JSON control envelope, then BINARY frames. */
+  dynamicMirrorWsUrl: () => {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    return `${proto}://${window.location.host}/api/v1/dynamic/session/mirror/ws`
+  },
+  /** M14: the active session's traffic log (rows + total + capture flag). */
+  dynamicTraffic: () => request<DynamicTrafficLog>('/dynamic/session/traffic'),
+  /** M14: push one captured request (the fake-posture fallback). */
+  dynamicPostTraffic: (payload: DynamicTrafficCreate) =>
+    request<DynamicTrafficRow>('/dynamic/session/traffic', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  dynamicTrafficStart: () =>
+    request<DynamicTrafficLog>('/dynamic/session/traffic/start', { method: 'POST' }),
+  dynamicTrafficStop: () =>
+    request<DynamicTrafficLog>('/dynamic/session/traffic/stop', { method: 'POST' }),
+  /** M14: FR-D14a CA-trust gate (required only for iOS). */
+  dynamicCaStatus: () => request<DynamicCaStatus>('/dynamic/session/traffic/ca-status'),
+  /** M14: the iOS mitmproxy CA config profile (.mobileconfig download). */
+  dynamicCaProfileUrl: () => `${API_BASE}/dynamic/session/traffic/ca-profile`,
+  /** M15: the per-scan script library (builtin + manual + agent, live
+   * `running` flags). The built-in library seeds lazily on first list. */
+  dynamicScripts: () => request<DynamicScriptRead[]>('/dynamic/session/scripts/managed'),
+  dynamicCreateScript: (payload: DynamicScriptCreate) =>
+    request<DynamicScriptRead>('/dynamic/session/scripts/managed', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  dynamicUpdateScript: (id: number, payload: DynamicScriptUpdate) =>
+    request<DynamicScriptRead>(`/dynamic/session/scripts/managed/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  /** Delete a manual script, or REJECT an unapproved agent draft. */
+  dynamicDeleteScript: (id: number) =>
+    request<void>(`/dynamic/session/scripts/managed/${id}`, { method: 'DELETE' }),
+  dynamicRunScript: (id: number) =>
+    request<DynamicScriptRead>(`/dynamic/session/scripts/managed/${id}/run`, {
+      method: 'POST',
+    }),
+  dynamicStopScript: (id: number) =>
+    request<DynamicScriptRead>(`/dynamic/session/scripts/managed/${id}/stop`, {
+      method: 'POST',
+    }),
+  /** M16: the ONLY way an agent-authored draft becomes runnable (proposed →
+   * ready; FR-D19). */
+  dynamicApproveScript: (id: number) =>
+    request<DynamicScriptRead>(`/dynamic/session/scripts/managed/${id}/approve`, {
+      method: 'POST',
+    }),
+  // ---- M17 Corellium config (opt-in iOS virtual-device backend) ----
+  corelliumConfig: () => request<CorelliumConfigRead>('/dynamic/corellium/config'),
+  corelliumUpsert: (payload: CorelliumConfigUpsert) =>
+    request<CorelliumConfigRead>('/dynamic/corellium/config', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  corelliumClear: () => request<void>('/dynamic/corellium/config', { method: 'DELETE' }),
+  corelliumTest: () => request<CorelliumHealth>('/dynamic/corellium/test', { method: 'POST' }),
 }

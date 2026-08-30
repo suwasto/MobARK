@@ -181,6 +181,10 @@ typing-extensions (PSF), uvloop (MIT/Apache), watchfiles (MIT), websockets
 | Semgrep | LGPL-2.1 | CLI (subprocess-only) | 1.172.0 (`semgrep` pip dist, OSS mode) |
 | apktool | Apache-2.0 | CLI (needs JVM; bundled aapt2) | 3.0.3 (pinned official jar + wrapper script) |
 | zipalign + apksigner (Android build-tools) | Apache-2.0 | CLI (needs JVM for apksigner) | 35.0.1 (build-tools_r35.0.1_linux.zip) |
+| adb (Android platform-tools) | Apache-2.0 | CLI (apt `android-tools-adb`, M19 V2) | apt (jammy); `adb --version` gated in the Dockerfile |
+| frida-tools (incl. the `frida` module) | MIT | CLI + **lazily-imported** module (M19 V2) | 14.10.4 (pip, app env; never imported at module load) |
+| pymobiledevice3 | MIT | CLI (usbmuxd, M19 V2) | 11.2.2 (pip, app env) |
+| mitmproxy (`mitmdump`) | MIT | CLI in its **own venv** (M19 V2) | 10.4.2 (pip, `/opt/mitmproxy-venv`; urwid LGPL-2.1 transitive) |
 
 Semgrep is installed into its **own venv** (`/opt/semgrep-venv`) inside the
 image, exposed on PATH via a symlink: its dependency tree requires
@@ -188,6 +192,22 @@ image, exposed on PATH via a symlink: its dependency tree requires
 (`starlette<0.42`): the two cannot share one site-packages. Re-verify
 Semgrep's pinned-version license at install time (its licensing has shifted
 across versions).
+
+> **M19 V2 deployment (Aug 30, 2026): mitmproxy uses the same own-venv
+> isolation for a DIFFERENT reason.** `mitmdump` is subprocess-invoked from
+> `dynamic/android|ios/traffic.py` (`MOBARK_MITMPROXY_CMD` / PATH), never
+> imported, but mitmproxy caps `cryptography<43.1` while the app requires
+> `cryptography==46.0.7` (androguard needs ≥46.0.6) — the two cannot share
+> one site-packages. So mitmproxy 10.4.2 (the last line supporting Python
+> 3.11; 11.x+ need ≥3.12) installs into `/opt/mitmproxy-venv` with symlinks
+> (`mitmdump`/`mitmproxy`/`mitmweb`) on PATH. Its transitive **urwid
+> (LGPL-2.1)** stays inside the standing GPL/LGPL-subprocess posture: it is
+> a dependency of a CLI tool we never import, isolated from the app env —
+> same boundary as semgrep's own venv. adb arrives via the apt
+> `android-tools-adb` package (Apache-2.0); frida-tools + pymobiledevice3
+> pip-install into the APP env (MIT) — the `frida` module is imported
+> LAZILY inside the M11 attach seam function bodies only. `frida-server`
+> alone runs on the target device (never containerized).
 
 `keytool` ships inside the bundled `eclipse-temurin:17-jre-jammy` OpenJDK
 (GPLv2+CE) that jadx needs: it is present in the image because the JRE is,
@@ -203,11 +223,14 @@ for resigning, Phase C) is active as of Phase A.
 
 ## Notes
 
-- **Copyleft items in use: Semgrep (LGPL-2.1 CLI) and SearXNG (AGPL-3.0
-  container service).** Both keep MobARK's Apache-2.0 clean because the
-  copyleft never crosses a process boundary: Semgrep is a subprocess from an
-  isolated venv, SearXNG is an unmodified separate container reached only
-  over HTTP. Re-verify Semgrep's pinned version license at install time.
+- **Copyleft items in use: Semgrep (LGPL-2.1 CLI), urwid (LGPL-2.1, inside
+  mitmproxy's isolated venv), and SearXNG (AGPL-3.0 container service).**
+  All three keep MobARK's Apache-2.0 clean because the copyleft never
+  crosses a process boundary: Semgrep is a subprocess from an isolated
+  venv, urwid is a transitive dependency of the subprocess-only `mitmdump`
+  in its own isolated venv (never imported, never in the app env), SearXNG
+  is an unmodified separate container reached only over HTTP. Re-verify
+  Semgrep's pinned version license at install time.
   (ldid, originally planned as the M8 iOS resign CLI, is not installed:
   iOS edit/recompile was deferred to v1.1 at the M8 kickoff, Aug 10, 2026.)
 - **MASVS/MASTG mapping data** (M1/M2) is sourced from the OWASP MASTG repo

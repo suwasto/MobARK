@@ -42,6 +42,12 @@ default**.
   resigned test APK builds. iOS stays **read-only**: rebuilding an
   IPA requires an Apple Developer account and signing certificates,
   and edit support is very limited there.
+- **Dynamic analysis** (V2): live hooks + root/jailbreak detection,
+  real-time event feed, device mirroring, network traffic capture with
+  flagged-data detection, and Frida script management — including
+  agent-drafted scripts behind a human approval gate — against a rooted
+  Android device/emulator or a jailbroken iOS device (or an optional
+  Corellium iOS backend). See [Dynamic analysis](#dynamic-analysis-v2).
 - **Reports**: deterministic Markdown/PDF with banded risk-index
   scoring (`high | warning | info` severities), per-finding
   suppression, AI (or no-model) explanations
@@ -132,6 +138,68 @@ To skip auth entirely (dev/CI): set `MOBARK_AUTH_ENABLED=0` in `.env`.
 See [Quickstart](https://suwasto.github.io/MobARK/quickstart/) for local
 development setup and the full configuration reference.
 
+## Dynamic analysis (V2)
+
+Beyond static analysis, MobARK can attach to a **live device** and run a
+dynamic session against the scanned app: Frida hooks with a real-time event
+feed (pinning validators, root/jailbreak detection, iOS Keychain calls),
+device mirroring, network traffic capture with in-process flagged-data
+detection, and script management (built-in, manual, and agent-drafted
+scripts behind a human approval gate). All of it is opt-in and runs in the
+**Dynamic analysis** section of the dashboard's sidebar.
+
+The runtime tooling (`adb`, `frida-tools`, `pymobiledevice3`, `mitmproxy`)
+is baked into the app image and invoked as subprocesses — no extra services
+to run. Only `frida-server` runs on the target device itself. The backend
+resolves each tool from PATH or a `MOBARK_*_CMD` override.
+
+**Prerequisites**
+
+- **Android** needs a **rooted** physical device or a **rooted emulator**
+  (an AVD without Google Play) with `frida-server` running on it. No
+  non-rooted Android path exists.
+- **iOS** needs a **jailbroken** physical device running `frida-server`
+  reachable over SSH (default `127.0.0.1:22`, configurable via
+  `MOBARK_FRIDA_SSH_HOST` / `MOBARK_FRIDA_SSH_PORT`). No non-jailbroken iOS
+  path exists.
+- **Optional**: a **Corellium** virtual iOS device can replace the physical
+  one — configure the base URL + API key in Settings → Corellium (off by
+  default; paid, third-party).
+- The app itself needs no extra configuration: `adb`, `frida`,
+  `pymobiledevice3`, and `mitmproxy` resolve from PATH inside the
+  container. The **Connect** flow's per-check preflight
+  (`adb` ok · device present · `frida-server` reachable · target app
+  installed · jailbreak detected) reports exactly what is missing.
+
+**Container networking for `adb`**
+
+A containerized `adb` never sees a host USB device — connect to **networked**
+devices or an emulator over TCP. On the host, run
+`adb connect <host>:<port>` (the USB-bridged port of your `adb server`,
+default `5037`) before scanning for devices in the UI; an emulator running
+on the host is reachable at `host.docker.internal:5555` when the
+`host.docker.internal:host-gateway` mapping is in place. The UI lists
+whatever `adb devices` sees.
+
+**Android continuous mirroring additionally needs `scrcpy`** (not bundled in
+the image — it carries SDL/display deps): provide it inside the container
+via PATH or `MOBARK_SCRCPY_CMD`. The Mirror panel reports a clean 502 with a
+hint when it's missing; iOS mirroring (polled screenshotr) works with the
+bundled `pymobiledevice3`. Every dynamic tool (`adb`, `scrcpy`,
+`frida`, `pymobiledevice3`, `mitmdump`) also honours its own `MOBARK_*_CMD`
+override.
+
+**Captured traffic stays on your infrastructure.** Mirror frames and
+traffic logs never leave your deployment; captured request bodies are
+scanned in-process for flags and then dropped (only bounded snippets are
+retained). The optional Corellium backend is the only off-by-default
+exception and is never silent.
+
+> **Note:** real on-device attach/mirror/capture is a manual verification
+> step — the backend + UI ship fully wired and tested against a fake-device
+> posture; exercising them against live rooted/jailbroken hardware is up to
+> the tester.
+
 ## Architecture
 
 MobARK is one `docker compose` stack: a FastAPI backend, an RQ worker,
@@ -197,11 +265,14 @@ full component diagram.
   and edit support is very limited there.
 - **Reports**: deterministic Markdown/PDF with banded risk-index
   scoring, per-finding suppression, AI (or no-model) explanations
+- **Dynamic analysis** (V2): live hooks + event feed, device mirroring,
+  traffic capture with flag detection, and script management (incl.
+  agent-drafted scripts with a human approval gate) against rooted
+  Android / jailbroken iOS / optional Corellium
 - **Multi-user auth**: username/password + GitHub/Google OAuth,
   per-user data isolation, encrypted per-user key vault
 
-**Future plans:** dynamic analysis (runtime/device testing) is next on
- the roadmap: see [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+**Future plans:** see [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 ## Legal Notice
 

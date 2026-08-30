@@ -369,3 +369,38 @@ risk`. Bands never overlap (any high ≥ 80 > any warning-only ≤ 69).
   + running + approval-resolve, Corellium tab). Backend untouched (1056 green
   stays); **M14 leftovers stay uncommitted in the working tree** (config.py
   traffic settings + `tests/test_dynamic_traffic.py`, owner direction).
+
+- **Aug 30, 2026 — DONE: M19 (V2 dynamic) hardening + deployment + docs.**
+  The last planned V2 milestone; the M14 "real bundling" deferral lands.
+  **Session teardown/isolation is now PROVEN, not asserted**:
+  `tests/test_dynamic_isolation.py` (9 tests) drives connect→disconnect→
+  connect and proves each ephemeral store starts CLEAN (FR-D10 feed / FR-D7
+  mirror / FR-D14 traffic / FR-D15 scripts never leak across scans, and a
+  same-scan reconnect is a fresh session row). Plus **stale-session reaping**
+  (`dynamic/router.py::_reap_stale_sessions`): an `attached`/`preflight`
+  `dynamic_sessions` row with no process-local `ActiveSession` is PROVABLY
+  dead (app/worker restart or crash); every connect / session-read /
+  disconnect reaps the caller's OWN rows (`Scan.user_id`-scoped — a user can
+  never rewrite another user's history, the M9.1 rule) to `disconnected`
+  with honest `ended_at` + `last_error`, so history never claims a live
+  session that no longer exists and a fresh connect can't stack a second
+  `attached` row. **Deployment surface**: `docker/Dockerfile.app` —
+  `android-tools-adb` via apt (`adb --version` gate) + **mitmproxy 10.4.2 in
+  its OWN venv** (`/opt/mitmproxy-venv`, the semgrep precedent — mitmproxy
+  caps `cryptography<43.1` vs the app's `46.0.7`, and 10.x is the last
+  Python-3.11 line); `requirements.txt` — **frida-tools 14.10.4** +
+  **pymobiledevice3 11.2.2** (both MIT; `frida` stays lazily imported behind
+  the M11 attach seam). No compose service change (subprocess-in-app-image
+  model). Container `adb` talks to NETWORKED devices (`adb connect
+  <host>:<port>`, never host USB) — README documents the wiring. **Docs
+  bundle**: licenses.md M19 rows (CLI table + urwid LGPL-2.1 note — a third
+  copyleft item, same subprocess boundary), README (Dynamic-analysis feature
+  bullet + a "Dynamic analysis (V2)" section: rooted-Android / jailbroken-iOS
+  prerequisites, `adb connect` wiring, optional Corellium, captured-traffic-
+  stays-local; the stale "dynamic analysis is next on the roadmap" Future-
+  plans line corrected), `docs/progress/M19.md`, `mobark-tasks.md` M19
+  checklist. Full backend suite green (**1065 passed / 1 skipped / 13
+  deselected**, +9) + ruff clean; frontend untouched. **Owner manual
+  checkpoint (unchanged since M11): real on-device attach/mirror/CA-trust
+  against live rooted Android + jailbroken iOS** — the M19 task's
+  "real-app early testing" line stays unchecked and owner-owned.

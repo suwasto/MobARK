@@ -23,7 +23,15 @@
   inventory, code maps, report tab, agent dock.
 - **Multi-user auth**: username/password + GitHub/Google OAuth,
   per-user data isolation, encrypted per-user key vault.
+- **Dynamic analysis** (V2): live Frida hooks with a real-time event
+  feed, device mirroring, network traffic capture with flagged-data
+  detection, and script management (built-in, manual, agent-drafted
+  behind a human approval gate) against a rooted Android device /
+  emulator or a jailbroken iOS device (or an optional Corellium iOS
+  backend).
 
 ## Roadmap
 
-- **Dynamic analysis**: runtime/device testing (next up)
+- v1.1 candidates: iOS edit & recompile (ldid resign), additional
+  search-engine providers, WebSocket-based real-time updates. See the
+  task list's "Deferred / v1.1 candidates" section.

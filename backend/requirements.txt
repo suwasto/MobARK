@@ -52,3 +52,18 @@ markdown==3.10.3
 # graphifyy: per-scan code graphs — CLI invoked as a subprocess (0.9.32
 #   validated: `graphify update <dir> --no-cluster` + query/path/explain).
 graphifyy==0.9.32
+
+# V2 (M19) — dynamic analysis runtime tools. Installed into the app image so
+# their CLIs land on PATH (adb via apt in the Dockerfile; these two via pip).
+# All invoked as SUBPROCESSES, never imported — the `frida` module is
+# imported LAZILY inside the M11 attach seam only (docs/licenses.md M11 note).
+# Both packages are MIT; see the M19 rows there.
+#   - frida-tools (MIT): frida / frida-ps / frida-ls-devices CLIs + the
+#     `frida` module the real attach path lazily imports.
+#   - pymobiledevice3 (MIT): iOS discovery / install-check / screenshotr CLI.
+# NOTE: mitmproxy is NOT here — its `cryptography<43.1` cap conflicts with
+# this app's `cryptography==46.0.7` (androguard needs >=46.0.6), so it is
+# isolated into its OWN venv in the Dockerfile (the semgrep precedent) with
+# the 3.11-compatible 10.x line.
+frida-tools==14.10.4
+pymobiledevice3==11.2.2

@@ -42,10 +42,17 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # PDF text - /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf, the
 # MOBARK_REPORT_FONT default. Bitstream-Vera-licensed (permissive), no
 # license-posture change (see docs/licenses.md).
+# android-tools-adb (M19, V2 dynamic): the `adb` CLI (Apache-2.0) used for
+# Android device discovery/preflight/install/port-forward. Containerized adb
+# talks to NETWORKED devices (`adb connect <host>:<port>`, the USB-bridged
+# port on the host) or an emulator - it never sees a host USB device - so
+# the README documents `adb connect` as the wiring (same *CMD posture as
+# jadx/gitleaks; the backend resolves it from PATH or MOBARK_ADB_CMD).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        unzip curl ca-certificates fonts-dejavu-core \
+        unzip curl ca-certificates fonts-dejavu-core android-tools-adb \
     && rm -rf /var/lib/apt/lists/* \
-    && test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+    && test -f /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf \
+    && adb --version
 
 # --- jadx (JVM CLI; ~33 MB zip) ---
 # Note: unzip -d only creates a single level, so /opt/mobark-tools must
@@ -94,6 +101,23 @@ RUN python -m venv /opt/semgrep-venv \
     && /opt/semgrep-venv/bin/pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}" \
     && ln -sf /opt/semgrep-venv/bin/semgrep /usr/local/bin/semgrep \
     && semgrep --version
+
+# --- mitmproxy (M19, V2 dynamic; M14 traffic capture) ---
+# Installed into its OWN venv (the semgrep precedent), NOT the app env:
+# mitmproxy caps `cryptography<43.1`, but the app requires
+# cryptography==46.0.7 (androguard needs >=46.0.6) - the two cannot share
+# one site-packages. mitmproxy 10.x is the last line that supports Python
+# 3.11 (11.x+ need >=3.12). `mitmdump` is invoked as a SUBPROCESS (the
+# MOBARK_MITMPROXY_CMD / PATH resolution in dynamic/ios|android/traffic.py),
+# never imported - MIT, with urwid (LGPL-2.1) transitively, which stays
+# inside the standing GPL/LGPL-subprocess posture (see docs/licenses.md).
+ARG MITMPROXY_VERSION=10.4.2
+RUN python -m venv /opt/mitmproxy-venv \
+    && /opt/mitmproxy-venv/bin/pip install --no-cache-dir "mitmproxy==${MITMPROXY_VERSION}" \
+    && ln -sf /opt/mitmproxy-venv/bin/mitmdump /usr/local/bin/mitmdump \
+    && ln -sf /opt/mitmproxy-venv/bin/mitmproxy /usr/local/bin/mitmproxy \
+    && ln -sf /opt/mitmproxy-venv/bin/mitmweb /usr/local/bin/mitmweb \
+    && mitmdump --version
 
 # --- apktool (M8 edit & recompile; Apache-2.0; JVM CLI) ---
 # Pinned official release jar + a tiny wrapper script — the jar runs under

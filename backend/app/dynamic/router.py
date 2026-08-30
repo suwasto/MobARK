@@ -36,7 +36,7 @@ from app.dynamic.base import (
 )
 from app.dynamic.client import get_backend
 from app.dynamic.ios import traffic as ios_traffic
-from app.models import DynamicScript, DynamicSession
+from app.models import DynamicScript, DynamicSession, Scan
 from app.request_ctx import current_user_id
 from app.schemas import (
     DynamicCaStatus,
@@ -58,6 +58,48 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/dynamic", tags=["dynamic"])
+
+# M19: states that CLAIM a live session. A ``dynamic_sessions`` row in one
+# of these states with no process-local ``ActiveSession`` is stale - the
+# process holding it ended without a clean disconnect.
+_STALE_SESSION_STATES = ("attached", "preflight")
+
+
+def _reap_stale_sessions(db: DbSession, user_id: int | None) -> int:
+    """M19 session cleanup: flip stale ``dynamic_sessions`` rows that claim
+    an ACTIVE session but whose process-local handle is gone to
+    ``disconnected``.
+
+    The single-active registry (FR-D5, ``app/dynamic/base.py``) is
+    process-local and torn down on disconnect, so an ``attached``/``preflight``
+    row with no live ``ActiveSession`` is PROVABLY dead - its process (app or
+    worker) restarted or crashed mid-session. Each such row becomes
+    ``disconnected`` with an honest ``ended_at`` + ``last_error`` note, so the
+    durable history never lies about a live session that no longer exists and
+    a fresh connect can't pile a second ``attached`` row onto a dead one.
+
+    Scoped to the caller's OWN scans (``Scan.user_id == user_id``) - a user
+    can never mutate another user's session history (the M9.1 isolation rule,
+    no existence leak). Returns the number of rows reaped (0 in the common
+    case - no session history is touched on a normal read)."""
+    rows = db.scalars(
+        select(DynamicSession)
+        .join(Scan, DynamicSession.scan_id == Scan.id)
+        .where(
+            DynamicSession.state.in_(_STALE_SESSION_STATES),
+            Scan.user_id == user_id,
+        )
+    ).all()
+    for row in rows:
+        row.state = "disconnected"
+        row.ended_at = datetime.now(UTC)
+        row.last_error = (
+            "stale session reaped: the process holding it ended without a "
+            "clean disconnect (M19 session cleanup)"
+        )
+    if rows:
+        db.commit()
+    return len(rows)
 
 
 def _device_name(backend, device_id: str, platform: str) -> str:
@@ -115,6 +157,11 @@ def connect_session(payload: DynamicSessionConnect, db: DbSession) -> DynamicSes
             409,
             "a dynamic session is already active - disconnect it first",
         )
+    # M19: no live session, so any ``attached`` row for this user's scans is
+    # a dead row from a process that ended without a clean disconnect - reap
+    # it before connecting so the new row is the only ``attached`` one and
+    # the history never lies about an active session that no longer exists.
+    _reap_stale_sessions(db, current_user_id.get())
     scan = require_scan_access(db, payload.scan_id, current_user_id.get())
     if scan.platform is not None and scan.platform != payload.platform:
         raise HTTPException(
@@ -224,6 +271,10 @@ def disconnect_session(db: DbSession) -> DynamicSessionRead:
     no session is live."""
     active = base.active_session()
     if active is None:
+        # M19: nothing live to disconnect - but any stale ``attached`` row
+        # for this user (a dead process) is reaped so the click still leaves
+        # an honest history, then the designed 404.
+        _reap_stale_sessions(db, current_user_id.get())
         raise NoActiveSession()
     try:
         active.backend.disconnect()
@@ -252,9 +303,13 @@ def disconnect_session(db: DbSession) -> DynamicSessionRead:
 
 @router.get("/session", response_model=DynamicSessionRead | None)
 def get_session(db: DbSession) -> DynamicSessionRead | None:
-    """The single ACTIVE dynamic session (FR-D5) or null when none is live."""
+    """The single ACTIVE dynamic session (FR-D5) or null when none is live.
+    Self-healing (M19): when nothing is live, any stale ``attached`` row for
+    this user is reaped so the history keeps itself honest after an app/
+    worker restart."""
     active = base.active_session()
     if active is None:
+        _reap_stale_sessions(db, current_user_id.get())
         return None
     row = db.get(DynamicSession, active.row_id)
     if row is None:

@@ -36,6 +36,52 @@ function PreflightChecks({ preflight }: { preflight: DynamicPreflight }) {
   )
 }
 
+/**
+ * M19: the platform's RUNTIME prerequisites surfaced before the connect flow
+ * (the PRD: "root/jailbreak requirement surfaced clearly in-app - pre-flight
+ * is the first exposure, not the only"). Also carries the dual-use framing
+ * consistent with v1's recompile warning.
+ */
+function PrereqNotice({ platform }: { platform: string }) {
+  const isIos = platform === 'ios'
+  return (
+    <div className="dyn-prereq-box">
+      <div className="dyn-prereq-title">Runtime prerequisites</div>
+      <ul className="dyn-prereq-list">
+        {isIos ? (
+          <li>
+            <strong>Jailbroken physical iOS device</strong> — jailbreak is a hard
+            prerequisite (checkra1n / palera1n / …) with <code>frida-server</code>{' '}
+            running over SSH on the device.
+          </li>
+        ) : (
+          <li>
+            <strong>Rooted Android device</strong> — or a non-Google-play AVD /
+            emulator with <code>frida-server</code> under <code>adb root</code>{' '}
+            (no physical root required on the emulator path).
+          </li>
+        )}
+        {isIos && (
+          <li>
+            No jailbroken device? Configure the opt-in{' '}
+            <strong>Corellium</strong> virtual device in Settings → Corellium.
+          </li>
+        )}
+        <li>
+          <code>frida-server</code> runs on the target device (never
+          containerized); this install reaches it over adb (Android) or SSH
+          (iOS).
+        </li>
+      </ul>
+      <div className="dyn-prereq-warn">
+        Authorized testing only — pinning/ATS bypass, root/jailbreak-detection
+        bypass, and decrypted traffic capture are standard techniques for tests
+        you have permission to run.
+      </div>
+    </div>
+  )
+}
+
 export function ConnectCard({ scanId, platform, state }: ConnectCardProps) {
   const [devices, setDevices] = useState<DynamicDevice[] | null>(null)
   const [deviceId, setDeviceId] = useState('')
@@ -125,6 +171,8 @@ export function ConnectCard({ scanId, platform, state }: ConnectCardProps) {
         running) or a jailbroken iOS device to begin a live dynamic analysis
         session against this app.
       </div>
+
+      <PrereqNotice platform={platform} />
 
       {error && (
         <div className="mb-4 rounded-[4px] border border-crimson/30 bg-crimson/10 p-3 text-left font-mono text-[11.5px] leading-relaxed text-bone-dim">
